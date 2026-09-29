@@ -1,0 +1,1 @@
+"""POSCENTER Loyalty Backend App."""
