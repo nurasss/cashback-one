@@ -115,7 +115,8 @@
 * **Эндпоинт:** `POST /webhooks/wappi`.
 * **Спецификация интеграции:** полная документация зафиксирована в [WAPPI_WEBHOOK_CONTRACT.md](file:///Users/nuras/Desktop/cashback-one/docs/WAPPI_WEBHOOK_CONTRACT.md).
 * **Аутентификация вебхука:**
-  - Имя заголовка конфигурируется через `WAPPI_WEBHOOK_AUTH_HEADER` (по умолчанию `X-Wappi-Secret`).
+  - Статус заголовка: `WAPPI_AUTH_HEADER_NAME = NOT VERIFIED`.
+  - Имя заголовка не имеет дефолта в коде и конфигурируется явно через `WAPPI_WEBHOOK_AUTH_HEADER`.
   - Секрет проверяется с использованием алгоритма постоянного времени `hmac.compare_digest`.
   - При отсутствии заголовка или несовпадении секрета возвращается `401 Unauthorized` (`INVALID_WEBHOOK_AUTH`).
 * **Защита от перегрузки (Payload Guard):**
@@ -132,8 +133,11 @@
   - Групповые чаты (`@g.us`, `chat_type != dialog`) отклоняются.
   - JID отправителя валидируется по маске `^(\d{10,15})@c\.us$`, номер нормализуется в E.164.
   - Код авторизации валидируется: длина 8 символов, только символы из криптографического алфавита.
-* **Атомарность:**
-  - Подтверждение challenge через `confirm_login_challenge(session, code, sender_phone, commit=False)` и фиксация статуса в `wappi_webhook_events` коммитятся в рамках одной транзакции СУБД.
+* **Атомарность и Retry-семантика:**
+  - Подтверждение challenge через `confirm_login_challenge(session, code, sender_phone, commit=False)` и фиксация статуса в `wappi_webhook_events` коммитятся в рамках единой транзакции СУБД.
+  - При возникновении сбоя БД или инфраструктурной ошибки транзакция немедленно откатывается (`ROLLBACK`), возвращается контролируемый `503 Service Unavailable` (`WEBHOOK_PROCESSING_UNAVAILABLE`).
+  - Ошибка не фиксируется как терминальный статус `error`, резервация отменяется, что сохраняет возможность безопасной и успешной повторной обработки при provider retry.
 * **Изоляция номеров (Second-Phone Attack Protection):**
   - При попытке подтвердить уже подтвержденный challenge другим номером телефона возвращается `already_confirmed_other_phone` без раскрытия номера первого покупателя.
+
 

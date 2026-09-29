@@ -42,7 +42,7 @@ def test_config_dev_with_postgres_url_allowed() -> None:
         auth_challenge_hash_key="b" * 32,
         whatsapp_login_number="+77001234567",
         wappi_login_profile_id="prod-profile-id-12345",
-        wappi_webhook_auth_header="X-Wappi-Secret",
+        wappi_webhook_auth_header="X-Custom-Auth-Header",
         wappi_webhook_auth_secret="c" * 32,
         _env_file=None,
     )
@@ -143,7 +143,7 @@ def test_config_dev_missing_wappi_login_profile_id_rejected() -> None:
             auth_challenge_hash_key="b" * 32,
             whatsapp_login_number="+77001234567",
             wappi_login_profile_id="",
-            wappi_webhook_auth_header="X-Wappi-Secret",
+            wappi_webhook_auth_header="X-Test-Auth-Header",
             wappi_webhook_auth_secret="c" * 32,
             _env_file=None,
         )
@@ -161,7 +161,7 @@ def test_config_dev_short_wappi_webhook_auth_secret_rejected() -> None:
             auth_challenge_hash_key="b" * 32,
             whatsapp_login_number="+77001234567",
             wappi_login_profile_id="prod-profile-id",
-            wappi_webhook_auth_header="X-Wappi-Secret",
+            wappi_webhook_auth_header="X-Configured-Wappi-Header",
             wappi_webhook_auth_secret="short_secret",
             _env_file=None,
         )
@@ -184,4 +184,38 @@ def test_config_dev_missing_wappi_webhook_auth_header_rejected() -> None:
             _env_file=None,
         )
     assert "WAPPI_WEBHOOK_AUTH_HEADER" in str(exc_info.value)
+
+
+def test_config_dev_omitted_wappi_webhook_auth_header_rejected() -> None:
+    """WAPPI_WEBHOOK_AUTH_HEADER has no production default and omitting it must be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            # wappi_webhook_auth_header is completely omitted!
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "WAPPI_WEBHOOK_AUTH_HEADER" in str(exc_info.value)
+
+
+def test_config_test_mode_deterministic_test_header() -> None:
+    """In test mode, WAPPI_WEBHOOK_AUTH_HEADER defaults deterministically to X-Test-Wappi-Auth."""
+    cfg = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        _env_file=None,
+    )
+    assert cfg.wappi_webhook_auth_header == "X-Test-Wappi-Auth"
+
+
+def test_no_hardcoded_x_wappi_secret_as_field_default() -> None:
+    """Regression check: wappi_webhook_auth_header must have empty string default."""
+    assert Settings.model_fields["wappi_webhook_auth_header"].default == ""
+
 

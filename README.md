@@ -106,10 +106,11 @@
   * `0003_customer_auth_core.py`: создание таблицы `auth_sessions`, добавление `uq_users_phone`, расширение `login_challenges`.
   * `0004_auth_hardening.py`: добавление уникального ограничения `uq_login_challenges_code_hash`.
 
-### Реализовано в рамках TASK-004 (Wappi Webhook Adapter & Confirmation):
+### Реализовано в рамках TASK-004 + TASK-004-FIX (Wappi Webhook Adapter & Confirmation):
 * **Входящий вебхук Wappi (`POST /webhooks/wappi`):**
   * Спецификация контракта зафиксирована в [`docs/WAPPI_WEBHOOK_CONTRACT.md`](docs/WAPPI_WEBHOOK_CONTRACT.md).
-  * Динамическая аутентификация через заголовок `WAPPI_WEBHOOK_AUTH_HEADER` (по умолчанию `X-Wappi-Secret`) и `WAPPI_WEBHOOK_AUTH_SECRET` (constant-time `hmac.compare_digest`).
+  * Статус имени заголовка: `WAPPI_AUTH_HEADER_NAME = NOT VERIFIED` (нет дефолта в production коде, имя задается через deployment configuration `WAPPI_WEBHOOK_AUTH_HEADER`).
+  * Аутентификация секрета через constant-time `hmac.compare_digest` (`WAPPI_WEBHOOK_AUTH_SECRET`).
   * Ограничение размера тела запроса (`WAPPI_WEBHOOK_MAX_BODY_BYTES`, по умолчанию 64 КБ) с защитой от DoS (`413 Payload Too Large`).
   * Поддержка как пакетных событий Wappi (`messages: [...]`), так и одиночных объектов.
 * **Изоляция профиля и безопасность:**
@@ -118,15 +119,16 @@
   * Фильтрация групповых чатов (`@g.us`, `chat_type != dialog`).
   * Прямой JID отправителя `^(\d{10,15})@c\.us$` с нормализацией в E.164.
   * Защита от подбора: валидация 8-значного кода по алфавиту до обращения к СУБД.
-* **Идемпотентность и транзакционная атомарность:**
+* **Идемпотентность, транзакционная атомарность и Retry-семантика:**
   * Таблица `wappi_webhook_events` с уникальным ограничением `uq_wappi_webhook_events_profile_message` на `(profile_id, message_id)`.
   * Concurrency-safe speculative insert (`ON CONFLICT (profile_id, message_id) DO NOTHING`): при параллельной доставке идентичных сообщений подтверждение выполняется ровно один раз, дубликаты возвращают `result: "duplicate"` (200 OK) без ошибок целостности и HTTP 500.
   * Атомарная фиксация состояния: подтверждение challenge и запись аудита коммитятся в одной транзакции.
+  * Безопасность при сбоях (Crash/Retry Safety): при возникновении сбоя БД или инфраструктурной ошибки транзакция откатывается (`ROLLBACK`), возвращается контролируемый `503 Service Unavailable` (`WEBHOOK_PROCESSING_UNAVAILABLE`) без раскрытия внутренних деталей, а uncommitted резервация отменяется, что обеспечивает успешный retry провайдером.
   * Защита от перехвата (Second-Phone Attack): при попытке подтвердить чужой код другим номером возвращается `already_confirmed_other_phone` без раскрытия данных владельца.
 * **Миграции Alembic:**
   * `0005_wappi_webhook_events.py`: создание таблицы `wappi_webhook_events` с индексом по `received_at` и уникальным составным ограничением.
 * **Тестирование:**
-  * 116 автоматических тестов (100% passing), включая интеграционные конкурентные тесты на реальном PostgreSQL 16.
+  * Автоматические тесты (100% passing), включая интеграционные конкурентные тесты на реальном PostgreSQL 16 (PG-WAPPI-01..04).
 
 ### Отложено до следующих задач:
 * Привязка карт покупателем (`/me/cards`, QR/штрихкод, SMS OTP) (TASK-005).

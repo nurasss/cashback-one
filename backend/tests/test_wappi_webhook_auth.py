@@ -54,7 +54,7 @@ async def test_wappi_webhook_custom_header_name(
     # Old header must now fail
     resp_fail = await client.post(
         "/webhooks/wappi",
-        headers={"X-Wappi-Secret": "custom_secret_value_12345678901234567890"},
+        headers={"X-Old-Unconfigured-Header": "custom_secret_value_12345678901234567890"},
         json={"messages": []},
     )
     assert resp_fail.status_code == 401

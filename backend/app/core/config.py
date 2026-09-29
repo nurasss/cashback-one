@@ -44,8 +44,8 @@ class Settings(BaseSettings):
         description="Wappi WhatsApp instance/profile ID for login messages.",
     )
     wappi_webhook_auth_header: str = Field(
-        default="X-Wappi-Secret",
-        description="Header name used to authenticate incoming Wappi webhooks.",
+        default="",
+        description="Header name used to authenticate incoming Wappi webhooks (must be explicitly configured).",
     )
     wappi_webhook_auth_secret: str = Field(
         default="",
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
             if not self.wappi_login_profile_id:
                 self.wappi_login_profile_id = "test-wappi-login-profile"
             if not self.wappi_webhook_auth_header:
-                self.wappi_webhook_auth_header = "X-Wappi-Secret"
+                self.wappi_webhook_auth_header = "X-Test-Wappi-Auth"
             if not self.wappi_webhook_auth_secret:
                 self.wappi_webhook_auth_secret = "test_wappi_webhook_secret_min_32_characters_12345"
         else:

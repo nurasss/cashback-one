@@ -418,3 +418,140 @@ async def test_wappi_webhook_second_phone_attack_isolated(
     # Verify DB: phone was NOT hijacked
     await db_session.refresh(challenge)
     assert challenge.phone == "+77017778899"
+
+
+@pytest.mark.asyncio
+async def test_wappi_webhook_db_failure_returns_503_and_no_leak(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Operational DB failure during confirmation returns controlled 503 with zero detail leak."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    code = "ABCDEF29"
+    challenge = await _create_test_challenge(db_session, code)
+    headers = {settings.wappi_webhook_auth_header: settings.wappi_webhook_auth_secret}
+    msg_id = "wamid.FAIL_LEAK_01"
+
+    async def mock_confirm_fail(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise SQLAlchemyError(
+            "FATAL: relation login_challenges does not exist at "
+            "postgresql://secret_user:super_secret_password@db:5432/poscenter_loyalty"
+        )
+
+    monkeypatch.setattr(
+        "app.services.wappi_webhook.confirm_login_challenge", mock_confirm_fail
+    )
+
+    payload = {
+        "messages": [
+            {
+                "wh_type": "incoming_message",
+                "profile_id": settings.wappi_login_profile_id,
+                "id": msg_id,
+                "body": code,
+                "type": "chat",
+                "from": "77017778899@c.us",
+            }
+        ]
+    }
+
+    resp = await client.post("/webhooks/wappi", headers=headers, json=payload)
+    assert resp.status_code == 503
+    data = resp.json()
+    assert data["error"]["code"] == "WEBHOOK_PROCESSING_UNAVAILABLE"
+    assert data["error"]["message"] == "Webhook could not be processed. Retry later."
+
+    # Verify zero leakage of sensitive error internals
+    raw_text = resp.text.lower()
+    assert "postgresql" not in raw_text
+    assert "secret_password" not in raw_text
+    assert "login_challenges" not in raw_text
+    assert "fatal" not in raw_text
+
+    # Verify rollback: challenge is still pending, no event record saved
+    await db_session.refresh(challenge)
+    assert challenge.status == "pending"
+
+    event = (
+        await db_session.execute(
+            select(WappiWebhookEvent).where(WappiWebhookEvent.message_id == msg_id)
+        )
+    ).scalar_one_or_none()
+    assert event is None
+
+
+@pytest.mark.asyncio
+async def test_wappi_webhook_batch_failure_semantics(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Batch failure semantics: first message commits, second rolls back; retry processes remaining."""
+    from sqlalchemy.exc import OperationalError
+
+    code1 = "ABCDEF23"
+    code2 = "ABCDEF24"
+    c1 = await _create_test_challenge(db_session, code1)
+    c2 = await _create_test_challenge(db_session, code2)
+
+    headers = {settings.wappi_webhook_auth_header: settings.wappi_webhook_auth_secret}
+    msg_id_1 = "wamid.BATCH_01"
+    msg_id_2 = "wamid.BATCH_02"
+
+    payload = {
+        "messages": [
+            {
+                "wh_type": "incoming_message",
+                "profile_id": settings.wappi_login_profile_id,
+                "id": msg_id_1,
+                "body": code1,
+                "type": "chat",
+                "from": "77017770001@c.us",
+            },
+            {
+                "wh_type": "incoming_message",
+                "profile_id": settings.wappi_login_profile_id,
+                "id": msg_id_2,
+                "body": code2,
+                "type": "chat",
+                "from": "77017770002@c.us",
+            },
+        ]
+    }
+
+    from app.services.auth_confirmation import confirm_login_challenge as real_confirm
+
+    async def mock_confirm_batch_fail(session, code, sender_phone, commit=True):  # type: ignore[no-untyped-def]
+        if code == code2:
+            raise OperationalError("statement timeout", {}, Exception())
+        return await real_confirm(session, code, sender_phone, commit=commit)
+
+    monkeypatch.setattr(
+        "app.services.wappi_webhook.confirm_login_challenge", mock_confirm_batch_fail
+    )
+
+    # First attempt: msg 1 succeeds and commits; msg 2 fails and aborts batch request with 503
+    resp1 = await client.post("/webhooks/wappi", headers=headers, json=payload)
+    assert resp1.status_code == 503
+
+    # Msg 1 is committed
+    await db_session.refresh(c1)
+    assert c1.status == "confirmed"
+
+    # Msg 2 was rolled back completely
+    await db_session.refresh(c2)
+    assert c2.status == "pending"
+
+    # Second attempt (provider retry with fault removed):
+    monkeypatch.undo()
+    resp2 = await client.post("/webhooks/wappi", headers=headers, json=payload)
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert data2["status"] == "ok"
+    assert data2["processed"] == 1  # msg 2
+    assert data2["duplicates"] == 1  # msg 1
+
+    # Both are now confirmed
+    await db_session.refresh(c1)
+    await db_session.refresh(c2)
+    assert c1.status == "confirmed"
+    assert c2.status == "confirmed"
+

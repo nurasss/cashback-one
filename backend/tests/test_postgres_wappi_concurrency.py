@@ -252,3 +252,118 @@ async def test_pg_wappi_03_db_unique_constraint(
         with pytest.raises(IntegrityError) as exc_info:
             await s.commit()
         assert "uq_wappi_webhook_events_profile_message" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_pg_wappi_04_rollback_and_retry_atomicity(
+    pg_session_maker,  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PG-WAPPI-04: Idempotency + confirmation rollback and retry atomicity on PostgreSQL 16.
+
+    Proves crash/retry semantics:
+    - Reservation occurs within the active transaction.
+    - Operational failure during confirmation triggers full transaction rollback.
+    - First request returns controlled HTTP 503.
+    - Database verification: challenge remains pending, zero event rows persisted.
+    - Second request with the EXACT same message ID, profile, and code succeeds with 200.
+    - Database verification: challenge is confirmed, exactly 1 event row with result='confirmed'.
+    """
+    code = generate_challenge_code()
+    async with pg_session_maker() as s:
+        challenge = LoginChallenge(
+            id=uuid.uuid4(),
+            device_id="dev-pg-wappi-4",
+            code_hash=hash_challenge_code(code),
+            status="pending",
+            expires_at=datetime.now(UTC) + timedelta(minutes=3),
+        )
+        s.add(challenge)
+        await s.commit()
+        challenge_id = challenge.id
+
+    message_id = f"wamid.RETRY_{uuid.uuid4()}"
+    payload = {
+        "messages": [
+            {
+                "wh_type": "incoming_message",
+                "profile_id": settings.wappi_login_profile_id,
+                "id": message_id,
+                "body": code,
+                "type": "chat",
+                "from": "77017770001@c.us",
+                "chat_type": "dialog",
+            }
+        ]
+    }
+    headers = {settings.wappi_webhook_auth_header: settings.wappi_webhook_auth_secret}
+
+    # Step 3: Fault injection: monkeypatch confirm_login_challenge to raise SQLAlchemyError
+    # (simulating failure after reservation has executed in the transaction)
+    async def mock_confirm_fail(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise SQLAlchemyError("Simulated PostgreSQL connection drop during confirmation")
+
+    monkeypatch.setattr(
+        "app.services.wappi_webhook.confirm_login_challenge", mock_confirm_fail
+    )
+
+    async def execute_request() -> tuple[int, dict]:
+        async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+            async with pg_session_maker() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_get_session
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as ac:
+            resp = await ac.post("/webhooks/wappi", headers=headers, json=payload)
+            return resp.status_code, resp.json()
+
+    # Step 4: First request returns 503
+    status1, body1 = await execute_request()
+    assert status1 == 503
+    assert body1["error"]["code"] == "WEBHOOK_PROCESSING_UNAVAILABLE"
+
+    # Step 5: Verify DB state after failure
+    async with pg_session_maker() as s:
+        c = await s.get(LoginChallenge, challenge_id)
+        assert c is not None
+        assert c.status == "pending"
+
+        event_count = (
+            await s.execute(
+                select(func.count(WappiWebhookEvent.id)).where(
+                    WappiWebhookEvent.message_id == message_id
+                )
+            )
+        ).scalar()
+        assert event_count == 0
+
+    # Step 6: Remove fault injection
+    monkeypatch.undo()
+
+    # Step 7 & 8: Second request with identical payload succeeds
+    status2, body2 = await execute_request()
+    assert status2 == 200
+    assert body2["status"] == "ok"
+    assert body2["processed"] == 1
+    assert body2["duplicates"] == 0
+
+    # Step 9: Verify DB state after retry
+    async with pg_session_maker() as s:
+        c = await s.get(LoginChallenge, challenge_id)
+        assert c is not None
+        assert c.status == "confirmed"
+        assert c.phone == "+77017770001"
+
+        event = (
+            await s.execute(
+                select(WappiWebhookEvent).where(
+                    WappiWebhookEvent.message_id == message_id
+                )
+            )
+        ).scalar_one_or_none()
+        assert event is not None
+        assert event.result == "confirmed"
+
