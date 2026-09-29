@@ -229,6 +229,40 @@ def validate_mapping(
                 errors.append(
                     f"Mandatory mapping field '{field_label}' is not VERIFIED (current state: '{state}')"
                 )
+            else:
+                # Field is VERIFIED: must contain valid non-empty verification evidence
+                evidence = curr.get("evidence") if isinstance(curr, dict) else None
+                if not isinstance(evidence, list) or len(evidence) == 0:
+                    unverified_fields.append(field_label)
+                    errors.append(
+                        f"Mandatory mapping field '{field_label}' is VERIFIED but has no verification evidence."
+                    )
+                else:
+                    non_empty_items = [e for e in evidence if isinstance(e, str) and e.strip() != ""]
+                    if len(non_empty_items) == 0:
+                        unverified_fields.append(field_label)
+                        errors.append(
+                            f"Mandatory mapping field '{field_label}' is VERIFIED but has no verification evidence."
+                        )
+                    else:
+                        for idx, ev_item in enumerate(evidence):
+                            if not isinstance(ev_item, str) or ev_item.strip() == "":
+                                errors.append(
+                                    f"Verification evidence at '{field_label}.evidence[{idx}]' must be non-empty text."
+                                )
+                                continue
+                            ev_placeholders = _scan_placeholders(
+                                ev_item, path=f"{field_label}.evidence[{idx}]", strict=True
+                            )
+                            if ev_placeholders:
+                                for p in ev_placeholders:
+                                    errors.append(f"Incomplete mapping in evidence: {p}")
+                            ev_pii = scan_for_sensitive_data(ev_item)
+                            if ev_pii:
+                                for s in ev_pii:
+                                    errors.append(
+                                        f"Security violation in '{field_label}.evidence[{idx}]': {s}"
+                                    )
 
     mapping_version = data.get("mapping_version")
     is_valid = len(errors) == 0

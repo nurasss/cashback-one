@@ -7,7 +7,11 @@ import sys
 from pathlib import Path
 
 from poscenter_loyalty_agent.config import get_settings
-from poscenter_loyalty_agent.stage0.environment import FLAG_VERIFIED, check_environment
+from poscenter_loyalty_agent.stage0.environment import (
+    FLAG_NOT_VERIFIED,
+    FLAG_VERIFIED,
+    check_environment,
+)
 from poscenter_loyalty_agent.stage0.metadata_probe import ComMetadataProvider, FakeMetadataProvider
 from poscenter_loyalty_agent.stage0.report import (
     write_discovery_summary_report,
@@ -48,7 +52,7 @@ def cmd_probe_metadata(args: argparse.Namespace) -> int:
             return 1
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Always save environment check first
+    # Always save initial environment check first
     write_environment_report(env_result, output_dir)
 
     if not env_result.is_windows and not use_fake:
@@ -74,11 +78,16 @@ def cmd_probe_metadata(args: argparse.Namespace) -> int:
     try:
         inventory = provider.discover_metadata()
 
-        # Only real ComMetadataProvider execution can verify metadata discovery
+        # 1. Validate safety & write inventory first
+        json_path, md_path = write_inventory_reports(inventory, output_dir)
+
+        # 2. ONLY AFTER successful real inventory generation and safety validation:
         if not use_fake and env_result.is_windows:
             env_result.verification_flags.real_one_metadata_discovery = FLAG_VERIFIED
+            env_result.details.append("Real 1C metadata inventory successfully extracted and verified.")
 
-        json_path, md_path = write_inventory_reports(inventory, output_dir)
+        # 3. Synchronize both final environment.json and STAGE0_DISCOVERY_REPORT.md
+        write_environment_report(env_result, output_dir)
         report_path = write_discovery_summary_report(env_result, inventory, output_dir)
 
         print("=== Metadata Probe Completed Successfully ===")
@@ -92,6 +101,10 @@ def cmd_probe_metadata(args: argparse.Namespace) -> int:
         return 0
     except Exception as exc:
         print(f"ERROR: Metadata probing failed: {exc}", file=sys.stderr)
+        # In failure mode, ensure metadata discovery remains NOT VERIFIED in all artifacts
+        env_result.verification_flags.real_one_metadata_discovery = FLAG_NOT_VERIFIED
+        write_environment_report(env_result, output_dir)
+        write_discovery_summary_report(env_result, None, output_dir)
         return 1
 
 

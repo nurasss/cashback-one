@@ -31,6 +31,12 @@ from poscenter_loyalty_agent.stage0.metadata_probe import (
     MetadataProvider,
     TargetedMetadataInventory,
 )
+from poscenter_loyalty_agent.stage0.report import (
+    write_discovery_summary_report,
+    write_environment_report,
+    write_final_discovery_artifacts,
+    write_inventory_reports,
+)
 from poscenter_loyalty_agent.stage0.sample_evidence import SampleEvidenceBuilder
 from poscenter_loyalty_agent.stage0.sanitizer import (
     SecuritySanitizerError,
@@ -77,4 +83,8 @@ __all__ = [
     "scan_for_sensitive_data",
     "validate_mapping",
     "validate_safe_output",
+    "write_discovery_summary_report",
+    "write_environment_report",
+    "write_final_discovery_artifacts",
+    "write_inventory_reports",
 ]

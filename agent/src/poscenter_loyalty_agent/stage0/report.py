@@ -195,3 +195,21 @@ def write_discovery_summary_report(
     validate_safe_output(content, context="STAGE0_DISCOVERY_REPORT.md")
     report_path.write_text(content, encoding="utf-8")
     return report_path
+
+
+def write_final_discovery_artifacts(
+    env_result: EnvironmentCheckResult,
+    inventory: TargetedMetadataInventory,
+    output_dir: Path,
+) -> tuple[Path, Path, Path, Path]:
+    """Write inventory reports, final synchronized environment.json, and summary report.
+
+    Guarantees:
+    - Inventory is validated for safety and written first.
+    - environment.json and STAGE0_DISCOVERY_REPORT.md both use the exact same final env_result.
+    """
+    json_path, md_path = write_inventory_reports(inventory, output_dir)
+    env_path = write_environment_report(env_result, output_dir)
+    summary_path = write_discovery_summary_report(env_result, inventory, output_dir)
+    return json_path, md_path, env_path, summary_path
+

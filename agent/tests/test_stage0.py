@@ -28,11 +28,13 @@ from poscenter_loyalty_agent.stage0 import (
     FLAG_NOT_VERIFIED,
     FLAG_VERIFIED,
     CandidateDiscoveryHeuristic,
+    EnvironmentCheckResult,
     FakeMetadataProvider,
     MetadataField,
     MetadataObject,
     SampleEvidenceBuilder,
     SecuritySanitizerError,
+    VerificationFlags,
     calculate_mapping_fingerprint,
     check_environment,
     contains_sensitive_data,
@@ -397,4 +399,240 @@ def test_security_sanitizer_error_raised(tmp_path: Path) -> None:
 
     summary_path = write_discovery_summary_report(env_result, None, tmp_path)
     assert summary_path.exists()
+
+
+def test_real_probe_success_updates_environment_json_and_report(tmp_path: Path) -> None:
+    """Successful real COM probe elevates real_one_metadata_discovery in both environment.json and report."""
+    out_dir = tmp_path / "stage0_real_success"
+
+    env_mock = EnvironmentCheckResult(
+        platform="win32",
+        is_windows=True,
+        pywin32_available=True,
+        com_connector_available=True,
+        connection_string_configured=True,
+        one_connection_successful=True,
+        metadata_access_available=True,
+        verification_flags=VerificationFlags(
+            real_windows_service=FLAG_NOT_VERIFIED,
+            real_v83_comconnector=FLAG_VERIFIED,
+            real_one_connection=FLAG_VERIFIED,
+            real_one_metadata_discovery=FLAG_NOT_VERIFIED,
+            real_one_mapping=FLAG_NOT_VERIFIED,
+        ),
+        details=["1C COM connection established."],
+    )
+
+    mock_provider = MagicMock()
+    mock_provider.discover_metadata.return_value = FakeMetadataProvider().discover_metadata()
+
+    with patch("poscenter_loyalty_agent.stage0.cli.check_environment", return_value=env_mock):
+        with patch("poscenter_loyalty_agent.stage0.cli.ComMetadataProvider", return_value=mock_provider):
+            cli(["stage0", "probe-metadata", "--output-dir", str(out_dir)])
+
+    # 1. Check environment.json: MUST have real_one_metadata_discovery = VERIFIED
+    env_json_path = out_dir / "environment.json"
+    assert env_json_path.exists()
+    env_data = json.loads(env_json_path.read_text(encoding="utf-8"))
+    flags = env_data["verification_flags"]
+    assert flags["real_v83_comconnector"] == FLAG_VERIFIED
+    assert flags["real_one_connection"] == FLAG_VERIFIED
+    assert flags["real_one_metadata_discovery"] == FLAG_VERIFIED
+    assert flags["real_one_mapping"] == FLAG_NOT_VERIFIED
+
+    # 2. Check STAGE0_DISCOVERY_REPORT.md: MUST reflect identical states
+    report_path = out_dir / "STAGE0_DISCOVERY_REPORT.md"
+    assert report_path.exists()
+    report_text = report_path.read_text(encoding="utf-8")
+    assert f"REAL_V83_COMCONNECTOR: `{FLAG_VERIFIED}`" in report_text
+    assert f"REAL_ONE_CONNECTION: `{FLAG_VERIFIED}`" in report_text
+    assert f"REAL_ONE_METADATA_DISCOVERY: `{FLAG_VERIFIED}`" in report_text
+    assert f"REAL_ONE_MAPPING: `{FLAG_NOT_VERIFIED}`" in report_text
+
+
+def test_real_probe_failure_leaves_environment_json_not_verified(tmp_path: Path) -> None:
+    """When real COM metadata probe raises an exception, metadata discovery remains NOT VERIFIED."""
+    out_dir = tmp_path / "stage0_real_fail"
+
+    env_mock = EnvironmentCheckResult(
+        platform="win32",
+        is_windows=True,
+        pywin32_available=True,
+        com_connector_available=True,
+        connection_string_configured=True,
+        one_connection_successful=True,
+        metadata_access_available=True,
+        verification_flags=VerificationFlags(
+            real_v83_comconnector=FLAG_VERIFIED,
+            real_one_connection=FLAG_VERIFIED,
+            real_one_metadata_discovery=FLAG_NOT_VERIFIED,
+            real_one_mapping=FLAG_NOT_VERIFIED,
+        ),
+        details=["1C COM connection established."],
+    )
+
+    mock_provider = MagicMock()
+    mock_provider.discover_metadata.side_effect = RuntimeError("COM connection dropped during metadata enumeration")
+
+    with patch("poscenter_loyalty_agent.stage0.cli.check_environment", return_value=env_mock):
+        with patch("poscenter_loyalty_agent.stage0.cli.ComMetadataProvider", return_value=mock_provider):
+            with pytest.raises(SystemExit) as exc_info:
+                cli(["stage0", "probe-metadata", "--output-dir", str(out_dir)])
+            assert exc_info.value.code == 1
+
+    # Check environment.json still exists and has NOT VERIFIED
+    env_json_path = out_dir / "environment.json"
+    assert env_json_path.exists()
+    env_data = json.loads(env_json_path.read_text(encoding="utf-8"))
+    assert env_data["verification_flags"]["real_one_metadata_discovery"] == FLAG_NOT_VERIFIED
+
+    report_text = (out_dir / "STAGE0_DISCOVERY_REPORT.md").read_text(encoding="utf-8")
+    assert f"REAL_ONE_METADATA_DISCOVERY: `{FLAG_NOT_VERIFIED}`" in report_text
+
+
+def test_real_probe_sanitizer_failure_leaves_not_verified(tmp_path: Path) -> None:
+    """If inventory output safety check fails, metadata discovery remains NOT VERIFIED."""
+    out_dir = tmp_path / "stage0_sanitizer_fail"
+
+    env_mock = EnvironmentCheckResult(
+        platform="win32",
+        is_windows=True,
+        pywin32_available=True,
+        com_connector_available=True,
+        connection_string_configured=True,
+        one_connection_successful=True,
+        metadata_access_available=True,
+        verification_flags=VerificationFlags(
+            real_v83_comconnector=FLAG_VERIFIED,
+            real_one_connection=FLAG_VERIFIED,
+            real_one_metadata_discovery=FLAG_NOT_VERIFIED,
+            real_one_mapping=FLAG_NOT_VERIFIED,
+        ),
+        details=["1C COM connection established."],
+    )
+
+    # Return inventory that has clear-text password in synonym (violates validate_safe_output)
+    dirty_inventory = FakeMetadataProvider().discover_metadata()
+    dirty_inventory.objects[0].synonym = "Object with Pwd=clear_secret_password"
+
+    mock_provider = MagicMock()
+    mock_provider.discover_metadata.return_value = dirty_inventory
+
+    with patch("poscenter_loyalty_agent.stage0.cli.check_environment", return_value=env_mock):
+        with patch("poscenter_loyalty_agent.stage0.cli.ComMetadataProvider", return_value=mock_provider):
+            with pytest.raises(SystemExit) as exc_info:
+                cli(["stage0", "probe-metadata", "--output-dir", str(out_dir)])
+            assert exc_info.value.code == 1
+
+    env_json_path = out_dir / "environment.json"
+    assert env_json_path.exists()
+    env_data = json.loads(env_json_path.read_text(encoding="utf-8"))
+    assert env_data["verification_flags"]["real_one_metadata_discovery"] == FLAG_NOT_VERIFIED
+
+
+def test_verified_mapping_empty_evidence_rejected(tmp_path: Path) -> None:
+    """A mandatory P0 field with state=VERIFIED and empty evidence list is rejected by --require-verified."""
+    example_path = Path("agent/stage0_mapping.example.json")
+    data = json.loads(example_path.read_text(encoding="utf-8"))
+
+    data["artifact_kind"] = "real_discovery"
+    data["one_configuration_identity"]["configuration_name"] = "POSCENTER_RETAIL"
+    data["one_configuration_identity"]["platform_version"] = "8.3.24.1342"
+    data["one_configuration_identity"]["platform_version_state"] = "VERIFIED"
+
+    for _k, v in data["cards"].items():
+        if isinstance(v, dict) and "state" in v:
+            v["state"] = "VERIFIED"
+            v["value"] = v["value"].replace("Synthetic", "Real")
+            v["evidence"] = ["Valid evidence string from pilot database"]
+
+    for _k, v in data["transactions"].items():
+        if isinstance(v, dict) and "state" in v:
+            if _k in ("balance_after_field", "receipt_ref_field", "store_field"):
+                continue
+            v["state"] = "VERIFIED"
+            if isinstance(v["value"], str):
+                v["value"] = v["value"].replace("Synthetic", "Real")
+            v["evidence"] = ["Valid movement evidence from pilot database"]
+
+    data["cursor_strategy"]["cards"]["state"] = "VERIFIED"
+    data["cursor_strategy"]["cards"]["value"]["strategy_name"] = "keyset_timestamp_ref"
+    data["cursor_strategy"]["cards"]["value"]["ordering_fields"] = ["ModifiedAt", "Ref"]
+    data["cursor_strategy"]["cards"]["value"]["tie_breaker"] = "Ref"
+    data["cursor_strategy"]["cards"]["evidence"] = ["Keyset evidence"]
+
+    data["cursor_strategy"]["transactions"]["state"] = "VERIFIED"
+    data["cursor_strategy"]["transactions"]["value"]["strategy_name"] = "keyset_period_recorder"
+    data["cursor_strategy"]["transactions"]["value"]["ordering_fields"] = ["Period", "Recorder"]
+    data["cursor_strategy"]["transactions"]["value"]["tie_breaker"] = "LineNumber"
+    data["cursor_strategy"]["transactions"]["evidence"] = ["Keyset evidence"]
+
+    # Now empty out evidence for cards.barcode_field
+    data["cards"]["barcode_field"]["evidence"] = []
+    data["mapping_sha256"] = calculate_mapping_fingerprint(data)
+
+    test_file = tmp_path / "empty_evidence_mapping.json"
+    test_file.write_text(json.dumps(data), encoding="utf-8")
+
+    report = validate_mapping(test_file, require_verified=True)
+    assert report.is_valid is False
+    assert "cards.barcode_field" in report.unverified_fields
+    assert any(
+        "Mandatory mapping field 'cards.barcode_field' is VERIFIED but has no verification evidence" in e
+        for e in report.errors
+    )
+
+
+def test_verified_mapping_whitespace_evidence_rejected(tmp_path: Path) -> None:
+    """A mandatory P0 field with state=VERIFIED and whitespace-only evidence is rejected."""
+    example_path = Path("agent/stage0_mapping.example.json")
+    data = json.loads(example_path.read_text(encoding="utf-8"))
+
+    data["artifact_kind"] = "real_discovery"
+    data["one_configuration_identity"]["configuration_name"] = "POSCENTER_RETAIL"
+    data["one_configuration_identity"]["platform_version"] = "8.3.24.1342"
+    data["one_configuration_identity"]["platform_version_state"] = "VERIFIED"
+
+    for _k, v in data["cards"].items():
+        if isinstance(v, dict) and "state" in v:
+            v["state"] = "VERIFIED"
+            v["value"] = v["value"].replace("Synthetic", "Real")
+            v["evidence"] = ["Valid evidence from pilot database"]
+
+    for _k, v in data["transactions"].items():
+        if isinstance(v, dict) and "state" in v:
+            if _k in ("balance_after_field", "receipt_ref_field", "store_field"):
+                continue
+            v["state"] = "VERIFIED"
+            if isinstance(v["value"], str):
+                v["value"] = v["value"].replace("Synthetic", "Real")
+            v["evidence"] = ["Valid evidence from pilot database"]
+
+    data["cursor_strategy"]["cards"]["state"] = "VERIFIED"
+    data["cursor_strategy"]["cards"]["value"]["strategy_name"] = "keyset_timestamp_ref"
+    data["cursor_strategy"]["cards"]["value"]["ordering_fields"] = ["ModifiedAt", "Ref"]
+    data["cursor_strategy"]["cards"]["value"]["tie_breaker"] = "Ref"
+    data["cursor_strategy"]["cards"]["evidence"] = ["Keyset evidence"]
+
+    data["cursor_strategy"]["transactions"]["state"] = "VERIFIED"
+    data["cursor_strategy"]["transactions"]["value"]["strategy_name"] = "keyset_period_recorder"
+    data["cursor_strategy"]["transactions"]["value"]["ordering_fields"] = ["Period", "Recorder"]
+    data["cursor_strategy"]["transactions"]["value"]["tie_breaker"] = "LineNumber"
+    data["cursor_strategy"]["transactions"]["evidence"] = ["Keyset evidence"]
+
+    # Whitespace only evidence
+    data["cards"]["barcode_field"]["evidence"] = ["   ", "\t\n  "]
+    data["mapping_sha256"] = calculate_mapping_fingerprint(data)
+
+    test_file = tmp_path / "whitespace_evidence_mapping.json"
+    test_file.write_text(json.dumps(data), encoding="utf-8")
+
+    report = validate_mapping(test_file, require_verified=True)
+    assert report.is_valid is False
+    assert "cards.barcode_field" in report.unverified_fields
+    assert any(
+        "Mandatory mapping field 'cards.barcode_field' is VERIFIED but has no verification evidence" in e
+        for e in report.errors
+    )
+
 
