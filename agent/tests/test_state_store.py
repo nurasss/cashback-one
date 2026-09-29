@@ -72,38 +72,72 @@ def test_legacy_version_0_upgrade(tmp_path: Path) -> None:
 
     conn = sqlite3.connect(str(db_file))
     ver = conn.cursor().execute("PRAGMA user_version;").fetchone()[0]
+    jm = conn.cursor().execute("PRAGMA journal_mode;").fetchone()[0].lower()
     conn.close()
+    assert ver == STATE_SCHEMA_VERSION
+    assert jm == "wal"
+
+
+def test_current_v1_database_operations_and_wal(tmp_path: Path) -> None:
+    """A valid v1 database opens, preserves data, enables WAL, and allows normal operations."""
+    db_file = tmp_path / "v1.db"
+    store1 = StateStore(db_file)
+    store1.commit_cursor("cards", "C999", synced_at=datetime.now(UTC))
+
+    # Re-open with new StateStore instance
+    store2 = StateStore(db_file)
+    assert store2.get_cursor("cards") == "C999"
+
+    conn = sqlite3.connect(str(db_file))
+    jm = conn.execute("PRAGMA journal_mode;").fetchone()[0].lower()
+    ver = conn.execute("PRAGMA user_version;").fetchone()[0]
+    conn.close()
+
+    assert jm == "wal"
     assert ver == STATE_SCHEMA_VERSION
 
 
 def test_foreign_sqlite_no_silent_mutation(tmp_path: Path) -> None:
-    """An unrelated existing SQLite DB must NOT be mutated into an agent DB."""
+    """An unrelated existing SQLite DB must NOT be mutated into an agent DB (journal_mode, version, tables intact)."""
     db_file = tmp_path / "foreign.db"
     conn = sqlite3.connect(str(db_file))
+    conn.execute("PRAGMA journal_mode = delete;")
     conn.execute("CREATE TABLE unrelated (id INTEGER);")
     conn.execute("PRAGMA user_version = 0;")
     conn.commit()
+
+    # Capture state before
+    jm_before = conn.execute("PRAGMA journal_mode;").fetchone()[0].lower()
+    ver_before = conn.execute("PRAGMA user_version;").fetchone()[0]
+    tables_before = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()]
     conn.close()
+
+    assert jm_before == "delete"
+    assert ver_before == 0
 
     with pytest.raises(StateSchemaUnsupportedError, match="STATE_SCHEMA_UNSUPPORTED"):
         StateStore(db_file)
 
-    # Verify database was NOT mutated
+    # Verify database was NOT mutated at all: delete stays delete, version 0, unrelated table
     conn = sqlite3.connect(str(db_file))
     cur = conn.cursor()
-    tables = [row[0] for row in cur.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()]
-    ver = cur.execute("PRAGMA user_version;").fetchone()[0]
+    jm_after = cur.execute("PRAGMA journal_mode;").fetchone()[0].lower()
+    ver_after = cur.execute("PRAGMA user_version;").fetchone()[0]
+    tables_after = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()]
     conn.close()
 
-    assert "agent_checkpoint" not in tables
-    assert "unrelated" in tables
-    assert ver == 0
+    assert jm_after == "delete"
+    assert jm_after == jm_before
+    assert ver_after == ver_before
+    assert tables_after == tables_before
+    assert "agent_checkpoint" not in tables_after
 
 
 def test_incompatible_checkpoint_structure_rejected(tmp_path: Path) -> None:
-    """An existing agent_checkpoint missing required columns must be rejected without mutation."""
+    """An existing agent_checkpoint missing required columns must be rejected without mutating journal mode."""
     db_file = tmp_path / "incompatible.db"
     conn = sqlite3.connect(str(db_file))
+    conn.execute("PRAGMA journal_mode = delete;")
     conn.execute("CREATE TABLE agent_checkpoint (id INTEGER PRIMARY KEY);")
     conn.execute("PRAGMA user_version = 0;")
     conn.commit()
@@ -112,16 +146,50 @@ def test_incompatible_checkpoint_structure_rejected(tmp_path: Path) -> None:
     with pytest.raises(StateSchemaUnsupportedError, match="STATE_SCHEMA_UNSUPPORTED"):
         StateStore(db_file)
 
+    conn = sqlite3.connect(str(db_file))
+    jm_after = conn.execute("PRAGMA journal_mode;").fetchone()[0].lower()
+    ver_after = conn.execute("PRAGMA user_version;").fetchone()[0]
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(agent_checkpoint);").fetchall()]
+    conn.close()
+
+    assert jm_after == "delete"
+    assert ver_after == 0
+    assert cols == ["id"]
+
 
 def test_unsupported_future_schema_version(tmp_path: Path) -> None:
+    """A future schema version must be rejected without mutating journal mode."""
     db_file = tmp_path / "future.db"
     conn = sqlite3.connect(str(db_file))
+    conn.execute("PRAGMA journal_mode = delete;")
+    conn.execute(
+        """
+        CREATE TABLE agent_checkpoint (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            cards_committed_cursor TEXT,
+            transactions_committed_cursor TEXT,
+            last_successful_sync_at TEXT,
+            last_error TEXT,
+            last_error_at TEXT,
+            last_heartbeat_at TEXT,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
     conn.execute("PRAGMA user_version = 99;")
     conn.commit()
     conn.close()
 
     with pytest.raises(StateSchemaUnsupportedError, match="STATE_SCHEMA_UNSUPPORTED"):
         StateStore(db_file)
+
+    conn = sqlite3.connect(str(db_file))
+    jm_after = conn.execute("PRAGMA journal_mode;").fetchone()[0].lower()
+    ver_after = conn.execute("PRAGMA user_version;").fetchone()[0]
+    conn.close()
+
+    assert jm_after == "delete"
+    assert ver_after == 99
 
 
 def test_corrupted_sqlite_file_handling(tmp_path: Path) -> None:

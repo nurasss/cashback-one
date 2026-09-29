@@ -63,7 +63,16 @@ class StateStore:
         self.db_path = db_path
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    def _open_readonly_connection(self) -> sqlite3.Connection:
+        """Open an existing database in strictly read-only mode using SQLite URI."""
+        resolved = self.db_path.resolve()
+        db_uri = f"file:{resolved.as_posix()}?mode=ro"
+        conn = sqlite3.connect(db_uri, uri=True, timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _open_agent_writable_connection(self) -> sqlite3.Connection:
+        """Open or create the agent database with WAL journal mode and standard pragmas."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             conn = sqlite3.connect(str(self.db_path), timeout=30.0)
@@ -74,43 +83,19 @@ class StateStore:
         except sqlite3.DatabaseError as exc:
             raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Failed to connect to SQLite: {exc}") from exc
 
+    def _get_connection(self) -> sqlite3.Connection:
+        return self._open_agent_writable_connection()
+
     def _init_db(self) -> None:
         """Initialize database schema, verify integrity and schema version."""
-        # If file already exists and is non-empty, check for corruption
-        if self.db_path.exists() and self.db_path.stat().st_size > 0:
+        file_exists = self.db_path.exists()
+        is_non_empty = file_exists and self.db_path.stat().st_size > 0
+
+        # Case A & B: New database file (absent or 0 bytes)
+        if not file_exists or not is_non_empty:
+            conn = self._open_agent_writable_connection()
             try:
-                with sqlite3.connect(str(self.db_path), timeout=30.0) as test_conn:
-                    cur = test_conn.execute("PRAGMA quick_check;")
-                    row = cur.fetchone()
-                    if not row or row[0] != "ok":
-                        raise StateDbCorruptedError(
-                            f"STATE_DB_CORRUPTED: SQLite integrity check failed: {row[0] if row else 'empty'}"
-                        )
-            except sqlite3.DatabaseError as exc:
-                raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Corrupted SQLite database file: {exc}") from exc
-
-        conn = self._get_connection()
-        try:
-            with conn:
-                # Check user_version
-                cur = conn.execute("PRAGMA user_version;")
-                row = cur.fetchone()
-                current_ver = row[0] if row else 0
-
-                if current_ver > STATE_SCHEMA_VERSION:
-                    raise StateSchemaUnsupportedError(
-                        f"STATE_SCHEMA_UNSUPPORTED: Database schema version {current_ver} "
-                        f"is newer than supported version {STATE_SCHEMA_VERSION}."
-                    )
-
-                # Inspect existing user tables
-                cur = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"
-                )
-                existing_tables = {r[0] for r in cur.fetchall()}
-
-                if not existing_tables:
-                    # Brand new empty database -> initialize schema v1
+                with conn:
                     conn.execute(
                         """
                         CREATE TABLE agent_checkpoint (
@@ -135,41 +120,89 @@ class StateStore:
                     )
                     conn.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION};")
                     logger.info("Stamped agent_state.db schema to version %d", STATE_SCHEMA_VERSION)
-                else:
-                    # Existing database with tables
-                    if "agent_checkpoint" not in existing_tables:
-                        raise StateDbNotAgentDatabaseError(
-                            "STATE_SCHEMA_UNSUPPORTED: Existing SQLite database does not contain "
-                            "agent_checkpoint table (refusing to mutate unrelated database)."
-                        )
+            except sqlite3.DatabaseError as exc:
+                raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Failed initializing schema: {exc}") from exc
+            finally:
+                conn.close()
+            return
 
-                    # Validate columns in existing agent_checkpoint
-                    cur = conn.execute("PRAGMA table_info(agent_checkpoint);")
-                    actual_columns = {r["name"] for r in cur.fetchall()}
-                    missing = REQUIRED_CHECKPOINT_COLUMNS - actual_columns
-                    if missing:
-                        raise StateSchemaUnsupportedError(
-                            f"STATE_SCHEMA_UNSUPPORTED: Existing agent_checkpoint table missing required columns: {missing}"
-                        )
+        # Case C, D, E, F: Existing non-empty SQLite database
+        # Phase 1: STRICT READ-ONLY INSPECTION (zero writes, no journal_mode change)
+        try:
+            ro_conn = self._open_readonly_connection()
+        except sqlite3.DatabaseError as exc:
+            raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Corrupted SQLite database file: {exc}") from exc
 
-                    # Ensure row with id=1 exists
-                    now_iso = datetime.now(UTC).isoformat()
-                    conn.execute(
-                        """
-                        INSERT OR IGNORE INTO agent_checkpoint (id, updated_at)
-                        VALUES (1, ?);
-                        """,
-                        (now_iso,),
+        try:
+            with ro_conn:
+                # 1. Integrity check
+                cur = ro_conn.execute("PRAGMA quick_check;")
+                row = cur.fetchone()
+                if not row or row[0] != "ok":
+                    raise StateDbCorruptedError(
+                        f"STATE_DB_CORRUPTED: SQLite integrity check failed: {row[0] if row else 'empty'}"
                     )
 
-                    # If migrating from valid legacy v0, stamp version 1
-                    if current_ver < STATE_SCHEMA_VERSION:
-                        conn.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION};")
-                        logger.info("Upgraded legacy v0 agent_state.db schema to version %d", STATE_SCHEMA_VERSION)
+                # 2. Check user_version
+                cur = ro_conn.execute("PRAGMA user_version;")
+                row = cur.fetchone()
+                current_ver = row[0] if row else 0
+
+                # Case F: Future schema version
+                if current_ver > STATE_SCHEMA_VERSION:
+                    raise StateSchemaUnsupportedError(
+                        f"STATE_SCHEMA_UNSUPPORTED: Database schema version {current_ver} "
+                        f"is newer than supported version {STATE_SCHEMA_VERSION}."
+                    )
+
+                # 3. Check existing tables
+                cur = ro_conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"
+                )
+                existing_tables = {r[0] for r in cur.fetchall()}
+
+                # Case E: Foreign SQLite (no agent_checkpoint table)
+                if "agent_checkpoint" not in existing_tables:
+                    raise StateDbNotAgentDatabaseError(
+                        "STATE_SCHEMA_UNSUPPORTED: Existing SQLite database does not contain "
+                        "agent_checkpoint table (refusing to mutate unrelated database)."
+                    )
+
+                # 4. Check agent_checkpoint table structure
+                cur = ro_conn.execute("PRAGMA table_info(agent_checkpoint);")
+                actual_columns = {r["name"] for r in cur.fetchall()}
+                missing = REQUIRED_CHECKPOINT_COLUMNS - actual_columns
+                if missing:
+                    raise StateSchemaUnsupportedError(
+                        f"STATE_SCHEMA_UNSUPPORTED: Existing agent_checkpoint table missing required columns: {missing}"
+                    )
         except (StateStoreError, sqlite3.DatabaseError) as exc:
             if isinstance(exc, StateStoreError):
                 raise
-            raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Failed initializing schema: {exc}") from exc
+            raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Corrupted SQLite database file: {exc}") from exc
+        finally:
+            ro_conn.close()
+
+        # Phase 2: Verified Agent DB -> Writable Connection & Migration
+        conn = self._open_agent_writable_connection()
+        try:
+            with conn:
+                # Ensure row with id=1 exists
+                now_iso = datetime.now(UTC).isoformat()
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO agent_checkpoint (id, updated_at)
+                    VALUES (1, ?);
+                    """,
+                    (now_iso,),
+                )
+
+                # If migrating from valid legacy v0, stamp version 1
+                if current_ver < STATE_SCHEMA_VERSION:
+                    conn.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION};")
+                    logger.info("Upgraded legacy v0 agent_state.db schema to version %d", STATE_SCHEMA_VERSION)
+        except sqlite3.DatabaseError as exc:
+            raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Failed updating agent schema: {exc}") from exc
         finally:
             conn.close()
 
