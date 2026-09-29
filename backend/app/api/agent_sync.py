@@ -9,7 +9,7 @@ from app.core.errors import AppError
 from app.core.phone import normalize_phone
 from app.core.time import as_utc, utcnow
 from app.db.session import get_session
-from app.models.entities import Agent, Card, Transaction
+from app.models.entities import Agent, Business, Card, Transaction
 from app.schemas.agent_sync import (
     CardsSyncRequest,
     CardsSyncResponse,
@@ -32,7 +32,8 @@ async def sync_cards(
     """Ingest card mirror batch from ONE Agent.
 
     Enforces tenant isolation (business_id resolved from authenticated agent),
-    stale data protection, phone normalization, and batch limits.
+    database-level atomic serialization per tenant, stale data protection,
+    phone normalization, and batch limits.
     """
     if len(body.cards) > settings.sync_max_cards_batch:
         raise AppError(
@@ -56,11 +57,17 @@ async def sync_cards(
         else:
             normalized_phones.append(None)
 
+    # Acquire tenant-level transaction lock to serialize concurrent syncs for this business
+    await session.execute(
+        select(Business.id).where(Business.id == agent.business_id).with_for_update()
+    )
+
     barcodes = [c.barcode for c in body.cards]
     existing_cards_stmt = select(Card).where(
         Card.business_id == agent.business_id,
         Card.barcode.in_(barcodes),
     )
+
     existing_cards = {
         c.barcode: c for c in (await session.scalars(existing_cards_stmt)).all()
     }
@@ -128,6 +135,11 @@ async def sync_transactions(
             status_code=422,
         )
 
+    # Acquire tenant-level transaction lock to serialize concurrent syncs for this business
+    await session.execute(
+        select(Business.id).where(Business.id == agent.business_id).with_for_update()
+    )
+
     # Resolve cards strictly within authenticated agent's business_id
     barcodes = list({t.barcode for t in body.transactions})
     cards_stmt = select(Card).where(
@@ -142,11 +154,12 @@ async def sync_transactions(
             raise AppError(
                 code="UNKNOWN_CARD_FOR_TRANSACTION",
                 message=(
-                    f"Card with barcode '{item.barcode}' does not exist in business {agent.business_id}. "
+                    f"Card with barcode '{item.barcode}' does not exist for authenticated business. "
                     f"Cards must be synchronized before transactions."
                 ),
                 status_code=422,
             )
+
 
     # Check existing transactions for idempotency
     card_ids = [cards_map[t.barcode].id for t in body.transactions]

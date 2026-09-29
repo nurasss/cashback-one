@@ -15,22 +15,24 @@ class Settings(BaseSettings):
     app_version: str = "0.2.0"
     app_env: str = "development"
     database_url: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/poscenter_loyalty",
-        description="Database connection URL",
+        default="",
+        description="Database connection URL. Must be explicitly provided via environment or .env.",
     )
+
     redis_url: str = "redis://localhost:6379/0"
 
-    # Agent sync limits and headers
-    agent_key_header_name: str = "X-Agent-Key"
+    # Agent sync limits
     sync_max_cards_batch: int = 500
     sync_max_transactions_batch: int = 1000
 
     @model_validator(mode="after")
     def validate_database_configuration(self) -> "Settings":
-        # Disallow silent SQLite fallback in production/development
-        if self.app_env.lower() != "test" and (
-            not self.database_url or self.database_url.strip().startswith("sqlite")
-        ):
+        db_url = self.database_url.strip() if self.database_url else ""
+        if not db_url:
+            raise ValueError(
+                "DATABASE_URL must be explicitly provided in environment or .env"
+            )
+        if self.app_env.lower() != "test" and db_url.startswith("sqlite"):
             raise ValueError(
                 "DATABASE_URL must be a valid PostgreSQL connection string in development/production. "
                 "SQLite is only permitted when APP_ENV=test."
@@ -44,3 +46,4 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+

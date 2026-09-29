@@ -7,10 +7,11 @@ from fastapi import Depends, Header
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.entities import Agent
+
+AGENT_KEY_HEADER = "X-Agent-Key"
 
 
 def generate_agent_api_key() -> str:
@@ -71,27 +72,21 @@ async def revoke_agent(
 
 async def authenticate_agent(
     session: Annotated[AsyncSession, Depends(get_session)],
-    x_agent_key: Annotated[str | None, Header(alias="X-Agent-Key")] = None,
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    x_agent_key: Annotated[str | None, Header(alias=AGENT_KEY_HEADER)] = None,
 ) -> Agent:
     """FastAPI dependency to authenticate requests from ONE Agent.
 
-    Extracts API key from X-Agent-Key (or Bearer Authorization), hashes it,
+    Extracts API key strictly from X-Agent-Key header, hashes it,
     validates active status, and resolves the tenant context (agent.business_id).
     """
-    raw_key: str | None = None
-    if x_agent_key and x_agent_key.strip():
-        raw_key = x_agent_key.strip()
-    elif authorization and authorization.strip().lower().startswith("bearer "):
-        raw_key = authorization.strip()[7:].strip()
-
-    if not raw_key:
+    if not x_agent_key or not x_agent_key.strip():
         raise AppError(
             code="AGENT_KEY_MISSING",
-            message=f"{settings.agent_key_header_name} header is required",
+            message=f"{AGENT_KEY_HEADER} header is required",
             status_code=401,
         )
 
+    raw_key = x_agent_key.strip()
     computed_hash = hash_agent_key(raw_key)
     result = await session.execute(
         select(Agent).where(Agent.key_hash == computed_hash)
@@ -113,3 +108,4 @@ async def authenticate_agent(
         )
 
     return agent
+

@@ -171,6 +171,61 @@ async def test_transactions_unknown_card_rejected(
 
 
 @pytest.mark.asyncio
+async def test_transactions_batch_atomicity_mixed_known_and_unknown(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Atomic batch: if batch has an unknown card, no transactions from that batch are saved."""
+    biz = Business(name="Atomicity Test Biz")
+    db_session.add(biz)
+    await db_session.commit()
+
+    _agent, key = await issue_agent_key(db_session, biz.id)
+    # Only card 1000000000010 exists
+    card = Card(business_id=biz.id, barcode="1000000000010")
+    db_session.add(card)
+    await db_session.commit()
+
+    now_iso = datetime.now(UTC).isoformat()
+
+    # Batch with 1 known card and 1 unknown card
+    res = await client.post(
+        "/agent/sync/transactions",
+        headers={"X-Agent-Key": key},
+        json={
+            "transactions": [
+                {
+                    "external_id": "VALID-TX-001",
+                    "barcode": "1000000000010",
+                    "type": "accrual",
+                    "amount": "50.0000",
+                    "balance_after": "50.0000",
+                    "occurred_at": now_iso,
+                },
+                {
+                    "external_id": "UNKNOWN-TX-002",
+                    "barcode": "9999999999999",  # unknown
+                    "type": "accrual",
+                    "amount": "100.0000",
+                    "balance_after": "100.0000",
+                    "occurred_at": now_iso,
+                },
+            ]
+        },
+    )
+    assert res.status_code == 422
+    assert res.json()["error"]["code"] == "UNKNOWN_CARD_FOR_TRANSACTION"
+    # Verify sanitization (no internal UUID leaked)
+    assert biz.name not in res.json()["error"]["message"]
+    assert str(biz.id) not in res.json()["error"]["message"]
+
+    # Verify 0 transactions were saved (rollback / atomicity)
+    txs = (await db_session.scalars(select(Transaction).where(Transaction.card_id == card.id))).all()
+    assert len(txs) == 0
+
+
+
+@pytest.mark.asyncio
 async def test_transactions_cross_tenant_isolation(
     client: AsyncClient,
     db_session: AsyncSession,

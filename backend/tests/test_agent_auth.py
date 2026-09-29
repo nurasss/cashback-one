@@ -53,14 +53,15 @@ async def test_agent_auth_valid_key(
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
-    # Using Authorization: Bearer <key> header
+    # Authorization: Bearer header is NOT supported - must fail with AGENT_KEY_MISSING
     bearer_response = await client.post(
         "/agent/heartbeat",
         headers={"Authorization": f"Bearer {raw_key}"},
         json={"version": "1.0.2"},
     )
-    assert bearer_response.status_code == 200
-    assert bearer_response.json() == {"status": "ok"}
+    assert bearer_response.status_code == 401
+    assert bearer_response.json()["error"]["code"] == "AGENT_KEY_MISSING"
+
 
 
 @pytest.mark.asyncio

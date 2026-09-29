@@ -18,8 +18,8 @@ PG_URL = os.environ.get(
 
 
 @pytest.mark.asyncio
-async def test_postgresql_native_runtime_verification() -> None:
-    """Real PostgreSQL 16 integration verification."""
+async def test_postgres_model_types_smoke() -> None:
+    """PostgreSQL 16 basic model smoke test: verify DDL, foreign keys, and 4-decimal precision."""
     try:
         engine = create_async_engine(PG_URL, echo=False)
         async with engine.begin() as conn:
