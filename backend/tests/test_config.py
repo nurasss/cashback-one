@@ -41,6 +41,7 @@ def test_config_dev_with_postgres_url_allowed() -> None:
         jwt_signing_key="a" * 32,
         auth_challenge_hash_key="b" * 32,
         whatsapp_login_number="+77001234567",
+        sms_otp_hash_key="d" * 32,
         wappi_login_profile_id="prod-profile-id-12345",
         wappi_webhook_auth_header="X-Custom-Auth-Header",
         wappi_webhook_auth_secret="c" * 32,
@@ -49,6 +50,7 @@ def test_config_dev_with_postgres_url_allowed() -> None:
     assert cfg.app_env == "development"
     assert "postgresql+asyncpg" in cfg.database_url
     assert cfg.wappi_login_profile_id == "prod-profile-id-12345"
+    assert cfg.sms_otp_hash_key == "d" * 32
 
 
 def test_config_dev_without_redis_url_rejected() -> None:
@@ -141,6 +143,7 @@ def test_config_dev_missing_wappi_login_profile_id_rejected() -> None:
             redis_url="redis://localhost:6379/0",
             jwt_signing_key="a" * 32,
             auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="d" * 32,
             whatsapp_login_number="+77001234567",
             wappi_login_profile_id="",
             wappi_webhook_auth_header="X-Test-Auth-Header",
@@ -159,6 +162,7 @@ def test_config_dev_short_wappi_webhook_auth_secret_rejected() -> None:
             redis_url="redis://localhost:6379/0",
             jwt_signing_key="a" * 32,
             auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="d" * 32,
             whatsapp_login_number="+77001234567",
             wappi_login_profile_id="prod-profile-id",
             wappi_webhook_auth_header="X-Configured-Wappi-Header",
@@ -177,6 +181,7 @@ def test_config_dev_missing_wappi_webhook_auth_header_rejected() -> None:
             redis_url="redis://localhost:6379/0",
             jwt_signing_key="a" * 32,
             auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="d" * 32,
             whatsapp_login_number="+77001234567",
             wappi_login_profile_id="prod-profile-id",
             wappi_webhook_auth_header="",
@@ -195,6 +200,7 @@ def test_config_dev_omitted_wappi_webhook_auth_header_rejected() -> None:
             redis_url="redis://localhost:6379/0",
             jwt_signing_key="a" * 32,
             auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="d" * 32,
             whatsapp_login_number="+77001234567",
             wappi_login_profile_id="prod-profile-id",
             # wappi_webhook_auth_header is completely omitted!
@@ -217,5 +223,145 @@ def test_config_test_mode_deterministic_test_header() -> None:
 def test_no_hardcoded_x_wappi_secret_as_field_default() -> None:
     """Regression check: wappi_webhook_auth_header must have empty string default."""
     assert Settings.model_fields["wappi_webhook_auth_header"].default == ""
+
+
+def test_config_dev_without_sms_otp_hash_key_rejected() -> None:
+    """In development, missing SMS_OTP_HASH_KEY must be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="",
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            wappi_webhook_auth_header="X-Header",
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "SMS_OTP_HASH_KEY" in str(exc_info.value)
+
+
+def test_config_prod_without_sms_otp_hash_key_rejected() -> None:
+    """In production, missing SMS_OTP_HASH_KEY must be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="production",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="",
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            wappi_webhook_auth_header="X-Header",
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "SMS_OTP_HASH_KEY" in str(exc_info.value)
+
+
+def test_config_dev_short_sms_otp_hash_key_rejected() -> None:
+    """SMS_OTP_HASH_KEY shorter than 32 characters must be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="short_sms_key",
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            wappi_webhook_auth_header="X-Header",
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "SMS_OTP_HASH_KEY" in str(exc_info.value)
+
+
+def test_config_auth_challenge_key_does_not_substitute_sms_key() -> None:
+    """AUTH_CHALLENGE_HASH_KEY set and SMS_OTP_HASH_KEY missing must still be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            # sms_otp_hash_key is omitted!
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            wappi_webhook_auth_header="X-Header",
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "SMS_OTP_HASH_KEY" in str(exc_info.value)
+
+
+def test_config_dev_fake_provider_rejected() -> None:
+    """SMS_PROVIDER_MODE=fake in development must fail-fast with ValidationError."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="s" * 32,
+            sms_provider_mode="fake",
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            wappi_webhook_auth_header="X-Header",
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "SMS_PROVIDER_MODE 'fake' is strictly forbidden in development/production" in str(exc_info.value)
+
+
+def test_config_prod_fake_provider_rejected() -> None:
+    """SMS_PROVIDER_MODE=fake in production must fail-fast with ValidationError."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="production",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            sms_otp_hash_key="s" * 32,
+            sms_provider_mode="fake",
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            wappi_webhook_auth_header="X-Header",
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "SMS_PROVIDER_MODE 'fake' is strictly forbidden in development/production" in str(exc_info.value)
+
+
+def test_config_test_fake_provider_allowed() -> None:
+    """SMS_PROVIDER_MODE=fake is permitted when APP_ENV=test."""
+    cfg = Settings(
+        app_env="test",
+        database_url="sqlite+aiosqlite:///:memory:",
+        sms_provider_mode="fake",
+        _env_file=None,
+    )
+    assert cfg.sms_provider_mode == "fake"
+
+
+def test_config_unknown_provider_mode_rejected() -> None:
+    """Unknown SMS_PROVIDER_MODE must be rejected with ValidationError."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="test",
+            database_url="sqlite+aiosqlite:///:memory:",
+            sms_provider_mode="unknown_vendor",
+            _env_file=None,
+        )
+    assert "Invalid SMS_PROVIDER_MODE 'unknown_vendor'" in str(exc_info.value)
+
 
 

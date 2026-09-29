@@ -46,7 +46,9 @@ _default_fake_provider: FakeSmsProvider | None = None
 
 
 def get_fake_sms_provider() -> FakeSmsProvider:
-    """Return singleton FakeSmsProvider for test inspection."""
+    """Return singleton FakeSmsProvider for test inspection. Strictly forbidden outside APP_ENV=test."""
+    if settings.app_env.lower() != "test":
+        raise RuntimeError("FakeSmsProvider is strictly forbidden outside APP_ENV=test")
     global _default_fake_provider
     if _default_fake_provider is None:
         _default_fake_provider = FakeSmsProvider()
@@ -55,6 +57,14 @@ def get_fake_sms_provider() -> FakeSmsProvider:
 
 def get_sms_provider() -> SmsProvider:
     """FastAPI dependency for resolving active SMS provider."""
+    if settings.sms_provider_mode == "disabled":
+        return DisabledSmsProvider()
     if settings.sms_provider_mode == "fake":
+        if settings.app_env.lower() != "test":
+            raise AppError(
+                code="SMS_PROVIDER_NOT_CONFIGURED",
+                message="SMS delivery is not configured on this server.",
+                status_code=503,
+            )
         return get_fake_sms_provider()
     return DisabledSmsProvider()

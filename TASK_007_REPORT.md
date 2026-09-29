@@ -52,12 +52,12 @@
 4. **Device Binding:** OTP привязан к паре `(phone, device_id)`. Проверка с чужого устройства отклоняется (`OTP_NOT_FOUND`).
 5. **Single-Use:** Использованный код переходит в статус `consumed` и не может быть верифицирован повторно.
 
-### 2.3. Атомарность провайдера и обработка сбоев
-* Вся операция создания OTP и вызова провайдера защищена единой транзакцией.
-* Если отправка SMS завершается ошибкой (сетевой сбой, исключение провайдера, режим `disabled`), вызывается `await session.rollback()`.
-* В базе данных не остается ни одной повисшей или незавершенной записи OTP.
-* При `SMS_PROVIDER_MODE=disabled` возвращается HTTP 503 `SMS_PROVIDER_NOT_CONFIGURED`.
+### 2.3. Обработка сбоев провайдера и границы согласованности (Delivery Boundary)
+* **Provider-reported delivery failure rolls back OTP DB state. Cross-system atomic delivery is not claimed.**
+* Если отправка SMS завершается ошибкой (сетевой сбой, таймаут, исключение провайдера), вызывается `await session.rollback()`, и в БД не остается незавершенных OTP-записей.
+* При `SMS_PROVIDER_MODE=disabled` запрос отклоняется с HTTP 503 `SMS_PROVIDER_NOT_CONFIGURED` до изменения rate limit и создания записи в БД.
 * При сбое транспорта/сети возвращается HTTP 503 `SMS_DELIVERY_UNAVAILABLE`.
+* Внешняя доставка оператором связи не может быть автоматически отозвана после коммита БД; production-адаптер должен учитывать этот boundary (идемпотентность, таймауты).
 
 ### 2.4. Concurrency Safety
 * На PostgreSQL одновременные вызовы `POST /auth/sms/request` для одной пары `(phone, device_id)` сериализуются с помощью транзакционного advisory-лока:

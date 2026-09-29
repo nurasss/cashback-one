@@ -98,6 +98,16 @@ class Settings(BaseSettings):
                 "SQLite is only permitted when APP_ENV=test."
             )
 
+        # Validate SMS provider mode
+        clean_provider_mode = (
+            self.sms_provider_mode.strip().lower() if self.sms_provider_mode else ""
+        )
+        if clean_provider_mode not in ("disabled", "fake"):
+            raise ValueError(
+                f"Invalid SMS_PROVIDER_MODE '{self.sms_provider_mode}'. Supported modes: 'disabled', 'fake'."
+            )
+        self.sms_provider_mode = clean_provider_mode
+
         if self.app_env.lower() == "test":
             # Provide deterministic defaults for test execution
             if not self.redis_url:
@@ -123,16 +133,21 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SIGNING_KEY must be provided and be at least 32 characters long")
             if not self.auth_challenge_hash_key or len(self.auth_challenge_hash_key.strip()) < 32:
                 raise ValueError("AUTH_CHALLENGE_HASH_KEY must be provided and be at least 32 characters long")
-            if not self.sms_otp_hash_key:
-                self.sms_otp_hash_key = self.auth_challenge_hash_key
-            if len(self.sms_otp_hash_key.strip()) < 32:
-                raise ValueError("SMS_OTP_HASH_KEY must be at least 32 characters long")
+            if not self.sms_otp_hash_key or len(self.sms_otp_hash_key.strip()) < 32:
+                raise ValueError("SMS_OTP_HASH_KEY must be explicitly provided and be at least 32 characters long")
             if not self.wappi_login_profile_id or not self.wappi_login_profile_id.strip():
                 raise ValueError("WAPPI_LOGIN_PROFILE_ID must be provided in environment or .env")
             if not self.wappi_webhook_auth_header or not self.wappi_webhook_auth_header.strip():
                 raise ValueError("WAPPI_WEBHOOK_AUTH_HEADER must be provided in environment or .env")
             if not self.wappi_webhook_auth_secret or len(self.wappi_webhook_auth_secret.strip()) < 32:
                 raise ValueError("WAPPI_WEBHOOK_AUTH_SECRET must be provided and be at least 32 characters long")
+            if self.sms_provider_mode == "fake":
+                raise ValueError("SMS_PROVIDER_MODE 'fake' is strictly forbidden in development/production.")
+            if self.sms_provider_mode != "disabled":
+                raise ValueError(
+                    f"SMS_PROVIDER_MODE '{self.sms_provider_mode}' is not permitted in development/production. "
+                    "Only 'disabled' is currently supported."
+                )
 
         # Validate WHATSAPP_LOGIN_NUMBER format (E.164)
         if not self.whatsapp_login_number or not self.whatsapp_login_number.strip():

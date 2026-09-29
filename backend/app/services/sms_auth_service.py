@@ -22,7 +22,7 @@ from app.core.time import as_utc, utcnow
 from app.models.entities import AuthSession, OtpCode
 from app.schemas.auth import SmsOtpRequestResponse, TokenResponse
 from app.services.rate_limiter import RateLimiter
-from app.services.sms_provider import SmsProvider
+from app.services.sms_provider import DisabledSmsProvider, SmsProvider
 from app.services.user_service import get_or_create_user_by_phone
 
 logger = logging.getLogger(__name__)
@@ -44,12 +44,20 @@ async def request_sms_otp(
     """Request a 6-digit SMS OTP for fallback customer login.
 
     Invariants:
-    1. Rate limits enforced on phone (fingerprint), device_id, and client_ip.
-    2. Any existing pending OTP for (phone, device_id) is invalidated (superseded).
-    3. 6-digit cryptographically secure code generated; plaintext never saved to DB or logged.
-    4. Code sent via SmsProvider before committing; failure triggers atomic rollback so no
+    1. Provider readiness checked before rate limiting; disabled provider does not consume quota.
+    2. Rate limits enforced on phone (fingerprint), device_id, and client_ip.
+    3. Any existing pending OTP for (phone, device_id) is invalidated (superseded).
+    4. 6-digit cryptographically secure code generated; plaintext never saved to DB or logged.
+    5. Code sent via SmsProvider before committing; failure triggers atomic rollback so no
        orphaned active OTP remains in DB.
     """
+    if isinstance(sms_provider, DisabledSmsProvider):
+        raise AppError(
+            code="SMS_PROVIDER_NOT_CONFIGURED",
+            message="SMS delivery is not configured on this server.",
+            status_code=503,
+        )
+
     clean_phone = phone.strip()
     clean_device_id = device_id.strip()
 

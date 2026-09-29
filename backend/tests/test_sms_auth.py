@@ -435,3 +435,66 @@ async def test_sms_schema_validation_rejections(client: AsyncClient) -> None:
             json={"phone": "+77011234567", "device_id": "d1", "code": bad_code},
         )
         assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_sms_request_disabled_provider_does_not_consume_rate_limit(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Disabled SMS provider must not mutate rate limiter quota on failed attempts."""
+    monkeypatch.setattr(settings, "sms_provider_mode", "disabled")
+    monkeypatch.setattr(settings, "sms_otp_request_phone_limit", 3)
+    monkeypatch.setattr(settings, "sms_otp_request_device_limit", 3)
+
+    phone = "+77017778899"
+    device_id = "dev-disabled-limiter-1"
+
+    # Make 10 requests under disabled mode
+    for _ in range(10):
+        resp = await client.post(
+            "/auth/sms/request",
+            json={"phone": phone, "device_id": device_id},
+        )
+        assert resp.status_code == 503
+        assert resp.json()["error"]["code"] == "SMS_PROVIDER_NOT_CONFIGURED"
+
+    # Switch to fake provider
+    monkeypatch.setattr(settings, "sms_provider_mode", "fake")
+
+    # The very next request must succeed with 200 (not 429 RATE_LIMIT_EXCEEDED)
+    success_resp = await client.post(
+        "/auth/sms/request",
+        json={"phone": phone, "device_id": device_id},
+    )
+    assert success_resp.status_code == 200
+    assert success_resp.json()["status"] == "sent"
+
+
+@pytest.mark.asyncio
+async def test_fake_sms_provider_forbidden_outside_test_env(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In development/production, FakeSmsProvider is strictly forbidden and cannot deliver OTP."""
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(settings, "sms_provider_mode", "fake")
+
+    from app.core.errors import AppError
+    from app.services.sms_provider import get_fake_sms_provider, get_sms_provider
+
+    # Direct factory access raises RuntimeError
+    with pytest.raises(RuntimeError):
+        get_fake_sms_provider()
+
+    # Dependency injection raises 503 SMS_PROVIDER_NOT_CONFIGURED
+    with pytest.raises(AppError) as exc_info:
+        get_sms_provider()
+    assert exc_info.value.code == "SMS_PROVIDER_NOT_CONFIGURED"
+
+    # API call in dev/prod cannot produce status='sent'
+    resp = await client.post(
+        "/auth/sms/request",
+        json={"phone": "+77011112233", "device_id": "dev-prod-fake"},
+    )
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "SMS_PROVIDER_NOT_CONFIGURED"
+
