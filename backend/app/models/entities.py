@@ -87,7 +87,11 @@ class User(Base, UUIDPrimaryKey):
     """Mobile app customer account."""
 
     __tablename__ = "users"
-    __table_args__ = (Index("ix_users_phone", "phone"),)
+    __table_args__ = (
+        UniqueConstraint("phone", name="uq_users_phone"),
+        Index("ix_users_phone", "phone"),
+    )
+
 
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     language: Mapped[str] = mapped_column(String(8), default="ru", nullable=False)
@@ -175,6 +179,41 @@ class LoginChallenge(Base, UUIDPrimaryKey):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class AuthSession(Base, UUIDPrimaryKey):
+    """Customer authentication session with refresh token rotation."""
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        UniqueConstraint("refresh_token_hash", name="uq_auth_sessions_refresh_token_hash"),
+        Index("ix_auth_sessions_user_id", "user_id"),
+        Index("ix_auth_sessions_refresh_token_hash", "refresh_token_hash"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    device_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    refresh_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_rotated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
 
 
 class OtpCode(Base, UUIDPrimaryKey):

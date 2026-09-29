@@ -33,14 +33,64 @@ def test_config_test_with_explicit_sqlite_allowed() -> None:
 
 
 def test_config_dev_with_postgres_url_allowed() -> None:
-    """PostgreSQL URL is valid in development."""
+    """PostgreSQL URL and full valid secrets in development are allowed."""
     cfg = Settings(
         app_env="development",
         database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+        redis_url="redis://localhost:6379/0",
+        jwt_signing_key="a" * 32,
+        auth_challenge_hash_key="b" * 32,
+        whatsapp_login_number="+77001234567",
         _env_file=None,
     )
     assert cfg.app_env == "development"
     assert "postgresql+asyncpg" in cfg.database_url
+
+
+def test_config_dev_without_redis_url_rejected() -> None:
+    """In development, missing REDIS_URL must be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            whatsapp_login_number="+77001234567",
+            _env_file=None,
+        )
+    assert "REDIS_URL must be explicitly provided" in str(exc_info.value)
+
+
+def test_config_dev_short_jwt_signing_key_rejected() -> None:
+    """JWT_SIGNING_KEY shorter than 32 characters must be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="too_short_key",
+            auth_challenge_hash_key="b" * 32,
+            whatsapp_login_number="+77001234567",
+            _env_file=None,
+        )
+    assert "JWT_SIGNING_KEY" in str(exc_info.value)
+
+
+def test_config_dev_short_auth_challenge_hash_key_rejected() -> None:
+    """AUTH_CHALLENGE_HASH_KEY shorter than 32 characters must be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="short",
+            whatsapp_login_number="+77001234567",
+            _env_file=None,
+        )
+    assert "AUTH_CHALLENGE_HASH_KEY" in str(exc_info.value)
+
 
 
 def test_config_dev_with_sqlite_rejected() -> None:

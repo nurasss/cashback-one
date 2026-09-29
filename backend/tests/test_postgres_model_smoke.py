@@ -11,21 +11,21 @@ from app.db.base import Base
 from app.models.entities import Business, Card, Transaction
 from app.services.agent_auth import issue_agent_key
 
-PG_URL = os.environ.get(
-    "POSTGRES_TEST_URL",
-    "postgresql+asyncpg://nuras@localhost:5432/poscenter_loyalty_test",
-)
-
 
 @pytest.mark.asyncio
 async def test_postgres_model_types_smoke() -> None:
     """PostgreSQL 16 basic model smoke test: verify DDL, foreign keys, and 4-decimal precision."""
+    pg_url = os.environ.get("POSTGRES_TEST_URL")
+    if not pg_url:
+        pytest.skip("POSTGRES_TEST_URL is not configured")
+
     try:
-        engine = create_async_engine(PG_URL, echo=False)
+        engine = create_async_engine(pg_url, echo=False)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     except (SQLAlchemyError, OSError) as exc:
         pytest.skip(f"PostgreSQL 16 connection skipped: {exc}")
+
 
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

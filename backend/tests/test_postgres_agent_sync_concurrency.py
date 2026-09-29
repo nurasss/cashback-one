@@ -17,20 +17,20 @@ from app.main import app
 from app.models.entities import Business, Card, Transaction
 from app.services.agent_auth import issue_agent_key
 
-PG_URL = os.environ.get(
-    "POSTGRES_TEST_URL",
-    "postgresql+asyncpg://nuras@localhost:5432/poscenter_loyalty_test",
-)
-
 
 @pytest.fixture
 async def pg_engine():  # type: ignore[no-untyped-def]
+    pg_url = os.environ.get("POSTGRES_TEST_URL")
+    if not pg_url:
+        pytest.skip("POSTGRES_TEST_URL is not configured")
+
     try:
-        engine = create_async_engine(PG_URL, echo=False)
+        engine = create_async_engine(pg_url, echo=False)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     except (SQLAlchemyError, OSError) as exc:
         pytest.skip(f"PostgreSQL 16 connection skipped: {exc}")
+
 
     yield engine
 
