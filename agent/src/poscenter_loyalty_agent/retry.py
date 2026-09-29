@@ -37,22 +37,26 @@ class RetryState:
         self,
         initial_seconds: float = 1.0,
         max_seconds: float = 60.0,
+        jitter_ratio: float = 0.2,
         sleep_fn: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self.initial_seconds = initial_seconds
         self.max_seconds = max_seconds
+        self.jitter_ratio = jitter_ratio
         self.attempts = 0
         self.sleep_fn = sleep_fn or asyncio.sleep
 
     def next_delay(self, retry_after: float | None = None) -> float:
         """Get the next delay in seconds, honoring retry_after if explicitly provided."""
         if retry_after is not None and retry_after > 0:
+            # Retry-After is strictly capped at max_seconds
             delay = min(retry_after, self.max_seconds)
         else:
             delay = calculate_backoff(
                 attempt=self.attempts,
                 initial_seconds=self.initial_seconds,
                 max_seconds=self.max_seconds,
+                jitter_ratio=self.jitter_ratio,
             )
         self.attempts += 1
         return delay

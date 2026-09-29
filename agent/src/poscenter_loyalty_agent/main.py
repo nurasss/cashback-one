@@ -75,10 +75,12 @@ def cmd_status(args: argparse.Namespace) -> int:
         store = StateStore(settings.state_db_path)
         status = store.get_status()
 
+        cards_status = "set" if status.cards_committed_cursor else "(none)"
+        tx_status = "set" if status.transactions_committed_cursor else "(none)"
         print("=== POSCENTER Loyalty Agent Operational Status ===")
         print(f"State DB Path:                 {settings.state_db_path}")
-        print(f"Cards Committed Cursor:        {status.cards_committed_cursor or '(none)'}")
-        print(f"Transactions Committed Cursor: {status.transactions_committed_cursor or '(none)'}")
+        print(f"Cards Cursor Status:           {cards_status}")
+        print(f"Transactions Cursor Status:    {tx_status}")
         print(f"Last Successful Sync:          {status.last_successful_sync_at or '(never)'}")
         print(f"Last Heartbeat:                {status.last_heartbeat_at or '(never)'}")
         print(f"Last Error:                    {status.last_error or '(none)'}")

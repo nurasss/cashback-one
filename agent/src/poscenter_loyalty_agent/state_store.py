@@ -4,6 +4,7 @@ Guarantees:
 1. Zero PII stored: only opaque cursors, timestamps, and sanitized operational error strings.
 2. Crash resilience: WAL mode, synchronous commits, atomic transactions.
 3. At-least-once delivery support: cursor is only updated when explicitly committed after Cloud ACK.
+4. Schema versioning and corruption defense: detects corrupted files and unsupported schema versions.
 """
 
 from __future__ import annotations
@@ -19,6 +20,21 @@ from poscenter_loyalty_agent.models import AgentStatus
 
 logger = logging.getLogger(__name__)
 
+STATE_SCHEMA_VERSION = 1
+VALID_STREAMS = ("cards", "transactions")
+
+
+class StateStoreError(Exception):
+    """Base error for state store operations."""
+
+
+class StateSchemaUnsupportedError(StateStoreError):
+    """Raised when SQLite schema version is newer than supported or incompatible."""
+
+
+class StateDbCorruptedError(StateStoreError):
+    """Raised when SQLite database file is corrupted or not a valid database."""
+
 
 class StateStore:
     """Manages persistent agent state in a local SQLite database."""
@@ -29,42 +45,84 @@ class StateStore:
 
     def _get_connection(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            conn = sqlite3.connect(str(self.db_path), timeout=30.0)
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            conn.row_factory = sqlite3.Row
+            return conn
+        except sqlite3.DatabaseError as exc:
+            raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Failed to connect to SQLite: {exc}") from exc
 
     def _init_db(self) -> None:
-        """Initialize database schema if not present."""
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS agent_checkpoint (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    cards_committed_cursor TEXT,
-                    transactions_committed_cursor TEXT,
-                    last_successful_sync_at TEXT,
-                    last_error TEXT,
-                    last_error_at TEXT,
-                    last_heartbeat_at TEXT,
-                    updated_at TEXT NOT NULL
-                );
-                """
-            )
-            # Ensure row with id=1 exists
-            now_iso = datetime.now(UTC).isoformat()
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO agent_checkpoint (id, updated_at)
-                VALUES (1, ?);
-                """,
-                (now_iso,),
-            )
-            conn.commit()
+        """Initialize database schema, verify integrity and schema version."""
+        # If file already exists and is non-empty, check for corruption
+        if self.db_path.exists() and self.db_path.stat().st_size > 0:
+            try:
+                with sqlite3.connect(str(self.db_path), timeout=30.0) as test_conn:
+                    cur = test_conn.execute("PRAGMA quick_check;")
+                    row = cur.fetchone()
+                    if not row or row[0] != "ok":
+                        raise StateDbCorruptedError(
+                            f"STATE_DB_CORRUPTED: SQLite integrity check failed: {row[0] if row else 'empty'}"
+                        )
+            except sqlite3.DatabaseError as exc:
+                raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Corrupted SQLite database file: {exc}") from exc
+
+        conn = self._get_connection()
+        try:
+            with conn:
+                # Check user_version
+                cur = conn.execute("PRAGMA user_version;")
+                row = cur.fetchone()
+                current_ver = row[0] if row else 0
+
+                if current_ver > STATE_SCHEMA_VERSION:
+                    raise StateSchemaUnsupportedError(
+                        f"STATE_SCHEMA_UNSUPPORTED: Database schema version {current_ver} "
+                        f"is newer than supported version {STATE_SCHEMA_VERSION}."
+                    )
+
+                # Create table if not present
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_checkpoint (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        cards_committed_cursor TEXT,
+                        transactions_committed_cursor TEXT,
+                        last_successful_sync_at TEXT,
+                        last_error TEXT,
+                        last_error_at TEXT,
+                        last_heartbeat_at TEXT,
+                        updated_at TEXT NOT NULL
+                    );
+                    """
+                )
+
+                # Ensure row with id=1 exists
+                now_iso = datetime.now(UTC).isoformat()
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO agent_checkpoint (id, updated_at)
+                    VALUES (1, ?);
+                    """,
+                    (now_iso,),
+                )
+
+                # If migrating from v0 or creating new, stamp schema version
+                if current_ver < STATE_SCHEMA_VERSION:
+                    conn.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION};")
+                    logger.info("Stamped agent_state.db schema to version %d", STATE_SCHEMA_VERSION)
+        except sqlite3.DatabaseError as exc:
+            raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Failed initializing schema: {exc}") from exc
+        finally:
+            conn.close()
 
     def get_cursor(self, stream: str) -> str | None:
         """Get the last committed cursor for 'cards' or 'transactions'."""
+        if stream not in VALID_STREAMS:
+            raise ValueError(f"Invalid stream '{stream}'. Allowed: {VALID_STREAMS}")
+
         column = "cards_committed_cursor" if stream == "cards" else "transactions_committed_cursor"
         with self._get_connection() as conn:
             cursor = conn.execute(f"SELECT {column} FROM agent_checkpoint WHERE id = 1;")
@@ -75,6 +133,9 @@ class StateStore:
 
     def commit_cursor(self, stream: str, cursor_value: str | None, synced_at: datetime) -> None:
         """Persist new cursor and update last_successful_sync_at atomically."""
+        if stream not in VALID_STREAMS:
+            raise ValueError(f"Invalid stream '{stream}'. Allowed: {VALID_STREAMS}")
+
         column = "cards_committed_cursor" if stream == "cards" else "transactions_committed_cursor"
         synced_iso = synced_at.isoformat()
         now_iso = datetime.now(UTC).isoformat()
@@ -92,7 +153,8 @@ class StateStore:
                 (cursor_value, synced_iso, now_iso),
             )
             conn.commit()
-        logger.debug("Committed cursor for %s: %s (synced_at=%s)", stream, cursor_value, synced_iso)
+        # Zero raw cursor logged
+        logger.debug("Committed %s cursor checkpoint (synced_at=%s)", stream, synced_iso)
 
     def record_error(self, error_message: str, error_at: datetime | None = None) -> None:
         """Record operational error (sanitized to remove any secrets/PII)."""

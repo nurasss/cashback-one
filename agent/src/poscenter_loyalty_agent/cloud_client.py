@@ -31,6 +31,14 @@ class CloudRetryableError(CloudClientError):
         self.retry_after = retry_after
 
 
+class CloudProtocolError(CloudRetryableError):
+    """Raised when Cloud API returns a 2xx response with invalid JSON or malformed schema."""
+
+    def __init__(self, message: str = "CLOUD_PROTOCOL_ERROR: Invalid or malformed 2xx response from Cloud API.") -> None:
+        super().__init__(message)
+        self.code = "CLOUD_PROTOCOL_ERROR"
+
+
 class CloudNonRetryableError(CloudClientError):
     """Fatal or client-side error that must NOT be retried (e.g. 401, 403, 422)."""
 
@@ -95,15 +103,15 @@ class HttpCloudClient:
     def _handle_response_error(self, response: httpx.Response) -> None:
         status = response.status_code
         if status in (401, 403):
-            raise CloudAuthError(f"Cloud API authentication failed ({status}): {response.text[:200]}")
+            raise CloudAuthError(f"Cloud API authentication failed ({status})")
         if status == 429:
             retry_after_hdr = response.headers.get("Retry-After")
             retry_after = float(retry_after_hdr) if retry_after_hdr and retry_after_hdr.isdigit() else None
-            raise CloudRetryableError(f"Cloud API rate limited (429): {response.text[:200]}", retry_after=retry_after)
+            raise CloudRetryableError("Cloud API rate limited (429)", retry_after=retry_after)
         if 400 <= status < 500:
-            raise CloudNonRetryableError(f"Cloud API rejected request ({status}): {response.text[:200]}")
+            raise CloudNonRetryableError(f"Cloud API rejected request ({status})")
         if status >= 500:
-            raise CloudRetryableError(f"Cloud API server error ({status}): {response.text[:200]}")
+            raise CloudRetryableError(f"Cloud API server error ({status})")
 
     async def sync_cards(self, payload: CardsSyncPayload) -> CardsSyncResult:
         client = self._get_client()
@@ -120,7 +128,13 @@ class HttpCloudClient:
         if resp.is_error:
             self._handle_response_error(resp)
 
-        return CardsSyncResult.model_validate(resp.json())
+        try:
+            body = resp.json()
+            return CardsSyncResult.model_validate(body)
+        except Exception as exc:
+            raise CloudProtocolError(
+                f"CLOUD_PROTOCOL_ERROR: Failed parsing Cloud 2xx cards response: {type(exc).__name__}"
+            ) from None
 
     async def sync_transactions(self, payload: TransactionsSyncPayload) -> TransactionsSyncResult:
         client = self._get_client()
@@ -137,7 +151,13 @@ class HttpCloudClient:
         if resp.is_error:
             self._handle_response_error(resp)
 
-        return TransactionsSyncResult.model_validate(resp.json())
+        try:
+            body = resp.json()
+            return TransactionsSyncResult.model_validate(body)
+        except Exception as exc:
+            raise CloudProtocolError(
+                f"CLOUD_PROTOCOL_ERROR: Failed parsing Cloud 2xx transactions response: {type(exc).__name__}"
+            ) from None
 
     async def send_heartbeat(self, payload: HeartbeatPayload) -> HeartbeatResult:
         client = self._get_client()
@@ -154,7 +174,13 @@ class HttpCloudClient:
         if resp.is_error:
             self._handle_response_error(resp)
 
-        return HeartbeatResult.model_validate(resp.json())
+        try:
+            body = resp.json()
+            return HeartbeatResult.model_validate(body)
+        except Exception as exc:
+            raise CloudProtocolError(
+                f"CLOUD_PROTOCOL_ERROR: Failed parsing Cloud 2xx heartbeat response: {type(exc).__name__}"
+            ) from None
 
 
 class FakeCloudClient:

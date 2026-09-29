@@ -34,6 +34,20 @@ class OneMappingNotConfiguredError(SourceError):
         super().__init__(message)
 
 
+class SourceProtocolError(SourceError):
+    """Raised when source violates pagination protocol (e.g. empty page with has_more=True)."""
+
+    def __init__(
+        self,
+        message: str = "SOURCE_PROTOCOL_ERROR: Source returned empty items with has_more=True.",
+    ) -> None:
+        super().__init__(message)
+        self.code = "SOURCE_PROTOCOL_ERROR"
+
+
+SourceEmptyPageWithMoreError = SourceProtocolError
+
+
 @runtime_checkable
 class LoyaltySource(Protocol):
     """Protocol for extracting loyalty data from POSCENTER ONE."""
@@ -86,6 +100,8 @@ class FakeLoyaltySource:
         self.transactions_error: Exception | None = None
         self.simulate_stalled_cursor_on_cards = False
         self.simulate_stalled_cursor_on_transactions = False
+        self.simulate_empty_page_with_more_on_cards = False
+        self.simulate_empty_page_with_more_on_transactions = False
         self.is_closed = False
 
     async def fetch_cards(self, cursor: str | None, limit: int) -> SourceBatch[CardSyncItem]:
@@ -93,6 +109,13 @@ class FakeLoyaltySource:
             err = self.cards_error
             self.cards_error = None
             raise err
+
+        if self.simulate_empty_page_with_more_on_cards:
+            return SourceBatch[CardSyncItem](
+                items=[],
+                next_cursor=cursor,
+                has_more=True,
+            )
 
         offset = int(cursor) if (cursor and cursor.isdigit()) else 0
         batch = self.cards[offset : offset + limit]
@@ -119,6 +142,13 @@ class FakeLoyaltySource:
             err = self.transactions_error
             self.transactions_error = None
             raise err
+
+        if self.simulate_empty_page_with_more_on_transactions:
+            return SourceBatch[TransactionSyncItem](
+                items=[],
+                next_cursor=cursor,
+                has_more=True,
+            )
 
         offset = int(cursor) if (cursor and cursor.isdigit()) else 0
         batch = self.transactions[offset : offset + limit]

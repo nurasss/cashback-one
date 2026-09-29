@@ -13,6 +13,7 @@ from poscenter_loyalty_agent.cloud_client import (
     CloudAuthError,
     CloudClient,
     CloudNonRetryableError,
+    CloudProtocolError,
     CloudRetryableError,
     HttpCloudClient,
 )
@@ -27,6 +28,7 @@ from poscenter_loyalty_agent.retry import RetryState
 from poscenter_loyalty_agent.source import (
     LoyaltySource,
     OneMappingNotConfiguredError,
+    SourceProtocolError,
     get_loyalty_source,
 )
 from poscenter_loyalty_agent.state_store import StateStore
@@ -68,6 +70,7 @@ class AgentRuntime:
         self.retry_state = RetryState(
             initial_seconds=settings.sync_backoff_initial_seconds,
             max_seconds=settings.sync_backoff_max_seconds,
+            jitter_ratio=settings.sync_backoff_jitter_ratio,
             sleep_fn=self.sleep_fn,
         )
 
@@ -125,11 +128,20 @@ class AgentRuntime:
             pass
 
     async def _cleanup(self) -> None:
-        """Cancel background tasks, close resources, and release lock."""
-        logger.info("Cleaning up runtime resources...")
+        """Wait for in-flight operations up to shutdown grace period, then cancel tasks and close resources."""
+        grace = float(self.settings.shutdown_grace_seconds)
+        logger.info("Cleaning up runtime resources (grace period: %.1fs)...", grace)
         self._is_running = False
 
-        # Cancel tasks
+        active_tasks = [t for t in (self._sync_task, self._heartbeat_task) if t is not None and not t.done()]
+        if active_tasks and grace > 0:
+            try:
+                # Wait for active tasks to complete in-flight sync/commit
+                await asyncio.wait(active_tasks, timeout=grace)
+            except Exception as exc:
+                logger.warning("Error waiting for active tasks during shutdown: %s", exc)
+
+        # Force cancel any remaining tasks
         for task in (self._sync_task, self._heartbeat_task):
             if task and not task.done():
                 task.cancel()
@@ -207,11 +219,25 @@ class AgentRuntime:
 
             except asyncio.CancelledError:
                 break
+            except CloudProtocolError as exc:
+                err_msg = f"CLOUD_PROTOCOL_ERROR: {exc}"
+                logger.warning(err_msg)
+                self.state_store.record_error(err_msg)
+                delay = self.retry_state.next_delay(retry_after=exc.retry_after)
+                await self._sleep_cancellable(delay)
+
             except CloudRetryableError as exc:
                 err_msg = f"Cloud temporary error: {exc}"
                 logger.warning(err_msg)
                 self.state_store.record_error(err_msg)
                 delay = self.retry_state.next_delay(retry_after=exc.retry_after)
+                await self._sleep_cancellable(delay)
+
+            except SourceProtocolError as exc:
+                err_msg = f"SOURCE_PROTOCOL_ERROR: {exc}"
+                logger.error(err_msg)
+                self.state_store.record_error(err_msg)
+                delay = self.retry_state.next_delay()
                 await self._sleep_cancellable(delay)
 
             except OneMappingNotConfiguredError as exc:
@@ -261,25 +287,35 @@ class AgentRuntime:
                 pass
 
     async def sync_cycle(self) -> None:
-        """Executes one complete sync pass: all pending cards, then all pending transactions."""
+        """Executes one complete sync pass: cards stream then transactions stream."""
         await self._sync_cards_stream()
         await self._sync_transactions_stream()
 
     async def _sync_cards_stream(self) -> None:
-        """Paginate through all pending card batches until caught up."""
-        while not self._shutdown_event.is_set():
+        """Paginate through pending card batches up to max_pages_per_cycle."""
+        pages_synced = 0
+        max_pages = self.settings.max_pages_per_cycle
+
+        while not self._shutdown_event.is_set() and pages_synced < max_pages:
             current_cursor = self.state_store.get_cursor("cards")
             batch = await self.source.fetch_cards(
                 cursor=current_cursor,
                 limit=self.settings.batch_size_cards,
             )
 
+            # Protocol violation check: empty items but has_more=True
+            if not batch.items and batch.has_more:
+                raise SourceProtocolError(
+                    "SOURCE_PROTOCOL_ERROR: Cards source returned empty items with has_more=True."
+                )
+
             if batch.items:
+                pages_synced += 1
                 logger.info(
-                    "Syncing %d cards (current_cursor=%s, next_cursor=%s)",
+                    "Syncing %d cards (page=%d/%d, stream=cards)",
                     len(batch.items),
-                    current_cursor,
-                    batch.next_cursor,
+                    pages_synced,
+                    max_pages,
                 )
                 payload = CardsSyncPayload(cards=batch.items)
                 ack = await self.cloud_client.sync_cards(payload)
@@ -297,27 +333,40 @@ class AgentRuntime:
             # Check for stalled cursor
             if batch.has_more and batch.next_cursor == current_cursor:
                 raise SourceCursorStalledError(
-                    f"SOURCE_CURSOR_STALLED: Cards source returned has_more=True with unchanged cursor '{current_cursor}'"
+                    "SOURCE_CURSOR_STALLED: Cards source returned has_more=True with unchanged cursor."
                 )
 
             if not batch.has_more:
                 break
 
+        if pages_synced >= max_pages:
+            logger.info("Cards stream reached max page budget (%d pages); cycle continuing.", max_pages)
+
     async def _sync_transactions_stream(self) -> None:
-        """Paginate through all pending transaction batches until caught up."""
-        while not self._shutdown_event.is_set():
+        """Paginate through pending transaction batches up to max_pages_per_cycle."""
+        pages_synced = 0
+        max_pages = self.settings.max_pages_per_cycle
+
+        while not self._shutdown_event.is_set() and pages_synced < max_pages:
             current_cursor = self.state_store.get_cursor("transactions")
             batch = await self.source.fetch_transactions(
                 cursor=current_cursor,
                 limit=self.settings.batch_size_transactions,
             )
 
+            # Protocol violation check: empty items but has_more=True
+            if not batch.items and batch.has_more:
+                raise SourceProtocolError(
+                    "SOURCE_PROTOCOL_ERROR: Transactions source returned empty items with has_more=True."
+                )
+
             if batch.items:
+                pages_synced += 1
                 logger.info(
-                    "Syncing %d transactions (current_cursor=%s, next_cursor=%s)",
+                    "Syncing %d transactions (page=%d/%d, stream=transactions)",
                     len(batch.items),
-                    current_cursor,
-                    batch.next_cursor,
+                    pages_synced,
+                    max_pages,
                 )
                 payload = TransactionsSyncPayload(transactions=batch.items)
                 ack = await self.cloud_client.sync_transactions(payload)
@@ -334,8 +383,11 @@ class AgentRuntime:
             # Check for stalled cursor
             if batch.has_more and batch.next_cursor == current_cursor:
                 raise SourceCursorStalledError(
-                    f"SOURCE_CURSOR_STALLED: Transactions source returned has_more=True with unchanged cursor '{current_cursor}'"
+                    "SOURCE_CURSOR_STALLED: Transactions source returned has_more=True with unchanged cursor."
                 )
 
             if not batch.has_more:
                 break
+
+        if pages_synced >= max_pages:
+            logger.info("Transactions stream reached max page budget (%d pages); cycle continuing.", max_pages)

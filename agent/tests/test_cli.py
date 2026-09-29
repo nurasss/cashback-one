@@ -1,6 +1,7 @@
 """Tests for poscenter-loyalty-agent CLI commands."""
 
 import argparse
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -20,9 +21,10 @@ def test_cli_check_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     assert db_file.exists()
 
 
-def test_cli_status(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_cli_status(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     db_file = tmp_path / "cli_state.db"
     store = StateStore(db_file)
+    store.commit_cursor("cards", "super_secret_raw_cursor_12345", synced_at=datetime.now(UTC))
     store.record_error("Test CLI error")
 
     monkeypatch.setenv("AGENT_API_KEY", "test-api-key-for-cli")
@@ -31,3 +33,9 @@ def test_cli_status(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     args = argparse.Namespace()
     exit_code = cmd_status(args)
     assert exit_code == 0
+
+    captured = capsys.readouterr().out
+    assert "Cards Cursor Status:           set" in captured
+    assert "Transactions Cursor Status:    (none)" in captured
+    # Raw cursor is NOT leaked
+    assert "super_secret_raw_cursor_12345" not in captured

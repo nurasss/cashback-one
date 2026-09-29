@@ -3,7 +3,7 @@
 CRITICAL CONSTRAINTS:
 1. No 1C metadata object names are hardcoded here (Stage 0 discovery is required first).
 2. Cross-platform safe: pywin32 / win32com is only loaded dynamically on Windows.
-3. Secrets (passwords in connection string) are masked in all logs and error messages.
+3. The ENTIRE connection string is treated as a secret: never logged or included in exceptions.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ import logging
 import re
 import sys
 from typing import Any
-
-from poscenter_loyalty_agent.logging import sanitize_message
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +25,7 @@ class COMConnectionError(RuntimeError):
 
 
 def sanitize_connection_string(conn_str: str) -> str:
-    """Mask password parameters in 1C connection strings."""
+    """Mask password parameters in 1C connection strings (utility for isolated tests)."""
     return re.sub(r'(?i)(pwd|password|pass)\s*=\s*[^;\s]+', r'\1=***REDACTED***', conn_str)
 
 
@@ -48,32 +46,32 @@ class OneComConnector:
 
         Raises COMPlatformUnsupportedError on non-Windows platforms.
         Raises COMConnectionError if COM connector instantiation or Connect() fails.
+        Guarantees zero connection string leakage into logs or exception messages.
         """
         if not self.is_supported():
             raise COMPlatformUnsupportedError(
                 f"V83.COMConnector is only supported on Windows. Current platform is {sys.platform}."
             )
 
-        sanitized_conn = sanitize_connection_string(self.connection_string)
-        logger.info("Connecting to 1C infobase: %s", sanitized_conn)
+        # Entire connection string is treated as secret - zero connection details logged
+        logger.info("Connecting to POSCENTER ONE via COM")
 
         try:
             import win32com.client  # type: ignore[import-untyped]
-        except ImportError as exc:
+        except ImportError:
+            logger.error("ONE_CONNECTION_FAILED: pywin32 / win32com is not installed.")
             raise COMConnectionError(
-                f"pywin32 / win32com is not installed on this Windows environment: {exc}"
-            ) from exc
+                "ONE_CONNECTION_FAILED: pywin32 / win32com is not installed on this Windows environment."
+            ) from None
 
         try:
             connector = win32com.client.Dispatch("V83.COMConnector")
             self._connection = connector.Connect(self.connection_string)
             logger.info("Successfully established 1C COM connection.")
             return self._connection
-        except Exception as exc:
-            sanitized_err = sanitize_message(str(exc))
-            raise COMConnectionError(
-                f"Failed to connect to 1C infobase ({sanitized_conn}): {sanitized_err}"
-            ) from exc
+        except Exception:
+            logger.error("ONE_CONNECTION_FAILED: Unable to establish COM connection.")
+            raise COMConnectionError("ONE_CONNECTION_FAILED: Unable to establish COM connection.") from None
 
     def disconnect(self) -> None:
         """Release COM reference."""

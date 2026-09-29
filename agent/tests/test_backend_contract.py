@@ -68,3 +68,42 @@ def test_heartbeat_payload_matches_backend_contract() -> None:
     dumped = json.loads(hb.model_dump_json())
     assert dumped["version"] == "0.1.0"
     assert dumped["error"] == "Network timeout connecting to 1C infobase"
+
+
+def test_timezone_aware_validation() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    naive_dt = datetime(2026, 9, 29, 12, 0, 0)  # No tzinfo
+
+    # CardSyncItem rejects naive
+    with pytest.raises(ValidationError, match="timezone-aware"):
+        CardSyncItem(
+            barcode="2000000000001",
+            balance=Decimal("100"),
+            updated_at=naive_dt,
+        )
+
+    # TransactionSyncItem rejects naive
+    with pytest.raises(ValidationError, match="timezone-aware"):
+        TransactionSyncItem(
+            external_id="tx-1",
+            barcode="2000000000001",
+            type="accrual",
+            amount=Decimal("10"),
+            balance_after=Decimal("20"),
+            occurred_at=naive_dt,
+        )
+
+    # HeartbeatPayload rejects naive
+    with pytest.raises(ValidationError, match="timezone-aware"):
+        HeartbeatPayload(last_successful_sync_at=naive_dt)
+
+    # Aware datetimes are accepted
+    aware_dt = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
+    card = CardSyncItem(
+        barcode="2000000000001",
+        balance=Decimal("100"),
+        updated_at=aware_dt,
+    )
+    assert card.updated_at.tzinfo is not None

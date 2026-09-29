@@ -70,36 +70,35 @@ flowchart TD
    - Transactions are deduplicated on `(card_id, external_id)`.
 
 ### 3.2 Opaque Cursors & Stalled Cursor Detection
-- The agent runtime treats cursors as opaque strings (`str | None`) and never parses internal 1C references.
-- To prevent infinite loops caused by misbehaving sources, the runtime checks:
-  If `batch.has_more is True` and `batch.next_cursor == current_cursor`:
-  The runtime immediately raises `SOURCE_CURSOR_STALLED`, records the error, enters backoff, and yields execution.
+- The agent runtime treats cursors as opaque strings (`str | None`) and never parses internal provider references.
+- **Opaque Cursor Contract (TASK-009 requirement):**
+  - Deterministic: identical position yields identical cursor.
+  - Opaque: runtime treats it as an uninspected string token.
+  - Zero PII: must never contain phone numbers, full names, or card barcodes.
+  - Zero Credentials: must never contain passwords or infobase connection details.
+  - Process-Independent: persists across restarts in SQLite.
+- To prevent infinite loops caused by misbehaving sources:
+  - If `batch.has_more is True` and `batch.next_cursor == current_cursor`: runtime raises `SOURCE_CURSOR_STALLED`.
+  - If `len(batch.items) == 0` and `batch.has_more is True`: runtime raises `SOURCE_PROTOCOL_ERROR`.
+  In both cases, cursor does not advance, Cloud call is skipped, and runtime backs off safely.
 
-### 3.3 Zero Secrets & Zero PII in State Store
-- The local SQLite database (`agent_state.db`) stores strictly operational metadata:
-  - `cards_committed_cursor`
-  - `transactions_committed_cursor`
-  - `last_successful_sync_at`
-  - `last_heartbeat_at`
-  - `last_error` (sanitized through redaction filters)
-  - `last_error_at`
+### 3.3 Zero Secrets & Zero PII in State Store & Logs
+- The local SQLite database (`agent_state.db`) stores strictly operational metadata (`cards_committed_cursor`, `transactions_committed_cursor`, `last_successful_sync_at`, `last_heartbeat_at`, `last_error`, `last_error_at`).
 - **Zero PII**: No customer names, phone numbers, or card barcodes are persisted in the checkpoint store.
-- **Zero Secrets**: Passwords in connection strings (`Pwd=...`) and API keys are automatically redacted in logs and SQLite error columns.
+- **Zero Secrets**: Entire `ONE_CONNECTION_STRING` is treated as a secret; never logged or revealed in exceptions.
+- **Cursor Privacy**: Raw cursor values are never written to standard logs or CLI status output.
 
-### 3.4 Process Singleton Guarantee
-- `ProcessLock` enforces single-instance execution per directory/machine.
-- POSIX: `fcntl.flock(LOCK_EX | LOCK_NB)`.
-- Windows: `msvcrt.locking` on an exclusive lock file (`agent.lock`).
-- If an instance is already running, starting another process immediately raises `AGENT_ALREADY_RUNNING` and halts with exit code 1.
+### 3.4 Page Budget per Stream
+- `AGENT_MAX_PAGES_PER_CYCLE` limits pages processed per cycle independently for `cards` and `transactions`.
+- If the cards stream exhausts its budget, the transactions stream still receives its full budget, preventing transaction starvation during large card backlogs.
+- Reaching the page limit is a normal operational boundary, not an error.
 
-### 3.5 Independent Heartbeat Loop
-- The heartbeat loop runs as an independent concurrent task.
-- Even if the synchronization loop enters backoff due to source or network issues, the heartbeat continues to report agent operational status and last known errors to Cloud API.
+### 3.5 Bounded Graceful Shutdown
+- `AGENT_SHUTDOWN_GRACE_SECONDS` allows in-flight sync operations and cursor commits to finish cleanly before forcing task cancellation.
 
 ### 3.6 Stage 0 Discovery Requirement
-- In strict adherence to Stage 0 constraints, real 1C metadata object names (`Справочники.ДисконтныеКарты`, `РегистрыНакопления.Бонусы` etc.) are **NOT** hardcoded or guessed.
+- Real 1C metadata object and field names are **not hardcoded or guessed**.
 - Production installations default to `ONE_ADAPTER_MODE=stub`, which safely raises `ONE_MAPPING_NOT_CONFIGURED` pointing to `docs/ONE_STAGE0_REQUIRED.md`.
-- Once Stage 0 schema discovery is executed against a real pilot 1C infobase, mapping modules can be plugged in without changing runtime architecture.
 
 ---
 
@@ -110,13 +109,13 @@ flowchart TD
 | `config.py` | Pydantic-based configuration management (`AgentSettings`) with strict production validations (HTTPS, key length, adapter mode checks). |
 | `logging.py` | Structured logger with rotating file handler (`RotatingFileHandler`) and secret/PII redaction filter. |
 | `process_lock.py` | OS-level exclusive process lock (`AGENT_ALREADY_RUNNING`). |
-| `models.py` | Pydantic domain models & DTOs strictly aligned with Cloud API schema (`CardSyncItem`, `TransactionSyncItem`, etc.). |
-| `state_store.py` | SQLite checkpoint repository with WAL mode, atomic commits, and sanitized error recording. |
-| `cloud_client.py` | Async HTTP client (`HttpCloudClient`) using `httpx` with timeout management, retryable/non-retryable error categorization. |
-| `source.py` | `LoyaltySource` protocol with `StubLoyaltySource` (default) and `FakeLoyaltySource` (testing). |
-| `one_com.py` | Guarded connection seam for `V83.COMConnector` with platform safety check and password sanitization. |
-| `retry.py` | Exponential backoff algorithm with jitter and `Retry-After` header support. |
-| `runtime.py` | `AgentRuntime` managing sync cycle, pagination, cursor progression, heartbeat loop, and graceful shutdown. |
+| `models.py` | Pydantic domain models & DTOs strictly aligned with Cloud API schema (`CardSyncItem`, `TransactionSyncItem`, etc.) with timezone validation. |
+| `state_store.py` | SQLite checkpoint repository with WAL mode, schema versioning (v1), corruption detection, and sanitized error recording. |
+| `cloud_client.py` | Async HTTP client (`HttpCloudClient`) using `httpx` with timeout management, retryable/non-retryable error categorization, and malformed 2xx protection (`CloudProtocolError`). |
+| `source.py` | `LoyaltySource` protocol with `StubLoyaltySource` (default) and `FakeLoyaltySource` (testing) and protocol violation handling (`SourceProtocolError`). |
+| `one_com.py` | Guarded connection seam for `V83.COMConnector` with platform safety check and total connection string secrecy. |
+| `retry.py` | Exponential backoff algorithm with configurable jitter ratio and capped `Retry-After` header support. |
+| `runtime.py` | `AgentRuntime` managing sync cycle, stream page budgets, cursor progression, heartbeat loop, and bounded graceful shutdown. |
 | `windows_service.py` | Cross-platform safe Windows Service wrapper (`win32serviceutil.ServiceFramework`). |
 | `main.py` | CLI entrypoints (`run`, `check-config`, `status`, `service`). |
 
@@ -134,10 +133,15 @@ flowchart TD
 | `AGENT_HTTP_TIMEOUT_SECONDS` | `30.0` | Timeout for HTTP requests (seconds) |
 | `AGENT_CARD_BATCH_SIZE` | `100` | Max cards per batch (backend limit: 500) |
 | `AGENT_TX_BATCH_SIZE` | `200` | Max transactions per batch (backend limit: 1000) |
+| `AGENT_MAX_PAGES_PER_CYCLE` | `10` | Max pages per sync cycle per stream |
+| `AGENT_SYNC_BACKOFF_INITIAL_SECONDS` | `2.0` | Initial retry backoff delay (seconds) |
+| `AGENT_SYNC_BACKOFF_MAX_SECONDS` | `300.0` | Maximum retry backoff delay (seconds) |
+| `AGENT_SYNC_BACKOFF_JITTER_RATIO` | `0.2` | Random jitter ratio applied to backoff |
+| `AGENT_SHUTDOWN_GRACE_SECONDS` | `30.0` | Grace period for active in-flight sync requests during shutdown |
 | `AGENT_STATE_DB_PATH` | Platform default | Path to `agent_state.db` SQLite file |
 | `AGENT_LOG_DIR` | Platform default | Directory for rotating log files |
 | `ONE_ADAPTER_MODE` | `stub` | Mode: `stub`, `fake` (test only), `com` |
-| `ONE_CONNECTION_STRING` | `""` | 1C COM connection string (e.g. `File="C:\1C\db";Usr="...;Pwd="...;`) |
+| `ONE_CONNECTION_STRING` | `""` | 1C COM connection string (entire string treated as secret) |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
 ---

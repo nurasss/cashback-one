@@ -15,9 +15,68 @@ def test_default_settings() -> None:
     assert settings.one_adapter_mode == "stub"
     assert settings.agent_card_batch_size == 100
     assert settings.agent_tx_batch_size == 200
+    assert settings.agent_max_pages_per_cycle == 10
+    assert settings.max_pages_per_cycle == 10
     assert settings.state_db_path.name == "agent_state.db"
     assert settings.lock_file_path.name == "agent.lock"
     assert settings.log_file_path.name == "agent.log"
+    assert settings.cloud_api_verify_ssl is True
+
+
+def test_tls_verification_across_all_environments() -> None:
+    # Production HTTPS
+    prod = AgentSettings(
+        agent_env="production",
+        agent_cloud_base_url="https://cloud.example.com",
+        agent_api_key="a" * 20,
+    )
+    assert prod.cloud_api_verify_ssl is True
+
+    # Development HTTPS
+    dev = AgentSettings(
+        agent_env="development",
+        agent_cloud_base_url="https://dev-cloud.example.com",
+        agent_api_key="a" * 20,
+    )
+    assert dev.cloud_api_verify_ssl is True
+
+    # Test HTTPS
+    test = AgentSettings(
+        agent_env="test",
+        agent_cloud_base_url="https://test-cloud.example.com",
+        agent_api_key="a" * 20,
+    )
+    assert test.cloud_api_verify_ssl is True
+
+
+def test_no_verify_false_in_agent_source() -> None:
+    """Regression check: Agent source code must never contain verify=False."""
+    src_dir = Path(__file__).parent.parent / "src"
+    for py_file in src_dir.rglob("*.py"):
+        content = py_file.read_text(encoding="utf-8")
+        assert "verify=False" not in content, f"Found verify=False in {py_file}"
+        assert "verify = False" not in content, f"Found verify = False in {py_file}"
+
+
+def test_retry_backoff_bounds_validation() -> None:
+    # max < initial raises ValidationError
+    with pytest.raises(ValidationError, match="must be >= AGENT_SYNC_BACKOFF_INITIAL_SECONDS"):
+        AgentSettings(
+            agent_api_key="test-api-key",
+            agent_sync_backoff_initial_seconds=10.0,
+            agent_sync_backoff_max_seconds=5.0,
+        )
+
+    # Valid custom backoff
+    settings = AgentSettings(
+        agent_api_key="test-api-key",
+        agent_sync_backoff_initial_seconds=1.5,
+        agent_sync_backoff_max_seconds=120.0,
+        agent_sync_backoff_jitter_ratio=0.1,
+    )
+    assert settings.sync_backoff_initial_seconds == 1.5
+    assert settings.sync_backoff_max_seconds == 120.0
+    assert settings.sync_backoff_jitter_ratio == 0.1
 
 
 def test_production_validations() -> None:

@@ -77,6 +77,27 @@ class AgentSettings(BaseSettings):
         le=100,
         description="Maximum source pages processed in a single poll cycle",
     )
+    agent_sync_backoff_initial_seconds: float = Field(
+        default=2.0,
+        gt=0.0,
+        description="Initial retry backoff delay in seconds",
+    )
+    agent_sync_backoff_max_seconds: float = Field(
+        default=300.0,
+        ge=1.0,
+        description="Maximum retry backoff delay in seconds",
+    )
+    agent_sync_backoff_jitter_ratio: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Random jitter ratio applied to retry backoff",
+    )
+    agent_shutdown_grace_seconds: float = Field(
+        default=30.0,
+        ge=0.0,
+        description="Grace period in seconds for in-flight sync operations on shutdown",
+    )
     agent_state_db_path: Path | None = Field(
         default=None,
         description="Path to SQLite durable state database",
@@ -156,6 +177,13 @@ class AgentSettings(BaseSettings):
             if not self.one_connection_string.strip():
                 raise ValueError("ONE_CONNECTION_STRING is required when ONE_ADAPTER_MODE='com' in production")
 
+        # Validate backoff bounds
+        if self.agent_sync_backoff_max_seconds < self.agent_sync_backoff_initial_seconds:
+            raise ValueError(
+                f"AGENT_SYNC_BACKOFF_MAX_SECONDS ({self.agent_sync_backoff_max_seconds}) "
+                f"must be >= AGENT_SYNC_BACKOFF_INITIAL_SECONDS ({self.agent_sync_backoff_initial_seconds})"
+            )
+
         # Resolve default paths if not explicitly provided
         base_dir = get_default_data_dir()
         if self.agent_state_db_path is None:
@@ -189,7 +217,8 @@ class AgentSettings(BaseSettings):
 
     @property
     def cloud_api_verify_ssl(self) -> bool:
-        return self.agent_env == "production"
+        """TLS certificate verification is enabled by default across ALL environments."""
+        return True
 
     @property
     def sync_interval_seconds(self) -> int:
@@ -208,12 +237,24 @@ class AgentSettings(BaseSettings):
         return self.agent_tx_batch_size
 
     @property
+    def max_pages_per_cycle(self) -> int:
+        return self.agent_max_pages_per_cycle
+
+    @property
+    def shutdown_grace_seconds(self) -> float:
+        return self.agent_shutdown_grace_seconds
+
+    @property
     def sync_backoff_initial_seconds(self) -> float:
-        return 2.0
+        return self.agent_sync_backoff_initial_seconds
 
     @property
     def sync_backoff_max_seconds(self) -> float:
-        return 60.0
+        return self.agent_sync_backoff_max_seconds
+
+    @property
+    def sync_backoff_jitter_ratio(self) -> float:
+        return self.agent_sync_backoff_jitter_ratio
 
 
 def get_agent_settings() -> AgentSettings:
