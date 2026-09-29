@@ -251,4 +251,4 @@ Changes to be committed:
 
 ## HEAD
 
-(Будет зафиксирован после завершения коммита).
+`21e6ee9b83204c65b4eee2b4bac30b26ac104d9f`
