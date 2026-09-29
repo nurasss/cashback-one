@@ -56,6 +56,22 @@ class Settings(BaseSettings):
         description="Maximum allowed body size for Wappi webhook requests (default 64KB).",
     )
 
+    # SMS OTP Fallback Configuration (TASK-007)
+    sms_otp_hash_key: str = Field(
+        default="",
+        description="HMAC secret key for SMS OTP code digests (min 32 chars).",
+    )
+    sms_otp_ttl_seconds: int = 300  # 5 minutes
+    sms_otp_max_attempts: int = 5
+    sms_otp_request_phone_limit: int = 3
+    sms_otp_request_device_limit: int = 5
+    sms_otp_request_ip_limit: int = 20
+    sms_otp_rate_window_seconds: int = 300
+    sms_provider_mode: str = Field(
+        default="disabled",
+        description="SMS provider mode: 'disabled' or 'fake'.",
+    )
+
     # Auth TTL and limits
     challenge_ttl_seconds: int = 180  # 3 minutes
     access_token_ttl_seconds: int = 900  # 15 minutes
@@ -90,6 +106,8 @@ class Settings(BaseSettings):
                 self.jwt_signing_key = "test_jwt_signing_key_at_least_32_chars_long_12345"
             if not self.auth_challenge_hash_key:
                 self.auth_challenge_hash_key = "test_challenge_hash_key_at_least_32_chars_long_12345"
+            if not self.sms_otp_hash_key:
+                self.sms_otp_hash_key = "test_sms_otp_hash_key_min_32_characters_12345"
             if not self.whatsapp_login_number:
                 self.whatsapp_login_number = "+77001234567"
             if not self.wappi_login_profile_id:
@@ -105,6 +123,10 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SIGNING_KEY must be provided and be at least 32 characters long")
             if not self.auth_challenge_hash_key or len(self.auth_challenge_hash_key.strip()) < 32:
                 raise ValueError("AUTH_CHALLENGE_HASH_KEY must be provided and be at least 32 characters long")
+            if not self.sms_otp_hash_key:
+                self.sms_otp_hash_key = self.auth_challenge_hash_key
+            if len(self.sms_otp_hash_key.strip()) < 32:
+                raise ValueError("SMS_OTP_HASH_KEY must be at least 32 characters long")
             if not self.wappi_login_profile_id or not self.wappi_login_profile_id.strip():
                 raise ValueError("WAPPI_LOGIN_PROFILE_ID must be provided in environment or .env")
             if not self.wappi_webhook_auth_header or not self.wappi_webhook_auth_header.strip():

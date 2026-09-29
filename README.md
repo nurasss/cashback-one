@@ -48,7 +48,7 @@
 
 ---
 
-## 🚀 Текущее состояние (TASK-001 + TASK-002 + TASK-003 + TASK-004 + TASK-005 + TASK-006)
+## 🚀 Текущее состояние (TASK-001 + TASK-002 + TASK-003 + TASK-004 + TASK-005 + TASK-006 + TASK-007)
 
 ### Реализовано в рамках TASK-001 (Фундамент и модель данных):
 * Базовый монорепозиторий и `.gitignore`.
@@ -174,8 +174,27 @@
 * **Тестирование:**
   * 175+ тестов (100% passing), включая специализированный набор PG-BIND-01..04 на PostgreSQL 16 с `asyncio.Barrier`.
 
+### Реализовано в рамках TASK-007 (SMS Fallback Authentication Core):
+* **Спецификация контракта провайдера:** Подробный контракт зафиксирован в [`docs/SMS_PROVIDER_CONTRACT.md`](docs/SMS_PROVIDER_CONTRACT.md).
+* **Архитектура аутентификации:** Обновлена в [`docs/AUTH.md`](docs/AUTH.md).
+* **Эндпоинты SMS-аутентификации:**
+  * `POST /auth/sms/request`: запрос 6-значного SMS OTP с валидацией E.164 телефона, `device_id` и многоуровневым rate limiting (телефон, устройство, IP).
+  * `POST /auth/sms/verify`: верификация OTP-кода с row-level locking (`with_for_update()`), лимитом 5 попыток, TTL 5 минут, одноразовым потреблением и выдачей `TokenResponse` (access JWT + refresh token).
+* **Криптографическая безопасность:**
+  * OTP генерируется через `secrets.choice` строго из 6 десятичных цифр.
+  * Открытый OTP **никогда не сохраняется в БД и не логируется**.
+  * В таблице `otp_codes` хранится HMAC-SHA256 digest (`SMS_OTP_HASH_KEY`).
+  * Для Redis rate limiter ключи телефонов хэшируются в SHA-256 fingerprint.
+* **Атомарность и отказоустойчивость:**
+  * При ошибке доставки SMS или в режиме `SMS_PROVIDER_MODE=disabled` сессия БД откатывается (`rollback`), повисших кодов в БД не создается, клиенту возвращается 503.
+  * На PostgreSQL одновременные запросы сериализуются через `pg_advisory_xact_lock`, гарантируя, что для пары `(phone, device_id)` активен ровно один OTP.
+* **Миграции Alembic:**
+  * `0007_sms_auth_core.py`: добавление `device_id`, `status`, `verified_at` в `otp_codes`, сужение `code_hash` до `VARCHAR(64)` и составной индекс `ix_otp_codes_phone_device_id`.
+* **Тестирование:**
+  * 195+ тестов (100% passing), включая полный набор PostgreSQL concurrency тестов PG-SMS-01..04.
+
 ### Отложено до следующих задач:
-* Резервный SMS OTP flow.
+* Подключение конкретного вендорного SMS-шлюза (Twilio, SMSC, Mobizon и др.) через адаптер к `SmsProvider` Protocol.
 * Кассирская активация карт без телефона / активационный код в 1С.
 * Windows-служба агента и COM `V83.COMConnector`.
 * Мобильное приложение Expo/React Native (камера сканера QR/штрихкода).

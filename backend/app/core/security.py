@@ -97,3 +97,30 @@ def decode_access_token(token: str) -> dict[str, Any]:
             message="Invalid or tampered access token",
             status_code=401,
         ) from err
+
+
+def generate_sms_otp() -> str:
+    """Generate cryptographically secure 6-digit numeric OTP."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def hash_sms_otp(phone: str, otp: str, secret_key: str | None = None) -> str:
+    """Compute HMAC-SHA256 digest of normalized phone and OTP.
+
+    Domain-separated format: '{normalized_phone}:{otp}'.
+    """
+    key = (secret_key or settings.sms_otp_hash_key).encode()
+    payload = f"{phone.strip()}:{otp.strip()}".encode()
+    return hmac.new(key, payload, hashlib.sha256).hexdigest()
+
+
+def verify_sms_otp_hash(
+    phone: str,
+    otp: str,
+    expected_hash: str,
+    secret_key: str | None = None,
+) -> bool:
+    """Constant-time verification of SMS OTP HMAC-SHA256 digest."""
+    computed_hash = hash_sms_otp(phone, otp, secret_key)
+    return hmac.compare_digest(computed_hash, expected_hash)
+

@@ -227,16 +227,25 @@ class OtpCode(Base, UUIDPrimaryKey):
 
     __tablename__ = "otp_codes"
     __table_args__ = (
-        Index("ix_otp_codes_phone", "phone"),
+        Index("ix_otp_codes_phone_device_id", "phone", "device_id"),
         Index("ix_otp_codes_expires_at", "expires_at"),
     )
 
     phone: Mapped[str] = mapped_column(String(32), nullable=False)
-    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    device_id: Mapped[str] = mapped_column(
+        String(128), default="", server_default="", nullable=False
+    )
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", server_default="pending", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

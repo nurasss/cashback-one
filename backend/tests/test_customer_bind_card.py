@@ -558,6 +558,58 @@ async def test_bind_card_foreign_owner_cannot_be_stolen(
 
 
 @pytest.mark.asyncio
+async def test_bind_card_foreign_owner_cannot_be_stolen_even_if_card_phone_changed_to_new_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Card owned by User A cannot be bound by User B even if Card.phone mirror later becomes User B's phone."""
+    user_a, _ = await create_test_customer(db_session, phone="+77011110000")
+    _, token_b = await create_test_customer(db_session, phone="+77012220000")
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    biz = Business(name="Supermarket", status="active")
+    db_session.add(biz)
+    await db_session.flush()
+
+    card = Card(
+        business_id=biz.id,
+        barcode="0123456789012",
+        phone="+77011110000",
+        balance=Decimal("500.0000"),
+    )
+    db_session.add(card)
+    await db_session.flush()
+
+    user_card_a = UserCard(
+        user_id=user_a.id,
+        card_id=card.id,
+        bind_method="manual_barcode",
+        hidden_at=None,
+    )
+    db_session.add(user_card_a)
+    await db_session.commit()
+
+    # Mirror phone in ONE changes to User B's phone
+    card.phone = "+77012220000"
+    await db_session.commit()
+
+    # User B attempts to bind: phone matches Card.phone, but UserCard is already owned by User A
+    resp = await client.post(
+        "/me/cards/bind",
+        json={"barcode": "0123456789012"},
+        headers=headers_b,
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "CARD_BIND_NOT_ALLOWED"
+
+    # Verify User A remains sole owner in user_cards
+    owner = (
+        await db_session.execute(select(UserCard.user_id).where(UserCard.card_id == card.id))
+    ).scalar_one()
+    assert owner == user_a.id
+
+
+@pytest.mark.asyncio
 async def test_bind_card_foreign_hidden_owner_cannot_be_stolen(
     client: AsyncClient,
     db_session: AsyncSession,

@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime
 
@@ -62,3 +63,88 @@ class LogoutRequest(BaseModel):
 
 class LogoutResponse(BaseModel):
     status: str = "ok"
+
+
+class SmsOtpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phone: str = Field(..., description="Customer phone number in international format")
+    device_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Unique device identifier of the mobile installation",
+    )
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        from app.core.phone import normalize_phone
+
+        try:
+            norm = normalize_phone(v)
+            if not norm:
+                raise ValueError("Phone number cannot be blank")
+            return norm
+        except ValueError as e:
+            raise ValueError(f"Invalid phone number: {e}") from e
+
+    @field_validator("device_id")
+    @classmethod
+    def normalize_and_validate_device_id(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("device_id cannot be blank or whitespace-only")
+        if len(stripped) > 128:
+            raise ValueError("device_id length cannot exceed 128 characters")
+        return stripped
+
+
+class SmsOtpRequestResponse(BaseModel):
+    status: str = "sent"
+    expires_in: int
+
+
+class SmsOtpVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phone: str = Field(..., description="Customer phone number in international format")
+    device_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Unique device identifier of the mobile installation",
+    )
+    code: str = Field(..., description="6-digit verification code")
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        from app.core.phone import normalize_phone
+
+        try:
+            norm = normalize_phone(v)
+            if not norm:
+                raise ValueError("Phone number cannot be blank")
+            return norm
+        except ValueError as e:
+            raise ValueError(f"Invalid phone number: {e}") from e
+
+    @field_validator("device_id")
+    @classmethod
+    def normalize_and_validate_device_id(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("device_id cannot be blank or whitespace-only")
+        if len(stripped) > 128:
+            raise ValueError("device_id length cannot exceed 128 characters")
+        return stripped
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        stripped = v.strip()
+        if not re.fullmatch(r"^\d{6}$", stripped):
+            raise ValueError("Verification code must be exactly 6 digits")
+        return stripped
+

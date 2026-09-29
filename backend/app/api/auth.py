@@ -27,9 +27,14 @@ from app.schemas.auth import (
     LogoutRequest,
     LogoutResponse,
     RefreshTokenRequest,
+    SmsOtpRequest,
+    SmsOtpRequestResponse,
+    SmsOtpVerifyRequest,
     TokenResponse,
 )
 from app.services.rate_limiter import RateLimiter, get_rate_limiter
+from app.services.sms_auth_service import request_sms_otp, verify_sms_otp
+from app.services.sms_provider import SmsProvider, get_sms_provider
 from app.services.user_service import get_or_create_user_by_phone
 
 router = APIRouter(prefix="/auth", tags=["Customer Auth"])
@@ -296,3 +301,38 @@ async def logout(
         await session.commit()
 
     return LogoutResponse(status="ok")
+
+
+@router.post("/sms/request", response_model=SmsOtpRequestResponse)
+async def request_sms(
+    body: SmsOtpRequest,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    provider: Annotated[SmsProvider, Depends(get_sms_provider)],
+) -> SmsOtpRequestResponse:
+    """Request a 6-digit SMS OTP for customer login/verification."""
+    client_ip = request.client.host if request.client else "unknown"
+    return await request_sms_otp(
+        session=session,
+        limiter=limiter,
+        sms_provider=provider,
+        phone=body.phone,
+        device_id=body.device_id,
+        client_ip=client_ip,
+    )
+
+
+@router.post("/sms/verify", response_model=TokenResponse)
+async def verify_sms(
+    body: SmsOtpVerifyRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> TokenResponse:
+    """Verify SMS OTP code and issue access & refresh tokens."""
+    return await verify_sms_otp(
+        session=session,
+        phone=body.phone,
+        device_id=body.device_id,
+        code=body.code,
+    )
+
