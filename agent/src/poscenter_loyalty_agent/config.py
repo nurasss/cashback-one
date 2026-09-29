@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -121,12 +121,14 @@ class AgentSettings(BaseSettings):
     log_max_bytes: int = Field(
         default=10_485_760,
         ge=1024,
+        validation_alias=AliasChoices("log_max_bytes", "agent_log_max_bytes"),
         description="Maximum log file size before rotation (bytes)",
     )
     log_backup_count: int = Field(
         default=5,
         ge=1,
         le=50,
+        validation_alias=AliasChoices("log_backup_count", "agent_log_backup_count"),
         description="Number of rotating log backups to retain",
     )
 

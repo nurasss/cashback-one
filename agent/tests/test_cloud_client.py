@@ -7,6 +7,9 @@ import httpx
 import pytest
 
 from poscenter_loyalty_agent.cloud_client import (
+    CARDS_SYNC_PATH,
+    HEARTBEAT_PATH,
+    TRANSACTIONS_SYNC_PATH,
     CloudAuthError,
     CloudNonRetryableError,
     CloudProtocolError,
@@ -123,11 +126,11 @@ async def test_cloud_protocol_error_on_malformed_2xx_responses() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         p = request.url.path
-        if "/agent/sync/cards" in p:
+        if CARDS_SYNC_PATH in p:
             return responses.get(request.headers.get("X-Test-Route", "/cards/bad_json"), responses["/cards/bad_json"])
-        if "/agent/sync/transactions" in p:
+        if TRANSACTIONS_SYNC_PATH in p:
             return responses["/tx/bad_json"]
-        if "/agent/sync/heartbeat" in p:
+        if HEARTBEAT_PATH in p:
             return responses["/hb/bad_json"]
         return httpx.Response(200, json={"status": "ok"})
 
@@ -168,3 +171,37 @@ async def test_cloud_protocol_error_on_malformed_2xx_responses() -> None:
         await client.send_heartbeat(hb_payload)
 
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_endpoint_contract() -> None:
+    """Heartbeat client must use exact path /agent/heartbeat, and /agent/sync/heartbeat returns 404."""
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.path
+        seen_paths.append(p)
+        if p == "/agent/heartbeat":
+            return httpx.Response(200, json={"status": "ok"})
+        if p == "/agent/sync/heartbeat":
+            return httpx.Response(404, json={"detail": "Not Found"})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    client = HttpCloudClient(base_url="http://test-cloud", api_key="secret-key")
+    client._client = httpx.AsyncClient(base_url="http://test-cloud", transport=transport)
+
+    hb_payload = HeartbeatPayload(version="0.1.0")
+    result = await client.send_heartbeat(hb_payload)
+
+    assert result.status == "ok"
+    assert seen_paths == ["/agent/heartbeat"]
+
+    await client.close()
+
+
+def test_cloud_endpoints_contract_regression() -> None:
+    """Fix exact Cloud API endpoint paths expected by backend."""
+    assert CARDS_SYNC_PATH == "/agent/sync/cards"
+    assert TRANSACTIONS_SYNC_PATH == "/agent/sync/transactions"
+    assert HEARTBEAT_PATH == "/agent/heartbeat"

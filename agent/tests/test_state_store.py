@@ -61,19 +61,56 @@ def test_legacy_version_0_upgrade(tmp_path: Path) -> None:
         );
         """
     )
-    conn.execute("INSERT INTO agent_checkpoint (id, cards_committed_cursor, updated_at) VALUES (1, 'old_c', '2026-01-01');")
+    conn.execute("INSERT INTO agent_checkpoint (id, cards_committed_cursor, updated_at) VALUES (1, 'C123', '2026-01-01');")
     conn.execute("PRAGMA user_version = 0;")
     conn.commit()
     conn.close()
 
     # Opening with StateStore should safely upgrade user_version to 1
     store = StateStore(db_file)
-    assert store.get_cursor("cards") == "old_c"
+    assert store.get_cursor("cards") == "C123"
 
     conn = sqlite3.connect(str(db_file))
     ver = conn.cursor().execute("PRAGMA user_version;").fetchone()[0]
     conn.close()
     assert ver == STATE_SCHEMA_VERSION
+
+
+def test_foreign_sqlite_no_silent_mutation(tmp_path: Path) -> None:
+    """An unrelated existing SQLite DB must NOT be mutated into an agent DB."""
+    db_file = tmp_path / "foreign.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("CREATE TABLE unrelated (id INTEGER);")
+    conn.execute("PRAGMA user_version = 0;")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(StateSchemaUnsupportedError, match="STATE_SCHEMA_UNSUPPORTED"):
+        StateStore(db_file)
+
+    # Verify database was NOT mutated
+    conn = sqlite3.connect(str(db_file))
+    cur = conn.cursor()
+    tables = [row[0] for row in cur.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()]
+    ver = cur.execute("PRAGMA user_version;").fetchone()[0]
+    conn.close()
+
+    assert "agent_checkpoint" not in tables
+    assert "unrelated" in tables
+    assert ver == 0
+
+
+def test_incompatible_checkpoint_structure_rejected(tmp_path: Path) -> None:
+    """An existing agent_checkpoint missing required columns must be rejected without mutation."""
+    db_file = tmp_path / "incompatible.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("CREATE TABLE agent_checkpoint (id INTEGER PRIMARY KEY);")
+    conn.execute("PRAGMA user_version = 0;")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(StateSchemaUnsupportedError, match="STATE_SCHEMA_UNSUPPORTED"):
+        StateStore(db_file)
 
 
 def test_unsupported_future_schema_version(tmp_path: Path) -> None:

@@ -32,8 +32,28 @@ class StateSchemaUnsupportedError(StateStoreError):
     """Raised when SQLite schema version is newer than supported or incompatible."""
 
 
+class StateDbNotAgentDatabaseError(StateSchemaUnsupportedError):
+    """Raised when existing SQLite DB is not a valid Agent state store."""
+
+    def __init__(self, message: str = "STATE_SCHEMA_UNSUPPORTED: Existing SQLite database is not an agent database.") -> None:
+        super().__init__(message)
+        self.code = "STATE_SCHEMA_UNSUPPORTED"
+
+
 class StateDbCorruptedError(StateStoreError):
     """Raised when SQLite database file is corrupted or not a valid database."""
+
+
+REQUIRED_CHECKPOINT_COLUMNS = frozenset({
+    "id",
+    "cards_committed_cursor",
+    "transactions_committed_cursor",
+    "last_successful_sync_at",
+    "last_error",
+    "last_error_at",
+    "last_heartbeat_at",
+    "updated_at",
+})
 
 
 class StateStore:
@@ -83,37 +103,72 @@ class StateStore:
                         f"is newer than supported version {STATE_SCHEMA_VERSION}."
                     )
 
-                # Create table if not present
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS agent_checkpoint (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        cards_committed_cursor TEXT,
-                        transactions_committed_cursor TEXT,
-                        last_successful_sync_at TEXT,
-                        last_error TEXT,
-                        last_error_at TEXT,
-                        last_heartbeat_at TEXT,
-                        updated_at TEXT NOT NULL
-                    );
-                    """
+                # Inspect existing user tables
+                cur = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"
                 )
+                existing_tables = {r[0] for r in cur.fetchall()}
 
-                # Ensure row with id=1 exists
-                now_iso = datetime.now(UTC).isoformat()
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO agent_checkpoint (id, updated_at)
-                    VALUES (1, ?);
-                    """,
-                    (now_iso,),
-                )
-
-                # If migrating from v0 or creating new, stamp schema version
-                if current_ver < STATE_SCHEMA_VERSION:
+                if not existing_tables:
+                    # Brand new empty database -> initialize schema v1
+                    conn.execute(
+                        """
+                        CREATE TABLE agent_checkpoint (
+                            id INTEGER PRIMARY KEY CHECK (id = 1),
+                            cards_committed_cursor TEXT,
+                            transactions_committed_cursor TEXT,
+                            last_successful_sync_at TEXT,
+                            last_error TEXT,
+                            last_error_at TEXT,
+                            last_heartbeat_at TEXT,
+                            updated_at TEXT NOT NULL
+                        );
+                        """
+                    )
+                    now_iso = datetime.now(UTC).isoformat()
+                    conn.execute(
+                        """
+                        INSERT INTO agent_checkpoint (id, updated_at)
+                        VALUES (1, ?);
+                        """,
+                        (now_iso,),
+                    )
                     conn.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION};")
                     logger.info("Stamped agent_state.db schema to version %d", STATE_SCHEMA_VERSION)
-        except sqlite3.DatabaseError as exc:
+                else:
+                    # Existing database with tables
+                    if "agent_checkpoint" not in existing_tables:
+                        raise StateDbNotAgentDatabaseError(
+                            "STATE_SCHEMA_UNSUPPORTED: Existing SQLite database does not contain "
+                            "agent_checkpoint table (refusing to mutate unrelated database)."
+                        )
+
+                    # Validate columns in existing agent_checkpoint
+                    cur = conn.execute("PRAGMA table_info(agent_checkpoint);")
+                    actual_columns = {r["name"] for r in cur.fetchall()}
+                    missing = REQUIRED_CHECKPOINT_COLUMNS - actual_columns
+                    if missing:
+                        raise StateSchemaUnsupportedError(
+                            f"STATE_SCHEMA_UNSUPPORTED: Existing agent_checkpoint table missing required columns: {missing}"
+                        )
+
+                    # Ensure row with id=1 exists
+                    now_iso = datetime.now(UTC).isoformat()
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO agent_checkpoint (id, updated_at)
+                        VALUES (1, ?);
+                        """,
+                        (now_iso,),
+                    )
+
+                    # If migrating from valid legacy v0, stamp version 1
+                    if current_ver < STATE_SCHEMA_VERSION:
+                        conn.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION};")
+                        logger.info("Upgraded legacy v0 agent_state.db schema to version %d", STATE_SCHEMA_VERSION)
+        except (StateStoreError, sqlite3.DatabaseError) as exc:
+            if isinstance(exc, StateStoreError):
+                raise
             raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Failed initializing schema: {exc}") from exc
         finally:
             conn.close()

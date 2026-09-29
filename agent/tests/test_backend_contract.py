@@ -107,3 +107,16 @@ def test_timezone_aware_validation() -> None:
         updated_at=aware_dt,
     )
     assert card.updated_at.tzinfo is not None
+
+
+def test_agent_sync_routes_match_backend_contract() -> None:
+    """Explicitly verify expected Cloud API route contracts without importing backend."""
+    from poscenter_loyalty_agent.cloud_client import (
+        CARDS_SYNC_PATH,
+        HEARTBEAT_PATH,
+        TRANSACTIONS_SYNC_PATH,
+    )
+
+    assert CARDS_SYNC_PATH == "/agent/sync/cards"
+    assert TRANSACTIONS_SYNC_PATH == "/agent/sync/transactions"
+    assert HEARTBEAT_PATH == "/agent/heartbeat"

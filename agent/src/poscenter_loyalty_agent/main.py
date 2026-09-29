@@ -22,6 +22,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     configure_logging(
         log_level=settings.log_level,
         log_file_path=settings.log_file_path,
+        max_bytes=settings.log_max_bytes,
+        backup_count=settings.log_backup_count,
     )
     runtime = AgentRuntime(settings=settings)
     try:
@@ -41,16 +43,18 @@ def cmd_check_config(args: argparse.Namespace) -> int:
         settings = get_settings()
         configure_logging(log_level="INFO")
         print("=== POSCENTER Loyalty Agent Configuration Check ===")
-        print(f"Agent Version:        {settings.agent_version}")
-        print(f"Environment:          {settings.agent_env}")
-        print(f"Cloud API Base URL:   {settings.cloud_api_base_url}")
-        print(f"Cloud API Key:        {'*' * 8}... (configured)")
-        print(f"Sync Interval:        {settings.sync_interval_seconds}s")
-        print(f"Heartbeat Interval:   {settings.heartbeat_interval_seconds}s")
-        print(f"Adapter Mode:         {settings.one_adapter_mode}")
-        print(f"State DB Path:        {settings.state_db_path}")
-        print(f"Lock File Path:       {settings.lock_file_path}")
-        print(f"Log File Path:        {settings.log_file_path}")
+        print(f"Agent Version:          {settings.agent_version}")
+        print(f"Environment:            {settings.agent_env}")
+        print(f"Cloud API Base URL:     {settings.cloud_api_base_url}")
+        print(f"Cloud API Key:          {'*' * 8}... (configured)")
+        print(f"Sync Interval:          {settings.sync_interval_seconds}s")
+        print(f"Heartbeat Interval:     {settings.heartbeat_interval_seconds}s")
+        print(f"Adapter Mode:           {settings.one_adapter_mode}")
+        print(f"State DB Path:          {settings.state_db_path}")
+        print(f"Lock File Path:         {settings.lock_file_path}")
+        print(f"Log File Path:          {settings.log_file_path}")
+        print(f"Log Rotation Max Bytes: {settings.log_max_bytes}")
+        print(f"Log Backup Count:       {settings.log_backup_count}")
 
         # Check DB connectivity
         store = StateStore(settings.state_db_path)

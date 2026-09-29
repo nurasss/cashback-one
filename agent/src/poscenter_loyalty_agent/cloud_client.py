@@ -18,6 +18,10 @@ from poscenter_loyalty_agent.models import (
 
 logger = logging.getLogger(__name__)
 
+CARDS_SYNC_PATH = "/agent/sync/cards"
+TRANSACTIONS_SYNC_PATH = "/agent/sync/transactions"
+HEARTBEAT_PATH = "/agent/heartbeat"
+
 
 class CloudClientError(Exception):
     """Base exception for Cloud API communication failures."""
@@ -117,7 +121,7 @@ class HttpCloudClient:
         client = self._get_client()
         try:
             resp = await client.post(
-                "/agent/sync/cards",
+                CARDS_SYNC_PATH,
                 json=payload.model_dump(mode="json"),
             )
         except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as exc:
@@ -140,7 +144,7 @@ class HttpCloudClient:
         client = self._get_client()
         try:
             resp = await client.post(
-                "/agent/sync/transactions",
+                TRANSACTIONS_SYNC_PATH,
                 json=payload.model_dump(mode="json"),
             )
         except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as exc:
@@ -163,7 +167,7 @@ class HttpCloudClient:
         client = self._get_client()
         try:
             resp = await client.post(
-                "/agent/sync/heartbeat",
+                HEARTBEAT_PATH,
                 json=payload.model_dump(mode="json"),
             )
         except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as exc:

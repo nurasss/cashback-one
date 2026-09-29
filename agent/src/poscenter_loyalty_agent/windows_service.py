@@ -93,6 +93,8 @@ class POSCENTERLoyaltyAgentService(BaseServiceClass):  # type: ignore[valid-type
         configure_logging(
             log_level=settings.log_level,
             log_file_path=settings.log_file_path,
+            max_bytes=settings.log_max_bytes,
+            backup_count=settings.log_backup_count,
         )
         logger.info("Starting %s via Windows Service Manager...", self._svc_name_)
 
