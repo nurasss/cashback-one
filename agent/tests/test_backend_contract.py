@@ -1,0 +1,70 @@
+"""Contract compatibility test verifying agent models against backend schemas."""
+
+import json
+from datetime import UTC, datetime
+from decimal import Decimal
+
+from poscenter_loyalty_agent.models import (
+    CardsSyncPayload,
+    CardSyncItem,
+    HeartbeatPayload,
+    TransactionsSyncPayload,
+    TransactionSyncItem,
+)
+
+
+def test_cards_payload_matches_backend_contract() -> None:
+    now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
+    card = CardSyncItem(
+        barcode="2000000000001",
+        phone="+77011234567",
+        full_name="Assan Assanov",
+        balance=Decimal("1234.5600"),
+        is_blocked=False,
+        updated_at=now,
+    )
+    payload = CardsSyncPayload(cards=[card])
+    dumped = json.loads(payload.model_dump_json())
+
+    assert "cards" in dumped
+    assert len(dumped["cards"]) == 1
+    c = dumped["cards"][0]
+    assert c["barcode"] == "2000000000001"
+    assert c["phone"] == "+77011234567"
+    assert c["balance"] == "1234.56" or float(c["balance"]) == 1234.56
+    assert c["is_blocked"] is False
+
+
+def test_transactions_payload_matches_backend_contract() -> None:
+    now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
+    tx = TransactionSyncItem(
+        external_id="1C-DOC-12345",
+        barcode="2000000000001",
+        type="accrual",
+        amount=Decimal("100.00"),
+        balance_after=Decimal("500.00"),
+        occurred_at=now,
+        receipt_ref="REC-999",
+        store="Store #1",
+    )
+    payload = TransactionsSyncPayload(transactions=[tx])
+    dumped = json.loads(payload.model_dump_json())
+
+    assert "transactions" in dumped
+    t = dumped["transactions"][0]
+    assert t["external_id"] == "1C-DOC-12345"
+    assert t["barcode"] == "2000000000001"
+    assert t["type"] == "accrual"
+    assert t["receipt_ref"] == "REC-999"
+
+
+def test_heartbeat_payload_matches_backend_contract() -> None:
+    now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
+    hb = HeartbeatPayload(
+        version="0.1.0",
+        last_successful_sync_at=now,
+        error="Network timeout connecting to 1C infobase",
+    )
+    dumped = json.loads(hb.model_dump_json())
+    assert dumped["version"] == "0.1.0"
+    assert dumped["error"] == "Network timeout connecting to 1C infobase"

@@ -48,7 +48,7 @@
 
 ---
 
-## 🚀 Текущее состояние (TASK-001 + TASK-002 + TASK-003 + TASK-004 + TASK-005 + TASK-006 + TASK-007)
+## 🚀 Текущее состояние (TASK-001 + TASK-002 + TASK-003 + TASK-004 + TASK-005 + TASK-006 + TASK-007 + TASK-008)
 
 ### Реализовано в рамках TASK-001 (Фундамент и модель данных):
 * Базовый монорепозиторий и `.gitignore`.
@@ -193,10 +193,33 @@
 * **Тестирование:**
   * 195+ тестов (100% passing), включая полный набор PostgreSQL concurrency тестов PG-SMS-01..04.
 
+### Реализовано в рамках TASK-008 (Windows Agent Runtime + Reliable Cloud Sync Foundation):
+* **Архитектурная спецификация:** Подробная документация зафиксирована в [`docs/AGENT_ARCHITECTURE.md`](docs/AGENT_ARCHITECTURE.md).
+* **Требование Stage 0 Discovery:** Подробный регламент обнаружения метаданных 1С зафиксирован в [`docs/ONE_STAGE0_REQUIRED.md`](docs/ONE_STAGE0_REQUIRED.md).
+* **Модуль Windows Agent (`agent/`):**
+  * Полноценный CLI-инструмент и сервис `poscenter-loyalty-agent` на базе `pydantic-settings` и `httpx`.
+  * Режимы запуска: интерактивный console run (`poscenter-loyalty-agent run`), валидация окружения (`poscenter-loyalty-agent check-config`), просмотр состояния (`poscenter-loyalty-agent status`), управление Windows Service (`poscenter-loyalty-agent service ...`).
+* **Надежная синхронизация и At-Least-Once Delivery:**
+  * Чекпоинты хранятся в локальной SQLite БД (`agent_state.db`) в режиме WAL.
+  * Продвижение курсора (`cards_committed_cursor`, `transactions_committed_cursor`) происходит **только** после получения HTTP 2xx ACK от Cloud API.
+  * При аварийном завершении в окне между ACK и коммитом чекпоинта пакет безопасно переотправляется при следующем старте (идемпотентность на бэкенде исключает дубли).
+  * Защита от зависших курсоров (`SOURCE_CURSOR_STALLED`): предотвращает бесконечные циклы при `has_more=True` без смещения курсора.
+* **Безопасность и Zero PII:**
+  * В локальном хранилище состояния сохраняются исключительно непрозрачные курсоры, таймстемпы и санитизированные ошибки.
+  * Полное отсутствие PII (номеров телефонов, ФИО, штрихкодов карт) и секретов (паролей 1С `Pwd=...`, API-ключей) в SQLite и логах.
+* **Процессный замок (Process Singleton):**
+  * Защита от параллельного запуска нескольких инстансов через `ProcessLock` (`fcntl.flock` на POSIX, `msvcrt.locking` на Windows) с ошибкой `AGENT_ALREADY_RUNNING`.
+* **Независимый Heartbeat:**
+  * Фоновый поток отправки статуса и ошибок в `POST /agent/sync/heartbeat` продолжает функционировать даже при ошибках синхронизации данных.
+* **Cross-Platform Safety:**
+  * Агент и все 32 теста работают на macOS/Linux без `pywin32`. Модули `win32com` и `win32serviceutil` изолированы за платформенными гардами (`sys.platform == 'win32'`).
+* **Безопасный дефолт:**
+  * По умолчанию агент работает в режиме `ONE_ADAPTER_MODE=stub`, требующем явного прохождения Stage 0 Discovery на пилотной базе 1С.
+
 ### Отложено до следующих задач:
 * Подключение конкретного вендорного SMS-шлюза (Twilio, SMSC, Mobizon и др.) через адаптер к `SmsProvider` Protocol.
 * Кассирская активация карт без телефона / активационный код в 1С.
-* Windows-служба агента и COM `V83.COMConnector`.
+* Stage 0 Discovery реальных метаданных 1С и реализация COM-экстрактора (`ONE_ADAPTER_MODE=com`).
 * Мобильное приложение Expo/React Native (камера сканера QR/штрихкода).
 * Административная панель.
 * Google Wallet / Apple Wallet / Push-уведомления (Stage 2).
