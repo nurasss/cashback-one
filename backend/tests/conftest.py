@@ -1,3 +1,4 @@
+import os
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -5,6 +6,15 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+# Set APP_ENV=test before loading settings to permit SQLite in-memory test database
+os.environ["APP_ENV"] = "test"
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+
+from app.core.config import settings
+
+settings.app_env = "test"
+settings.database_url = "sqlite+aiosqlite:///:memory:"
 
 import app.models
 from app.db.base import Base
@@ -15,9 +25,10 @@ from app.main import app
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):  # type: ignore[no-untyped-def]
     """Enforce foreign keys on SQLite connections."""
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+    if "sqlite" in type(dbapi_connection).__module__:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"

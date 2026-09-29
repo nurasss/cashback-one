@@ -48,30 +48,41 @@
 
 ---
 
-## 🚀 Текущее состояние (TASK-001)
+## 🚀 Текущее состояние (TASK-001 + TASK-002)
 
-### Реализовано в рамках TASK-001:
+### Реализовано в рамках TASK-001 (Фундамент и модель данных):
 * Базовый монорепозиторий и `.gitignore`.
 * FastAPI бэкенд с эндпоинтом `GET /health` (`{"status": "ok"}`).
 * Схема данных Stage 1 в SQLAlchemy 2.0 (asyncio):
-  * `businesses`: организации-тенанты, логотипы, цвета, префиксы штрихкодов.
-  * `agents`: экземпляры агентов синхронизации, привязанные к бизнесу.
-  * `cards`: зеркало карт лояльности с инвариантом `UNIQUE(business_id, barcode)`.
-  * `users`: учетные записи покупателей.
-  * `user_cards`: связь пользователя и карты с инвариантом `UNIQUE(card_id)` (одна карта не может принадлежать двум пользователям одновременно).
-  * `transactions`: зеркало движений бонусов с инвариантом `UNIQUE(card_id, external_id)` для защиты от дублирования.
-  * `login_challenges`: хранилище одноразовых кодов для обратной схемы WhatsApp.
-  * `otp_codes`: хранилище SMS-кодов для резервного входа.
-  * `consents`: фиксация согласий на обработку персональных данных (законодательство РК).
-  * `devices`: регистрация токенов push-уведомлений (инфраструктура Stage 2).
-  * `audit_log`: аудит административных действий.
+  * `businesses`, `agents`, `cards`, `users`, `user_cards`, `transactions`, `login_challenges`, `otp_codes`, `consents`, `devices`, `audit_log`.
 * Поддержка точных типов `Numeric(18, 4)` / `Decimal` (полное отсутствие `float` в балансах и суммах).
-* Асинхронные миграции Alembic (`0001_initial_schema.py`) с проверенным циклом `upgrade head` $\rightarrow$ `downgrade base` $\rightarrow$ `upgrade head`.
-* Автоматические тесты (pytest, pytest-asyncio, httpx, sqlite+aiosqlite in-memory с включенными FK).
+* Асинхронные миграции Alembic (`0001_initial_schema.py`) с проверенным циклом отката и наката.
+
+### Реализовано в рамках TASK-002 (Agent Authentication + Cloud Sync API):
+* **Аутентификация агентов:**
+  * Заголовок `X-Agent-Key` (или `Authorization: Bearer <key>`).
+  * Безопасное хранение ключей в БД в виде SHA-256 хэшей (открытый ключ никогда не сохраняется).
+  * Сервисы выпуска, ротации и отзыва ключей (`backend/app/services/agent_auth.py`).
+  * Строгая изоляция тенантов: `business_id` определяется исключительно по аутентифицированному агенту.
+* **Нормализация телефонов РК/СНГ:**
+  * Приведение форматов `8701...`, `7701...`, `+7 701...` к каноническому E.164 `+7701...`.
+  * Валидация недопустимых символов и длины.
+* **Агентские эндпоинты Cloud Sync API (`backend/app/api/agent_sync.py`):**
+  * `POST /agent/sync/cards`: батчевый upsert карт (лимит 500), защита от устаревших данных по `updated_at`, нормализация номеров телефонов.
+  * `POST /agent/sync/transactions`: батчевая вставка транзакций (лимит 1000), детерминированная идемпотентность по `(card_id, external_id)`, валидация принадлежности карты тенанту агента.
+  * `POST /agent/heartbeat`: фиксация активности агента, серверное время `last_seen_at = utcnow()`, обновление `version`, `last_sync_at`, `last_error`.
+* **Единый протокол ошибок:**
+  * Структурированные ответы `{ "error": { "code": "...", "message": "...", "details": ... } }`.
+* **Спецификация API:**
+  * Полный контракт обмена ONE Agent → Cloud Backend задокументирован в [`docs/AGENT_API.md`](docs/AGENT_API.md).
+* **Миграции Alembic:**
+  * `0002_agent_heartbeat_fields.py`: добавление полей `last_sync_at` и `last_error` в таблицу `agents`.
+* **Тестирование:**
+  * Полный набор тестов (`pytest`, 29 тестов), включая интеграционные тесты на PostgreSQL 16.
 
 ### Отложено до следующих задач:
-* Авторизация через WhatsApp (обратная схема Wappi) и SMS OTP flow.
-* Агентские эндпоинты `/agent/sync/*` и `/agent/heartbeat`.
+* Авторизация покупателей через WhatsApp (обратная схема Wappi) и SMS OTP flow (TASK-003).
+* Привязка карт покупателем (`/me/cards`, QR/штрихкод, SMS OTP) (TASK-004).
 * Windows-служба агента и COM `V83.COMConnector`.
 * Мобильное приложение Expo/React Native.
 * Административная панель.
