@@ -164,8 +164,8 @@ def check_environment(settings: AgentSettings | None = None) -> EnvironmentCheck
         # Test metadata access
         if hasattr(connection, "Metadata"):
             metadata_access_available = True
-            flags.real_one_metadata_discovery = FLAG_VERIFIED
-            details.append("1C infobase connection and metadata access verified.")
+            # Metadata discovery is verified ONLY after full inventory probe, not on preflight check
+            details.append("1C infobase connection established; Metadata root object is accessible.")
         else:
             details.append("Connected to 1C infobase, but 'Metadata' root object was not accessible.")
 

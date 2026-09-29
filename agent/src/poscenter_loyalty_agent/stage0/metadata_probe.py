@@ -3,8 +3,9 @@
 Provides:
 - MetadataProvider protocol for COM vs Fake abstraction.
 - ComMetadataProvider: Strictly read-only inspection of live 1C infobase.
-- FakeMetadataProvider: Cross-platform test seam using neutral synthetic names.
+- FakeMetadataProvider: Test-only seam using neutral synthetic names.
 - CandidateDiscoveryHeuristic: Heuristic identification of candidate entities.
+- TargetedMetadataInventory: Targeted metadata inventory with truthful coverage declarations.
 """
 
 from __future__ import annotations
@@ -22,6 +23,27 @@ from poscenter_loyalty_agent.stage0.environment import EnvironmentCheckResult, c
 from poscenter_loyalty_agent.stage0.mapping_models import ConfigurationIdentity
 
 logger = logging.getLogger(__name__)
+
+PROBED_LOYALTY_CATEGORIES = (
+    "Catalogs",
+    "AccumulationRegisters",
+    "InformationRegisters",
+    "Documents",
+)
+
+UNPROBED_METADATA_CATEGORIES = (
+    "ChartsOfAccounts",
+    "ChartsOfCalculationTypes",
+    "ChartsOfCharacteristicTypes",
+    "BusinessProcesses",
+    "Tasks",
+    "Enums",
+    "Reports",
+    "DataProcessors",
+    "Constants",
+    "Sequences",
+    "ExchangePlans",
+)
 
 
 class MetadataField(BaseModel):
@@ -61,17 +83,40 @@ class CandidateMatch(BaseModel):
     matched_fields: list[str] = Field(default_factory=list)
 
 
-class MetadataInventory(BaseModel):
-    """Complete inventory of discovered 1C metadata."""
+class TargetedMetadataInventory(BaseModel):
+    """Targeted inventory of discovered 1C metadata for loyalty integration."""
 
     model_config = ConfigDict(extra="forbid")
 
+    coverage_scope: str = Field(
+        default="targeted_loyalty_core",
+        description="Targeted scope: Catalogs, AccumulationRegisters, InformationRegisters, Documents",
+    )
+    probed_categories: list[str] = Field(
+        default_factory=lambda: list(PROBED_LOYALTY_CATEGORIES),
+        description="List of 1C metadata categories inspected by this probe",
+    )
+    unprobed_categories: list[str] = Field(
+        default_factory=lambda: list(UNPROBED_METADATA_CATEGORIES),
+        description="List of 1C metadata categories outside targeted loyalty scope",
+    )
+    coverage_limitation: str = Field(
+        default=(
+            "Targeted discovery focused on core transactional loyalty objects. "
+            "Complete 1C metadata root enumeration was not performed."
+        ),
+        description="Explicit notice regarding category coverage limitation",
+    )
     configuration: ConfigurationIdentity
     discovered_at: str
     objects: list[MetadataObject] = Field(default_factory=list)
     candidate_cards: list[CandidateMatch] = Field(default_factory=list)
     candidate_transactions: list[CandidateMatch] = Field(default_factory=list)
     candidate_registers: list[CandidateMatch] = Field(default_factory=list)
+
+
+# Backward-compatible alias
+MetadataInventory = TargetedMetadataInventory
 
 
 class CandidateDiscoveryHeuristic:
@@ -84,7 +129,9 @@ class CandidateDiscoveryHeuristic:
     TX_KEYWORDS = ("продаж", "чек", "движение", "movement", "sales", "receipt", "операция")
 
     @classmethod
-    def analyze(cls, objects: list[MetadataObject]) -> tuple[list[CandidateMatch], list[CandidateMatch], list[CandidateMatch]]:
+    def analyze(
+        cls, objects: list[MetadataObject]
+    ) -> tuple[list[CandidateMatch], list[CandidateMatch], list[CandidateMatch]]:
         cards: list[CandidateMatch] = []
         txs: list[CandidateMatch] = []
         regs: list[CandidateMatch] = []
@@ -99,7 +146,9 @@ class CandidateDiscoveryHeuristic:
                 matched_fields = []
                 for f in obj.fields:
                     f_text = f"{f.name.lower()} {(f.synonym or '').lower()}"
-                    if any(k in f_text for k in cls.PHONE_KEYWORDS) or any(k in f_text for k in cls.BARCODE_KEYWORDS):
+                    if any(k in f_text for k in cls.PHONE_KEYWORDS) or any(
+                        k in f_text for k in cls.BARCODE_KEYWORDS
+                    ):
                         matched_fields.append(f.name)
 
                 if any(k in text for k in cls.CARD_KEYWORDS) or matched_fields:
@@ -109,7 +158,8 @@ class CandidateDiscoveryHeuristic:
                             category=obj.category,
                             role="card",
                             confidence_reason=(
-                                f"Matches card keywords or contains candidate fields: {', '.join(matched_fields) if matched_fields else 'name match'}"
+                                f"Matches card keywords or contains candidate fields: "
+                                f"{', '.join(matched_fields) if matched_fields else 'name match'}"
                             ),
                             requires_manual_verification=True,
                             matched_fields=matched_fields,
@@ -158,12 +208,12 @@ class MetadataProvider(Protocol):
     def get_configuration_identity(self) -> ConfigurationIdentity:
         ...
 
-    def discover_metadata(self) -> MetadataInventory:
+    def discover_metadata(self) -> TargetedMetadataInventory:
         ...
 
 
 class FakeMetadataProvider:
-    """In-memory test double using neutral synthetic metadata names."""
+    """In-memory test double using neutral synthetic metadata names (TEST-ONLY)."""
 
     def __init__(
         self,
@@ -171,42 +221,53 @@ class FakeMetadataProvider:
         objects: list[MetadataObject] | None = None,
     ) -> None:
         self.config = config or ConfigurationIdentity(
-            configuration_name="TestConfigSynthetic",
-            configuration_version="1.0.0",
-            platform_version="8.3.24.0",
+            configuration_name="SyntheticTestConfiguration",
+            configuration_version="1.0.0.0",
+            platform_major="8.3",
+            platform_version="NOT_AVAILABLE",
+            platform_version_state="NOT_STARTED",
         )
         self.objects = objects or [
             MetadataObject(
                 category="Catalogs",
-                name="ObjectA",
+                name="SyntheticObjectA",
                 synonym="SynonymA",
                 fields=[
-                    MetadataField(name="FieldBarcode", synonym="Barcode", type_desc="String(13)"),
-                    MetadataField(name="FieldPhone", synonym="Phone", type_desc="String(32)"),
-                    MetadataField(name="FieldStatus", synonym="Status", type_desc="Boolean"),
+                    MetadataField(name="SyntheticFieldBarcode", synonym="Barcode", type_desc="String(13)"),
+                    MetadataField(name="SyntheticFieldPhone", synonym="Phone", type_desc="String(32)"),
+                    MetadataField(name="SyntheticFieldStatus", synonym="Status", type_desc="Boolean"),
                 ],
             ),
             MetadataObject(
                 category="AccumulationRegisters",
-                name="RegisterBonusA",
+                name="SyntheticRegisterA",
                 synonym="BonusRegisterSynonym",
                 fields=[
-                    MetadataField(name="DimCard", synonym="CardRef", type_desc="CatalogRef.ObjectA", is_dimension=True),
-                    MetadataField(name="ResAmount", synonym="Amount", type_desc="Number(15,2)", is_resource=True),
+                    MetadataField(
+                        name="SyntheticDimCard",
+                        synonym="CardRef",
+                        type_desc="CatalogRef.SyntheticObjectA",
+                        is_dimension=True,
+                    ),
+                    MetadataField(
+                        name="SyntheticResAmount",
+                        synonym="Amount",
+                        type_desc="Number(15,2)",
+                        is_resource=True,
+                    ),
                 ],
             ),
         ]
 
     def check_env(self) -> EnvironmentCheckResult:
-        res = check_environment()
-        return res
+        return check_environment()
 
     def get_configuration_identity(self) -> ConfigurationIdentity:
         return self.config
 
-    def discover_metadata(self) -> MetadataInventory:
+    def discover_metadata(self) -> TargetedMetadataInventory:
         cards, txs, regs = CandidateDiscoveryHeuristic.analyze(self.objects)
-        return MetadataInventory(
+        return TargetedMetadataInventory(
             configuration=self.config,
             discovered_at=datetime.now(UTC).isoformat(),
             objects=self.objects,
@@ -232,22 +293,23 @@ class ComMetadataProvider:
         return check_environment()
 
     def get_configuration_identity(self) -> ConfigurationIdentity:
-        """Read configuration name, version, and platform version via COM."""
+        """Read configuration name, version, and platform major version via COM."""
         conn = self.connector.connect()
         try:
             meta = conn.Metadata
             name = str(getattr(meta, "Name", "UnknownConfiguration"))
             version = str(getattr(meta, "Version", "0.0.0.0"))
-            platform = "8.3"  # In V83.COMConnector, platform major version is 8.3
             return ConfigurationIdentity(
                 configuration_name=name,
                 configuration_version=version,
-                platform_version=platform,
+                platform_major="8.3",
+                platform_version="NOT_AVAILABLE",
+                platform_version_state="NOT_STARTED",
             )
         finally:
             self.connector.disconnect()
 
-    def discover_metadata(self) -> MetadataInventory:
+    def discover_metadata(self) -> TargetedMetadataInventory:
         """Extract metadata inventory across Catalogs, Registers, and Documents."""
         conn = self.connector.connect()
         try:
@@ -255,7 +317,9 @@ class ComMetadataProvider:
             conf_identity = ConfigurationIdentity(
                 configuration_name=str(getattr(meta, "Name", "Unknown")),
                 configuration_version=str(getattr(meta, "Version", "0.0.0")),
-                platform_version="8.3",
+                platform_major="8.3",
+                platform_version="NOT_AVAILABLE",
+                platform_version_state="NOT_STARTED",
             )
 
             discovered_objects: list[MetadataObject] = []
@@ -340,7 +404,7 @@ class ComMetadataProvider:
                     )
 
             cards, txs, regs = CandidateDiscoveryHeuristic.analyze(discovered_objects)
-            return MetadataInventory(
+            return TargetedMetadataInventory(
                 configuration=conf_identity,
                 discovered_at=datetime.now(UTC).isoformat(),
                 objects=discovered_objects,

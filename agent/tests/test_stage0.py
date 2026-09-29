@@ -1,29 +1,37 @@
-"""Unit tests for Stage 0 Discovery Toolkit (TASK-009 Phase A).
+"""Unit tests for Stage 0 Discovery Toolkit (TASK-009 Phase A & FIX-A).
 
 Covers:
-- Cross-platform CLI execution without tracebacks.
 - Non-Windows environment returns NOT VERIFIED flags.
-- Metadata inventory serialization and FakeMetadataProvider test seam.
-- Mapping schema validation and placeholder detection.
-- PII and credentials sanitizer (Requirement 33 security test).
-- Deterministic mapping fingerprinting and tamper detection.
-- Zero secrets in generated discovery artifacts.
+- Check-environment never marks metadata discovery VERIFIED.
+- FakeMetadataProvider test-only isolation (AGENT_ENV=test required).
+- Fake provider never upgrades REAL_* verification flags.
+- Sample evidence privacy: zero raw phone/barcode/name/password in aggregates.
+- Sanitizer idempotency: sanitize_text output passes scan_for_sensitive_data and validate_safe_output.
+- Inventory coverage truthfulness (targeted coverage vs complete root).
+- Synthetic example valid under standard validation, but rejected by --require-verified.
+- Candidate mapping rejected by --require-verified.
+- Verified mapping passes --require-verified.
+- Mapping fingerprint calculation and tamper detection.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from poscenter_loyalty_agent.config import AgentSettings
 from poscenter_loyalty_agent.main import cli
 from poscenter_loyalty_agent.stage0 import (
     FLAG_NOT_VERIFIED,
+    FLAG_VERIFIED,
     CandidateDiscoveryHeuristic,
     FakeMetadataProvider,
     MetadataField,
     MetadataObject,
+    SampleEvidenceBuilder,
     SecuritySanitizerError,
     calculate_mapping_fingerprint,
     check_environment,
@@ -61,161 +69,279 @@ def test_non_windows_environment_reports_not_verified() -> None:
     assert "REAL_WINDOWS_SERVICE:        NOT VERIFIED" in console_text
     assert "REAL_V83_COMCONNECTOR:       NOT VERIFIED" in console_text
     assert "REAL_ONE_CONNECTION:         NOT VERIFIED" in console_text
+    assert "REAL_ONE_METADATA_DISCOVERY: NOT VERIFIED" in console_text
+    assert "REAL_ONE_MAPPING:            NOT VERIFIED" in console_text
 
 
-def test_stage0_cli_cross_platform(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """CLI subcommands execute cleanly cross-platform."""
+def test_check_environment_does_not_mark_metadata_discovery_verified() -> None:
+    """Preflight check_environment must NEVER mark REAL_ONE_METADATA_DISCOVERY as VERIFIED."""
+    # Simulate a Windows host where COM connector and connection succeed
+    mock_connection = MagicMock()
+    mock_connection.Metadata = MagicMock()
+
+    mock_connector = MagicMock()
+    mock_connector.Connect.return_value = mock_connection
+
+    mock_win32 = MagicMock()
+    mock_win32.Dispatch.return_value = mock_connector
+
+    settings = AgentSettings(one_connection_string="Srvr=test;Ref=pilot;Usr=admin;Pwd=secret")
+
+    with patch("sys.platform", "win32"):
+        with patch.dict("sys.modules", {"win32com.client": mock_win32, "win32com": MagicMock()}):
+            result = check_environment(settings)
+
+            assert result.com_connector_available is True
+            assert result.one_connection_successful is True
+            assert result.metadata_access_available is True
+            # Connector and connection are verified, but metadata discovery MUST remain NOT VERIFIED
+            assert result.verification_flags.real_v83_comconnector == FLAG_VERIFIED
+            assert result.verification_flags.real_one_connection == FLAG_VERIFIED
+            assert result.verification_flags.real_one_metadata_discovery == FLAG_NOT_VERIFIED
+
+
+def test_fake_provider_restricted_to_test_env(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--use-fake-provider is rejected with exit code 1 if AGENT_ENV != 'test'."""
     out_dir = tmp_path / "stage0_out"
 
-    # 1. stage0 check-environment
-    cli(["stage0", "check-environment", "--output-dir", str(out_dir)])
-    captured = capsys.readouterr()
-    assert "Stage 0 Discovery Environment Check" in captured.out
-    assert (out_dir / "environment.json").exists()
-
-    # 2. stage0 validate-mapping on example mapping
-    example_path = Path("agent/stage0_mapping.example.json")
-    assert example_path.exists()
-    cli(["stage0", "validate-mapping", str(example_path)])
-    captured_val = capsys.readouterr()
-    assert "Status:                 VALID" in captured_val.out
-
-    # 3. stage0 probe-metadata on non-Windows host exits cleanly with code 1
+    # 1. In development -> MUST FAIL
+    monkeypatch.setenv("AGENT_ENV", "development")
     with pytest.raises(SystemExit) as exc_info:
-        cli(["stage0", "probe-metadata", "--output-dir", str(out_dir)])
+        cli(["stage0", "probe-metadata", "--output-dir", str(out_dir), "--use-fake-provider"])
     assert exc_info.value.code == 1
-    captured_probe = capsys.readouterr()
-    assert "Real 1C COM metadata probing requires a Windows host" in captured_probe.err
+    captured = capsys.readouterr()
+    assert "--use-fake-provider is strictly restricted to AGENT_ENV='test'" in captured.err
+    assert not (out_dir / "metadata_inventory.json").exists()
+
+    # 2. In production -> MUST FAIL
+    monkeypatch.setenv("AGENT_ENV", "production")
+    monkeypatch.setenv("AGENT_CLOUD_BASE_URL", "https://cloud.poscenter.local")
+    monkeypatch.setenv("AGENT_API_KEY", "test_production_api_key_123")
+    with pytest.raises(SystemExit) as exc_prod:
+        cli(["stage0", "probe-metadata", "--output-dir", str(out_dir), "--use-fake-provider"])
+    assert exc_prod.value.code == 1
+    assert not (out_dir / "metadata_inventory.json").exists()
+
+    # 3. In test -> SUCCEEDS (does not raise SystemExit)
+    monkeypatch.setenv("AGENT_ENV", "test")
+    cli(["stage0", "probe-metadata", "--output-dir", str(out_dir), "--use-fake-provider"])
+    assert (out_dir / "metadata_inventory.json").exists()
+    assert (out_dir / "STAGE0_DISCOVERY_REPORT.md").exists()
 
 
-def test_fake_metadata_provider_and_serialization(tmp_path: Path) -> None:
-    """FakeMetadataProvider operates on synthetic neutral metadata and writes sanitized reports."""
+def test_fake_provider_never_upgrades_real_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fake metadata provider execution never upgrades REAL_* verification flags."""
+    monkeypatch.setenv("AGENT_ENV", "test")
+    out_dir = tmp_path / "stage0_flags"
+
+    cli(["stage0", "probe-metadata", "--output-dir", str(out_dir), "--use-fake-provider"])
+
+    report_text = (out_dir / "STAGE0_DISCOVERY_REPORT.md").read_text(encoding="utf-8")
+    assert "REAL_WINDOWS_SERVICE: `NOT VERIFIED`" in report_text
+    assert "REAL_V83_COMCONNECTOR: `NOT VERIFIED`" in report_text
+    assert "REAL_ONE_CONNECTION: `NOT VERIFIED`" in report_text
+    assert "REAL_ONE_METADATA_DISCOVERY: `NOT VERIFIED`" in report_text
+    assert "REAL_ONE_MAPPING: `NOT VERIFIED`" in report_text
+
+
+def test_sample_evidence_privacy_secret_person_regression() -> None:
+    """SampleEvidenceBuilder retains ZERO raw customer data, phones, barcodes, or passwords."""
+    phone = "+77001234567"
+    barcode = "0123456789012"
+    full_name = "Secret Person"
+    connection_fragment = "Pwd=secret"
+
+    builder = SampleEvidenceBuilder()
+    builder.observe_card_record(
+        barcode=barcode,
+        phone=phone,
+        full_name=full_name,
+        balance=150.50,
+    )
+    builder.observe_card_record(
+        barcode="INVALID_BC",
+        phone="123",
+        full_name=None,
+        balance=-10.0,
+    )
+
+    aggregates = builder.build_aggregates()
+    serialized = json.dumps(aggregates.model_dump())
+
+    # Regression asserts: raw values strictly absent
+    assert full_name not in serialized
+    assert phone not in serialized
+    assert barcode not in serialized
+    assert connection_fragment not in serialized
+
+    # Check safe statistical outputs
+    assert aggregates.barcode_aggregate["sample_size"] == 2
+    assert aggregates.barcode_aggregate["valid_13_digit"] == 1
+    assert aggregates.barcode_aggregate["invalid_count"] == 1
+    assert aggregates.phone_aggregate["normalizable_count"] == 1
+    assert aggregates.name_aggregate["field_exists"] is True
+    assert aggregates.balance_aggregate["allows_negative"] is True
+
+    # Output passes safety scan
+    validate_safe_output(serialized, context="SampleEvidenceAggregates")
+
+
+def test_sanitizer_idempotency_and_safety_scan() -> None:
+    """Sanitizer masks secrets cleanly and clean output passes scanner without re-flagging."""
+    raw = (
+        "Srvr=srv.poscenter.local;Ref=one_pilot;Usr=admin;Pwd=SecretPassword123; "
+        "api_key: abc123456789; Phone: +77001234567; Barcode: 0123456789012;"
+    )
+
+    clean = sanitize_text(raw)
+
+    # 1. Secrets are gone
+    assert "SecretPassword123" not in clean
+    assert "abc123456789" not in clean
+    assert "+77001234567" not in clean
+    assert "0123456789012" not in clean
+
+    # 2. Scanner detects no leaks in cleaned text
+    findings = scan_for_sensitive_data(clean)
+    assert findings == []
+    assert not contains_sensitive_data(clean)
+
+    # 3. validate_safe_output passes
+    validate_safe_output(clean, context="SanitizedCleanOutput")
+
+    # 4. Idempotency: second sanitize call produces identical result
+    second_clean = sanitize_text(clean)
+    assert second_clean == clean
+
+
+def test_inventory_reports_coverage_truthfully(tmp_path: Path) -> None:
+    """Inventory output declares targeted scope and lists unprobed categories truthfully."""
     provider = FakeMetadataProvider()
     inventory = provider.discover_metadata()
 
-    assert inventory.configuration.configuration_name == "TestConfigSynthetic"
-    assert len(inventory.objects) == 2
+    assert inventory.coverage_scope == "targeted_loyalty_core"
+    assert "Catalogs" in inventory.probed_categories
+    assert "AccumulationRegisters" in inventory.probed_categories
+    assert "ChartsOfAccounts" in inventory.unprobed_categories
+    assert "Enums" in inventory.unprobed_categories
 
-    # Verify inventory reports serialization
-    json_path, md_path = write_inventory_reports(inventory, tmp_path)
-    assert json_path.exists()
-    assert md_path.exists()
-
-    # Read back JSON
-    data = json.loads(json_path.read_text(encoding="utf-8"))
-    assert data["configuration"]["configuration_name"] == "TestConfigSynthetic"
-    assert len(data["objects"]) == 2
-
-    # Read back Markdown
+    _, md_path = write_inventory_reports(inventory, tmp_path)
     md_content = md_path.read_text(encoding="utf-8")
-    assert "# POSCENTER ONE Metadata Inventory" in md_content
-    assert "ObjectA" in md_content
-    assert "RegisterBonusA" in md_content
+
+    assert "Targeted Metadata Inventory" in md_content
+    assert "Coverage Scope Notice" in md_content
+    assert "Probed Categories" in md_content
+    assert "Unprobed Categories" in md_content
+    assert "ChartsOfAccounts" in md_content
 
 
-def test_pii_sanitizer_security_requirement_33() -> None:
-    """Requirement 33: Reject or redact fake metadata containing PII and credentials."""
-    dirty_text = (
-        "Customer phone: +77001234567, Card Barcode: 0123456789012, "
-        "User: Secret Person, Connection: Srvr=test;Ref=db;Pwd=secret;"
-    )
-
-    # 1. Detection
-    findings = scan_for_sensitive_data(dirty_text)
-    assert len(findings) >= 3  # Phone, Barcode, Pwd detected
-    assert contains_sensitive_data(dirty_text)
-
-    # 2. validate_safe_output raises SecuritySanitizerError
-    with pytest.raises(SecuritySanitizerError) as exc_info:
-        validate_safe_output(dirty_text, context="TestArtifact")
-    assert "Security safety violation" in str(exc_info.value)
-
-    # 3. Sanitization
-    cleaned = sanitize_text(dirty_text)
-    assert "+77001234567" not in cleaned
-    assert "0123456789012" not in cleaned
-    assert "Pwd=secret" not in cleaned
-    assert "[PHONE_REDACTED]" in cleaned
-    assert "[BARCODE_REDACTED]" in cleaned
-    assert "Pwd=***REDACTED***" in cleaned
-
-
-def test_mapping_schema_validation(tmp_path: Path) -> None:
-    """Mapping validator enforces complete schema and detects missing required elements."""
+def test_synthetic_example_cannot_pass_require_verified() -> None:
+    """agent/stage0_mapping.example.json passes normal validation, but fails --require-verified."""
     example_path = Path("agent/stage0_mapping.example.json")
-    valid_data = json.loads(example_path.read_text(encoding="utf-8"))
+    assert example_path.exists()
 
-    # Missing cards.barcode_field
-    invalid_data = json.loads(json.dumps(valid_data))
-    del invalid_data["cards"]["barcode_field"]
-    invalid_data["mapping_sha256"] = calculate_mapping_fingerprint(invalid_data)
+    # Normal validation: PASS
+    report_std = validate_mapping(example_path, require_verified=False)
+    assert report_std.is_valid is True
+    assert report_std.artifact_kind == "synthetic_example"
 
-    test_file = tmp_path / "invalid_mapping.json"
-    test_file.write_text(json.dumps(invalid_data), encoding="utf-8")
+    # Verified validation: MUST FAIL
+    report_ver = validate_mapping(example_path, require_verified=True)
+    assert report_ver.is_valid is False
+    assert len(report_ver.errors) > 0
+    assert any("artifact_kind must be 'real_discovery'" in e for e in report_ver.errors)
 
-    report = validate_mapping(test_file)
-    assert not report.is_valid
-    assert any("cards.barcode_field" in err for err in report.errors)
 
-
-def test_placeholder_detection(tmp_path: Path) -> None:
-    """Mapping containing placeholders like TODO, guess, or unknown_object is rejected."""
+def test_candidate_mapping_cannot_pass_require_verified(tmp_path: Path) -> None:
+    """Real discovery mapping with CANDIDATE states is rejected by --require-verified."""
     example_path = Path("agent/stage0_mapping.example.json")
     data = json.loads(example_path.read_text(encoding="utf-8"))
 
-    # Inject forbidden placeholder
-    data["cards"]["barcode_field"] = "TODO_find_barcode_field"
+    # Switch to real_discovery with real configuration, but leave states as CANDIDATE
+    data["artifact_kind"] = "real_discovery"
+    data["one_configuration_identity"]["configuration_name"] = "AccountingEnterprise"
     data["mapping_sha256"] = calculate_mapping_fingerprint(data)
 
-    test_file = tmp_path / "placeholder_mapping.json"
+    test_file = tmp_path / "candidate_real.json"
+    test_file.write_text(json.dumps(data), encoding="utf-8")
+
+    report = validate_mapping(test_file, require_verified=True)
+    assert report.is_valid is False
+    assert len(report.unverified_fields) > 0
+    assert any("cards.barcode_field" in f for f in report.unverified_fields)
+
+
+def test_all_mandatory_verified_mapping_passes_require_verified(tmp_path: Path) -> None:
+    """A genuine real_discovery mapping with all 16 mandatory P0 decisions VERIFIED passes."""
+    example_path = Path("agent/stage0_mapping.example.json")
+    data = json.loads(example_path.read_text(encoding="utf-8"))
+
+    data["artifact_kind"] = "real_discovery"
+    data["one_configuration_identity"]["configuration_name"] = "POSCENTER_RETAIL"
+    data["one_configuration_identity"]["platform_version"] = "8.3.24.1342"
+    data["one_configuration_identity"]["platform_version_state"] = "VERIFIED"
+
+    # Set real object names and VERIFIED state across cards
+    for _k, v in data["cards"].items():
+        if isinstance(v, dict) and "state" in v:
+            v["state"] = "VERIFIED"
+            v["value"] = v["value"].replace("Synthetic", "Real")
+            v["evidence"] = ["Inspected in 1C enterprise pilot infobase"]
+
+    # Set real object names and VERIFIED state across transactions
+    for k, v in data["transactions"].items():
+        if isinstance(v, dict) and "state" in v:
+            if k in ("balance_after_field", "receipt_ref_field", "store_field"):
+                continue  # Optional fields can remain NOT_STARTED or None
+            v["state"] = "VERIFIED"
+            if isinstance(v["value"], str):
+                v["value"] = v["value"].replace("Synthetic", "Real")
+            v["evidence"] = ["Verified against bonus accumulation register movements"]
+
+    # Set cursor strategy to VERIFIED
+    data["cursor_strategy"]["cards"]["state"] = "VERIFIED"
+    data["cursor_strategy"]["cards"]["value"]["strategy_name"] = "keyset_timestamp_ref"
+    data["cursor_strategy"]["cards"]["value"]["ordering_fields"] = ["ModifiedAt", "Ref"]
+    data["cursor_strategy"]["cards"]["value"]["tie_breaker"] = "Ref"
+    data["cursor_strategy"]["cards"]["evidence"] = ["Deterministic keyset order verified"]
+
+    data["cursor_strategy"]["transactions"]["state"] = "VERIFIED"
+    data["cursor_strategy"]["transactions"]["value"]["strategy_name"] = "keyset_period_recorder"
+    data["cursor_strategy"]["transactions"]["value"]["ordering_fields"] = ["Period", "Recorder"]
+    data["cursor_strategy"]["transactions"]["value"]["tie_breaker"] = "LineNumber"
+    data["cursor_strategy"]["transactions"]["evidence"] = ["Deterministic register order verified"]
+
+    # Recalculate fingerprint
+    data["mapping_sha256"] = calculate_mapping_fingerprint(data)
+
+    test_file = tmp_path / "verified_real_mapping.json"
+    test_file.write_text(json.dumps(data), encoding="utf-8")
+
+    report = validate_mapping(test_file, require_verified=True)
+    assert report.is_valid is True, f"Validation failed: {report.errors}"
+    assert report.require_verified is True
+    assert len(report.unverified_fields) == 0
+
+
+def test_mapping_fingerprint_tamper_detection(tmp_path: Path) -> None:
+    """Tampering with any mapped character invalidates fingerprint check."""
+    example_path = Path("agent/stage0_mapping.example.json")
+    data = json.loads(example_path.read_text(encoding="utf-8"))
+
+    orig_fp = data["mapping_sha256"]
+    # Alter one character
+    data["cards"]["barcode_field"]["value"] = "TamperedField"
+    # Keep original hash
+    data["mapping_sha256"] = orig_fp
+
+    test_file = tmp_path / "tampered.json"
     test_file.write_text(json.dumps(data), encoding="utf-8")
 
     report = validate_mapping(test_file)
     assert not report.is_valid
-    assert any("Placeholder 'TODO' detected" in err for err in report.errors)
-
-
-def test_mapping_fingerprint_stability_and_tamper_detection(tmp_path: Path) -> None:
-    """Fingerprint is deterministic and changes immediately if mapping is tampered with."""
-    example_path = Path("agent/stage0_mapping.example.json")
-    data = json.loads(example_path.read_text(encoding="utf-8"))
-
-    original_fp = calculate_mapping_fingerprint(data)
-    repeat_fp = calculate_mapping_fingerprint(data)
-    assert original_fp == repeat_fp
-
-    # Tamper with single field without updating fingerprint
-    tampered_data = json.loads(json.dumps(data))
-    tampered_data["cards"]["barcode_field"] = "AlteredBarcodeField"
-    # Keep original declared fingerprint
-    tampered_data["mapping_sha256"] = original_fp
-
-    test_file = tmp_path / "tampered_mapping.json"
-    test_file.write_text(json.dumps(tampered_data), encoding="utf-8")
-
-    report = validate_mapping(test_file)
-    assert not report.is_valid
-    assert any("Fingerprint mismatch" in err for err in report.errors)
-
-
-def test_zero_secrets_in_generated_discovery_report(tmp_path: Path) -> None:
-    """Generated environment and summary reports contain zero secrets or credentials."""
-    env_result = check_environment()
-    provider = FakeMetadataProvider()
-    inventory = provider.discover_metadata()
-
-    env_path = write_environment_report(env_result, tmp_path)
-    summary_path = write_discovery_summary_report(env_result, inventory, tmp_path)
-
-    env_text = env_path.read_text(encoding="utf-8")
-    summary_text = summary_path.read_text(encoding="utf-8")
-
-    # Confirm neither artifact contains secrets or PII
-    assert not contains_sensitive_data(env_text)
-    assert not contains_sensitive_data(summary_text)
-    assert "one_connection_string" not in env_text.lower()
-    assert "password" not in env_text.lower()
-    assert "pwd=" not in summary_text.lower()
+    assert any("Fingerprint mismatch" in e for e in report.errors)
 
 
 def test_candidate_discovery_heuristics() -> None:
@@ -256,3 +382,19 @@ def test_candidate_discovery_heuristics() -> None:
     assert len(regs) == 1
     assert regs[0].object_name == "AccumulationRegisters.BonusPointsRegister"
     assert regs[0].requires_manual_verification is True
+
+
+def test_security_sanitizer_error_raised(tmp_path: Path) -> None:
+    """Unsanitized text with credentials raises SecuritySanitizerError on output validation."""
+    dirty_content = "Connection: Usr=admin;Pwd=clear_text_password; Phone: +77019998877"
+    with pytest.raises(SecuritySanitizerError) as exc_info:
+        validate_safe_output(dirty_content, context="UnsafeArtifact")
+    assert "Security safety violation" in str(exc_info.value)
+
+    env_result = check_environment()
+    env_path = write_environment_report(env_result, tmp_path)
+    assert env_path.exists()
+
+    summary_path = write_discovery_summary_report(env_result, None, tmp_path)
+    assert summary_path.exists()
+

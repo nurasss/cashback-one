@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from poscenter_loyalty_agent.config import get_settings
-from poscenter_loyalty_agent.stage0.environment import check_environment
+from poscenter_loyalty_agent.stage0.environment import FLAG_VERIFIED, check_environment
 from poscenter_loyalty_agent.stage0.metadata_probe import ComMetadataProvider, FakeMetadataProvider
 from poscenter_loyalty_agent.stage0.report import (
     write_discovery_summary_report,
@@ -34,12 +34,22 @@ def cmd_probe_metadata(args: argparse.Namespace) -> int:
     settings = get_settings()
     env_result = check_environment(settings)
     output_dir = Path(getattr(args, "output_dir", "stage0_output"))
-    output_dir.mkdir(parents=True, exist_ok=True)
+    use_fake = getattr(args, "use_fake_provider", False)
 
+    # Fake provider isolation: allowed ONLY when AGENT_ENV == 'test'
+    if use_fake:
+        if settings.agent_env != "test":
+            print(
+                f"ERROR: --use-fake-provider is strictly restricted to AGENT_ENV='test' "
+                f"(current: '{settings.agent_env}'). "
+                "Fake metadata provider cannot be used in development or production environments.",
+                file=sys.stderr,
+            )
+            return 1
+
+    output_dir.mkdir(parents=True, exist_ok=True)
     # Always save environment check first
     write_environment_report(env_result, output_dir)
-
-    use_fake = getattr(args, "use_fake_provider", False)
 
     if not env_result.is_windows and not use_fake:
         print(env_result.format_console())
@@ -63,6 +73,11 @@ def cmd_probe_metadata(args: argparse.Namespace) -> int:
 
     try:
         inventory = provider.discover_metadata()
+
+        # Only real ComMetadataProvider execution can verify metadata discovery
+        if not use_fake and env_result.is_windows:
+            env_result.verification_flags.real_one_metadata_discovery = FLAG_VERIFIED
+
         json_path, md_path = write_inventory_reports(inventory, output_dir)
         report_path = write_discovery_summary_report(env_result, inventory, output_dir)
 
@@ -83,7 +98,8 @@ def cmd_probe_metadata(args: argparse.Namespace) -> int:
 def cmd_validate_mapping(args: argparse.Namespace) -> int:
     """Run stage0 validate-mapping command."""
     mapping_file = Path(args.mapping_file)
-    report = validate_mapping(mapping_file)
+    require_verified = getattr(args, "require_verified", False)
+    report = validate_mapping(mapping_file, require_verified=require_verified)
     print(report.format_console())
     return 0 if report.is_valid else 1
 
@@ -122,7 +138,7 @@ def register_stage0_subparsers(subparsers: argparse._SubParsersAction[argparse.A
     p_probe.add_argument(
         "--use-fake-provider",
         action="store_true",
-        help="Internal flag for testing discovery serialization on non-Windows hosts",
+        help="Test-only seam for validating serialization on non-Windows hosts (AGENT_ENV=test required)",
     )
     p_probe.set_defaults(func=cmd_probe_metadata)
 
@@ -134,5 +150,10 @@ def register_stage0_subparsers(subparsers: argparse._SubParsersAction[argparse.A
     p_val.add_argument(
         "mapping_file",
         help="Path to stage0_mapping.json to validate",
+    )
+    p_val.add_argument(
+        "--require-verified",
+        action="store_true",
+        help="Enforce that artifact_kind is real_discovery and all mandatory P0 fields are VERIFIED",
     )
     p_val.set_defaults(func=cmd_validate_mapping)

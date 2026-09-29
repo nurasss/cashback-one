@@ -1,74 +1,196 @@
 {
+  "artifact_kind": "synthetic_example",
   "mapping_version": "1.0.0",
   "one_configuration_identity": {
-    "configuration_name": "RetailDemo",
-    "configuration_version": "2.3.12.45",
-    "platform_version": "8.3.24.1342"
+    "configuration_name": "SyntheticTestConfiguration",
+    "configuration_version": "1.0.0.0",
+    "platform_major": "8.3",
+    "platform_version": "NOT_AVAILABLE",
+    "platform_version_state": "NOT_STARTED"
   },
-  "discovered_at": "2026-09-29T18:00:00Z",
+  "discovered_at": "2026-09-30T00:00:00Z",
   "cards": {
-    "source_object": "Catalogs.LoyaltyCards",
-    "stable_source_id": "Ref",
-    "barcode_field": "CardCode",
-    "phone_field": "PhoneNumber",
-    "full_name_field": "CustomerName",
-    "balance_source": "AccumulationRegisters.BonusBalances.Balance",
-    "blocked_source": "IsBlocked",
-    "updated_at_source": "ModifiedAt"
+    "source_object": {
+      "value": "Catalogs.SyntheticObjectA",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: identified candidate catalog"
+      ]
+    },
+    "stable_source_id": {
+      "value": "SyntheticFieldId",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: primary key attribute"
+      ]
+    },
+    "barcode_field": {
+      "value": "SyntheticFieldBarcode",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: candidate barcode field"
+      ]
+    },
+    "phone_field": {
+      "value": "SyntheticFieldPhone",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: candidate phone field"
+      ]
+    },
+    "full_name_field": {
+      "value": "NOT_AVAILABLE",
+      "state": "NOT_STARTED",
+      "evidence": []
+    },
+    "balance_source": {
+      "value": "AccumulationRegisters.SyntheticRegisterA",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: candidate balance register"
+      ]
+    },
+    "blocked_source": {
+      "value": "SyntheticFieldBlocked",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: candidate boolean flag"
+      ]
+    },
+    "updated_at_source": {
+      "value": "SyntheticFieldUpdatedAt",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: modification timestamp"
+      ]
+    }
   },
   "transactions": {
-    "source_object": "AccumulationRegisters.BonusMovements",
-    "stable_source_id": "Recorder.Number + \"_\" + LineNumber",
-    "card_relationship": "LoyaltyCard",
-    "type_field": "RecordType",
-    "type_mapping": {
-      "Receipt": "accrual",
-      "Expense": "redemption"
+    "source_object": {
+      "value": "AccumulationRegisters.SyntheticRegisterA",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: bonus movements"
+      ]
     },
-    "amount_field": "PointsAmount",
-    "balance_after_field": "NOT_AVAILABLE",
-    "occurred_at_field": "Period",
-    "receipt_ref_field": "Recorder.Number",
-    "store_field": "RetailStore"
+    "stable_source_id": {
+      "value": "SyntheticTxId",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: deterministic external id"
+      ]
+    },
+    "card_relationship": {
+      "value": "SyntheticDimCard",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: card dimension link"
+      ]
+    },
+    "type_field": {
+      "value": "SyntheticRecordType",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: record direction"
+      ]
+    },
+    "type_mapping": {
+      "value": {
+        "0": "accrual",
+        "1": "redemption"
+      },
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: movement type dictionary"
+      ]
+    },
+    "amount_field": {
+      "value": "SyntheticResAmount",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: bonus points resource"
+      ]
+    },
+    "occurred_at_field": {
+      "value": "SyntheticPeriod",
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic metadata probe: register movement period"
+      ]
+    },
+    "balance_after_field": {
+      "value": null,
+      "state": "NOT_STARTED",
+      "evidence": []
+    },
+    "receipt_ref_field": {
+      "value": null,
+      "state": "NOT_STARTED",
+      "evidence": []
+    },
+    "store_field": {
+      "value": null,
+      "state": "NOT_STARTED",
+      "evidence": []
+    }
   },
   "cursor_strategy": {
-    "cards_cursor_strategy": "keyset_timestamp_ref",
-    "cards_ordering_fields": [
-      "ModifiedAt",
-      "Ref"
-    ],
-    "cards_tie_breaker": "Ref",
-    "transactions_cursor_strategy": "keyset_period_recorder",
-    "transactions_ordering_fields": [
-      "Period",
-      "Recorder",
-      "LineNumber"
-    ],
-    "transactions_tie_breaker": "Recorder"
+    "cards": {
+      "value": {
+        "strategy_name": "keyset_synthetic_cards",
+        "ordering_fields": [
+          "SyntheticFieldUpdatedAt",
+          "SyntheticFieldId"
+        ],
+        "tie_breaker": "SyntheticFieldId"
+      },
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic cursor definition"
+      ]
+    },
+    "transactions": {
+      "value": {
+        "strategy_name": "keyset_synthetic_txs",
+        "ordering_fields": [
+          "SyntheticPeriod",
+          "SyntheticRecorder"
+        ],
+        "tie_breaker": "SyntheticLineNumber"
+      },
+      "state": "CANDIDATE",
+      "evidence": [
+        "Synthetic cursor definition"
+      ]
+    }
   },
   "evidence": {
     "barcode_aggregate": {
       "sample_size": 100,
-      "valid_13_digit_count": 98,
-      "invalid_count": 2,
+      "valid_13_digit": 100,
+      "invalid_count": 0,
       "null_count": 0
     },
     "phone_aggregate": {
-      "null_count": 5,
-      "normalizable_count": 93,
-      "invalid_count": 2
+      "sample_size": 100,
+      "null_count": 0,
+      "normalizable_count": 100,
+      "invalid_count": 0
     },
     "name_aggregate": {
-      "field_exists": true,
-      "type": "String",
-      "null_count": 10,
-      "non_null_count": 90
+      "sample_size": 100,
+      "field_exists": false,
+      "null_count": 100,
+      "populated_count": 0,
+      "type": "NOT_AVAILABLE"
     },
     "balance_aggregate": {
-      "is_numeric": true,
+      "sample_size": 100,
+      "numeric_type": "Number(15,2)",
       "precision": 2,
-      "allows_negative": false
+      "allows_negative": false,
+      "null_count": 0
     }
   },
-  "mapping_sha256": "3dc526766e51be470e782e17b57f7feb4064ce1a6940c9f190e2fae35259d84b"
+  "mapping_sha256": "f3fc2131bf52ac8c9cf2b4dc9770472bbe4306b18eba6371bd544a617e1d143b"
 }

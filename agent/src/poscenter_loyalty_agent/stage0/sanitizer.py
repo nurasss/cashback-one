@@ -14,8 +14,13 @@ RE_PHONE = re.compile(
     r"\+[1-9]\d{7,14}\b|\b8[\s\-]?(?:\(\d{3}\)|\d{3})[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}\b|\b7\d{10}\b"
 )
 RE_BARCODE_13 = re.compile(r"\b\d{13}\b")
-RE_CONN_PARAM = re.compile(r"(?i)\b(pwd|password|pass|usr|ws|srvr|ref)\s*=\s*['\"]?[^;'\"\s]+['\"]?")
-RE_SECRET_KEY = re.compile(r"(?i)\b(secret|token|api_key|apikey)\s*[:=]\s*['\"]?[a-zA-Z0-9_\-\.]{8,}['\"]?")
+# Lookahead ensures already-redacted values like ***REDACTED*** or [REDACTED] are not re-flagged
+RE_CONN_PARAM = re.compile(
+    r"(?i)\b(pwd|password|pass|usr|ws|srvr|ref)\s*=\s*['\"]?(?!\*\*\*REDACTED\*\*\*|\[REDACTED\])([^;'\"\s]+)['\"]?"
+)
+RE_SECRET_KEY = re.compile(
+    r"(?i)\b(secret|token|api_key|apikey)\s*[:=]\s*['\"]?(?!\*\*\*REDACTED\*\*\*|\[REDACTED\])([a-zA-Z0-9_\-\.]{8,})['\"]?"
+)
 
 
 class SecuritySanitizerError(ValueError):

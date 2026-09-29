@@ -8,12 +8,16 @@ from poscenter_loyalty_agent.stage0.environment import (
     check_environment,
 )
 from poscenter_loyalty_agent.stage0.mapping_models import (
+    ArtifactKind,
     CardMapping,
     ConfigurationIdentity,
     CursorStrategy,
+    EntityCursorStrategy,
     EvidenceAggregates,
+    MappingValue,
     Stage0Mapping,
     TransactionMapping,
+    VerificationState,
     calculate_mapping_fingerprint,
 )
 from poscenter_loyalty_agent.stage0.metadata_probe import (
@@ -25,7 +29,9 @@ from poscenter_loyalty_agent.stage0.metadata_probe import (
     MetadataInventory,
     MetadataObject,
     MetadataProvider,
+    TargetedMetadataInventory,
 )
+from poscenter_loyalty_agent.stage0.sample_evidence import SampleEvidenceBuilder
 from poscenter_loyalty_agent.stage0.sanitizer import (
     SecuritySanitizerError,
     contains_sensitive_data,
@@ -37,26 +43,32 @@ from poscenter_loyalty_agent.stage0.sanitizer import (
 from poscenter_loyalty_agent.stage0.validator import ValidationReport, validate_mapping
 
 __all__ = [
+    "ArtifactKind",
     "CandidateDiscoveryHeuristic",
     "CandidateMatch",
     "CardMapping",
     "ComMetadataProvider",
     "ConfigurationIdentity",
     "CursorStrategy",
+    "EntityCursorStrategy",
     "EnvironmentCheckResult",
     "EvidenceAggregates",
     "FakeMetadataProvider",
     "FLAG_NOT_VERIFIED",
     "FLAG_VERIFIED",
+    "MappingValue",
     "MetadataField",
     "MetadataInventory",
     "MetadataObject",
     "MetadataProvider",
+    "SampleEvidenceBuilder",
     "SecuritySanitizerError",
     "Stage0Mapping",
+    "TargetedMetadataInventory",
     "TransactionMapping",
     "ValidationReport",
     "VerificationFlags",
+    "VerificationState",
     "calculate_mapping_fingerprint",
     "check_environment",
     "contains_sensitive_data",

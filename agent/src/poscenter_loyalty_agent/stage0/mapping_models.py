@@ -4,11 +4,24 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 VerificationState = Literal["NOT_STARTED", "CANDIDATE", "VERIFIED"]
+ArtifactKind = Literal["synthetic_example", "real_discovery"]
+
+T = TypeVar("T")
+
+
+class MappingValue(BaseModel, Generic[T]):
+    """Wrapper holding a mapped value, its verification state, and empirical evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: T
+    state: VerificationState = "NOT_STARTED"
+    evidence: list[str] = Field(default_factory=list)
 
 
 class ConfigurationIdentity(BaseModel):
@@ -18,7 +31,15 @@ class ConfigurationIdentity(BaseModel):
 
     configuration_name: str = Field(description="Internal name of the 1C configuration")
     configuration_version: str = Field(description="Configuration version string (e.g. 2.3.12.45)")
-    platform_version: str = Field(description="1C:Enterprise platform version (e.g. 8.3.24.1342)")
+    platform_major: str = Field(default="8.3", description="Target 1C platform major family")
+    platform_version: str = Field(
+        default="NOT_AVAILABLE",
+        description="Exact 1C:Enterprise platform version if verified, otherwise NOT_AVAILABLE",
+    )
+    platform_version_state: VerificationState = Field(
+        default="NOT_STARTED",
+        description="Verification state of platform version (VERIFIED only if exact build discovered)",
+    )
 
 
 class CardMapping(BaseModel):
@@ -26,14 +47,17 @@ class CardMapping(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    source_object: str = Field(description="Metadata object name (e.g. Catalogs.InformationCards)")
-    stable_source_id: str = Field(description="Stable primary key field in 1C (e.g. Ref / UUID)")
-    barcode_field: str = Field(description="Field containing 13-digit EAN barcode")
-    phone_field: str = Field(description="Field containing customer phone number")
-    full_name_field: str = Field(description="Field containing customer full name or NOT_AVAILABLE")
-    balance_source: str = Field(description="Register or attribute supplying the current balance")
-    blocked_source: str = Field(description="Field or expression indicating blocked / deletion mark")
-    updated_at_source: str = Field(description="Timestamp field or version indicating last modification")
+    source_object: MappingValue[str] = Field(description="Metadata object name (e.g. Catalogs.InformationCards)")
+    stable_source_id: MappingValue[str] = Field(description="Stable primary key field in 1C (e.g. Ref / UUID)")
+    barcode_field: MappingValue[str] = Field(description="Field containing 13-digit EAN barcode")
+    phone_field: MappingValue[str] = Field(description="Field containing customer phone number")
+    full_name_field: MappingValue[str] = Field(
+        default_factory=lambda: MappingValue[str](value="NOT_AVAILABLE", state="NOT_STARTED"),
+        description="Field containing customer full name or NOT_AVAILABLE",
+    )
+    balance_source: MappingValue[str] = Field(description="Register or attribute supplying the current balance")
+    blocked_source: MappingValue[str] = Field(description="Field or expression indicating blocked / deletion mark")
+    updated_at_source: MappingValue[str] = Field(description="Timestamp field or version indicating last modification")
 
 
 class TransactionMapping(BaseModel):
@@ -41,25 +65,39 @@ class TransactionMapping(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    source_object: str = Field(description="Metadata source (e.g. AccumulationRegisters.BonusPoints)")
-    stable_source_id: str = Field(
+    source_object: MappingValue[str] = Field(description="Metadata source (e.g. AccumulationRegisters.BonusPoints)")
+    stable_source_id: MappingValue[str] = Field(
         description="Deterministic stable immutable expression for Cloud external_id"
     )
-    card_relationship: str = Field(description="Dimension or requisite linking movement to card")
-    type_field: str = Field(description="Field indicating movement direction or operation kind")
-    type_mapping: dict[str, str] = Field(
+    card_relationship: MappingValue[str] = Field(description="Dimension or requisite linking movement to card")
+    type_field: MappingValue[str] = Field(description="Field indicating movement direction or operation kind")
+    type_mapping: MappingValue[dict[str, str]] = Field(
         description="Explicit dictionary mapping 1C movement types to 'accrual' or 'redemption'"
     )
-    amount_field: str = Field(description="Field storing transaction bonus amount")
-    balance_after_field: str | None = Field(
-        default=None,
-        description="Field storing balance after movement, or NOT_AVAILABLE",
+    amount_field: MappingValue[str] = Field(description="Field storing transaction bonus amount")
+    occurred_at_field: MappingValue[str] = Field(description="Movement timestamp field")
+    balance_after_field: MappingValue[str | None] = Field(
+        default_factory=lambda: MappingValue[str | None](value=None, state="NOT_STARTED"),
+        description="Field storing balance after movement, or null",
     )
-    occurred_at_field: str = Field(description="Movement timestamp field")
-    receipt_ref_field: str | None = Field(
-        default=None, description="Receipt / document reference or null"
+    receipt_ref_field: MappingValue[str | None] = Field(
+        default_factory=lambda: MappingValue[str | None](value=None, state="NOT_STARTED"),
+        description="Receipt / document reference or null",
     )
-    store_field: str | None = Field(default=None, description="Store / retail point reference or null")
+    store_field: MappingValue[str | None] = Field(
+        default_factory=lambda: MappingValue[str | None](value=None, state="NOT_STARTED"),
+        description="Store / retail point reference or null",
+    )
+
+
+class EntityCursorStrategy(BaseModel):
+    """Deterministic pagination and incremental checkpoint strategy definition."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy_name: str = Field(description="Strategy name (e.g. keyset_timestamp_ref)")
+    ordering_fields: list[str] = Field(description="Fields determining ordering")
+    tie_breaker: str = Field(description="Deterministic tie-breaker field")
 
 
 class CursorStrategy(BaseModel):
@@ -67,14 +105,8 @@ class CursorStrategy(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    cards_cursor_strategy: str = Field(description="Strategy name (e.g. keyset_timestamp_ref)")
-    cards_ordering_fields: list[str] = Field(description="Fields determining ordering")
-    cards_tie_breaker: str = Field(description="Deterministic tie-breaker field")
-    transactions_cursor_strategy: str = Field(
-        description="Strategy name (e.g. keyset_period_recorder)"
-    )
-    transactions_ordering_fields: list[str] = Field(description="Fields determining ordering")
-    transactions_tie_breaker: str = Field(description="Deterministic tie-breaker field")
+    cards: MappingValue[EntityCursorStrategy] = Field(description="Cursor strategy for cards")
+    transactions: MappingValue[EntityCursorStrategy] = Field(description="Cursor strategy for transactions")
 
 
 class EvidenceAggregates(BaseModel):
@@ -101,6 +133,10 @@ class Stage0Mapping(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    artifact_kind: ArtifactKind = Field(
+        default="synthetic_example",
+        description="Kind of mapping artifact: 'synthetic_example' or 'real_discovery'",
+    )
     mapping_version: str = Field(default="1.0.0")
     one_configuration_identity: ConfigurationIdentity
     discovered_at: str = Field(description="ISO 8601 UTC timestamp of discovery")

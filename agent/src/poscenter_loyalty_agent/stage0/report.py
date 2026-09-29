@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from poscenter_loyalty_agent.stage0.environment import EnvironmentCheckResult
-from poscenter_loyalty_agent.stage0.metadata_probe import MetadataInventory
+from poscenter_loyalty_agent.stage0.metadata_probe import TargetedMetadataInventory
 from poscenter_loyalty_agent.stage0.sanitizer import validate_safe_output
 
 
@@ -27,8 +27,8 @@ def write_environment_report(env_result: EnvironmentCheckResult, output_dir: Pat
     return target_file
 
 
-def write_inventory_reports(inventory: MetadataInventory, output_dir: Path) -> tuple[Path, Path]:
-    """Save metadata inventory as sanitized JSON and Markdown."""
+def write_inventory_reports(inventory: TargetedMetadataInventory, output_dir: Path) -> tuple[Path, Path]:
+    """Save metadata inventory as sanitized JSON and Markdown with truthful coverage declarations."""
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "metadata_inventory.json"
     md_path = output_dir / "metadata_inventory.md"
@@ -41,13 +41,18 @@ def write_inventory_reports(inventory: MetadataInventory, output_dir: Path) -> t
 
     # Markdown export
     lines = [
-        "# POSCENTER ONE Metadata Inventory",
+        "# POSCENTER ONE Targeted Metadata Inventory",
+        "",
+        "> **Coverage Scope Notice:** " + inventory.coverage_limitation,
         "",
         f"- **Configuration:** `{inventory.configuration.configuration_name}`",
         f"- **Version:** `{inventory.configuration.configuration_version}`",
-        f"- **Platform Version:** `{inventory.configuration.platform_version}`",
+        f"- **Platform Major:** `{inventory.configuration.platform_major}`",
+        f"- **Platform Version:** `{inventory.configuration.platform_version}` ({inventory.configuration.platform_version_state})",
         f"- **Discovered At:** `{inventory.discovered_at}`",
-        f"- **Total Discovered Objects:** {len(inventory.objects)}",
+        f"- **Probed Categories ({len(inventory.probed_categories)}):** {', '.join(f'`{c}`' for c in inventory.probed_categories)}",
+        f"- **Unprobed Categories ({len(inventory.unprobed_categories)}):** {', '.join(f'`{c}`' for c in inventory.unprobed_categories)}",
+        f"- **Total Discovered Objects in Scope:** {len(inventory.objects)}",
         "",
         "## Candidate Objects (Heuristic Discovery)",
         "",
@@ -107,7 +112,7 @@ def write_inventory_reports(inventory: MetadataInventory, output_dir: Path) -> t
 
 def write_discovery_summary_report(
     env_result: EnvironmentCheckResult,
-    inventory: MetadataInventory | None,
+    inventory: TargetedMetadataInventory | None,
     output_dir: Path,
 ) -> Path:
     """Generate canonical STAGE0_DISCOVERY_REPORT.md conforming to Section 38."""
@@ -116,7 +121,9 @@ def write_discovery_summary_report(
 
     conf_name = inventory.configuration.configuration_name if inventory else "NOT DISCOVERED"
     conf_ver = inventory.configuration.configuration_version if inventory else "NOT DISCOVERED"
-    plat_ver = inventory.configuration.platform_version if inventory else "NOT DISCOVERED"
+    plat_major = inventory.configuration.platform_major if inventory else "8.3"
+    plat_ver = inventory.configuration.platform_version if inventory else "NOT_AVAILABLE"
+    plat_ver_state = inventory.configuration.platform_version_state if inventory else "NOT_STARTED"
 
     lines = [
         "# Stage 0 Discovery Report — POSCENTER ONE",
@@ -138,12 +145,14 @@ def write_discovery_summary_report(
         "## Configuration Identity",
         f"- Configuration Name: `{conf_name}`",
         f"- Configuration Version: `{conf_ver}`",
-        f"- Platform Version: `{plat_ver}`",
+        f"- Platform Major: `{plat_major}`",
+        f"- Exact Platform Version: `{plat_ver}` ({plat_ver_state})",
         "",
         "## Metadata Inventory",
     ]
 
     if inventory:
+        lines.append(f"- Scope: `{inventory.coverage_scope}` ({inventory.coverage_limitation})")
         lines.append(f"- Discovered Objects Count: {len(inventory.objects)}")
         lines.append(f"- Candidate Cards Identified: {len(inventory.candidate_cards)}")
         lines.append(f"- Candidate Registers Identified: {len(inventory.candidate_registers)}")
