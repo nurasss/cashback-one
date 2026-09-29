@@ -67,14 +67,14 @@ def write_inventory_reports(inventory: TargetedMetadataInventory, output_dir: Pa
         lines.append("*(No candidate card objects identified)*")
 
     lines.append("")
-    lines.append("### Candidate Balance Registers")
-    if inventory.candidate_registers:
-        for r in inventory.candidate_registers:
+    lines.append("### Candidate Balance Sources")
+    if inventory.candidate_balance_sources:
+        for r in inventory.candidate_balance_sources:
             lines.append(f"- **`{r.object_name}`** ({r.category})")
             lines.append(f"  - *Reason:* {r.confidence_reason}")
             lines.append(f"  - *Requires Manual Verification:* {r.requires_manual_verification}")
     else:
-        lines.append("*(No candidate balance registers identified)*")
+        lines.append("*(No candidate balance sources identified)*")
 
     lines.append("")
     lines.append("### Candidate Transaction Sources")
@@ -155,7 +155,7 @@ def write_discovery_summary_report(
         lines.append(f"- Scope: `{inventory.coverage_scope}` ({inventory.coverage_limitation})")
         lines.append(f"- Discovered Objects Count: {len(inventory.objects)}")
         lines.append(f"- Candidate Cards Identified: {len(inventory.candidate_cards)}")
-        lines.append(f"- Candidate Registers Identified: {len(inventory.candidate_registers)}")
+        lines.append(f"- Candidate Balance Sources Identified: {len(inventory.candidate_balance_sources)}")
         lines.append(f"- Candidate Transactions Identified: {len(inventory.candidate_transactions)}")
     else:
         lines.append("- Metadata discovery skipped (real 1C environment not connected).")
@@ -165,15 +165,15 @@ def write_discovery_summary_report(
         ("Barcode", "NOT VERIFIED: Requires aggregate proof of the 13-digit loyalty-card barcode field."),
         ("Phone", "NOT VERIFIED: Requires aggregate proof of customer mobile phone field."),
         ("Customer Name", "NOT VERIFIED: Requires inspection of customer full name field."),
-        ("Balance", "NOT VERIFIED: Requires proof of accumulation register or balance source."),
-        ("Blocked State", "NOT VERIFIED: Requires proof of deletion mark or blocked flag."),
-        ("Updated Timestamp", "NOT VERIFIED: Requires identification of modification timestamp."),
-        ("Transaction Source", "NOT VERIFIED: Requires proof of bonus movement document/register."),
-        ("Stable External ID", "NOT VERIFIED: Requires deterministic immutable movement key."),
-        ("Transaction Type", "NOT VERIFIED: Requires explicit mapping of 1C movement types to canonical types."),
+        ("Balance", "NOT VERIFIED: Requires identification and verification of the actual balance source."),
+        ("Blocked State", "NOT VERIFIED: Requires identification of the actual source or rule for card availability/block status."),
+        ("Updated Timestamp", "NOT VERIFIED: Requires identification of verified source or deterministic versioning rule for update semantics."),
+        ("Transaction Source", "NOT VERIFIED: Requires identification of the actual loyalty movement source."),
+        ("Stable External ID", "NOT VERIFIED: Requires single immutable identifier or verified deterministic composite identity."),
+        ("Transaction Type", "NOT VERIFIED: Requires verification of source movement semantics and their deterministic mapping to the Cloud type string."),
         ("Balance After", "NOT VERIFIED: Requires verification if stored or derivable."),
-        ("Receipt", "NOT VERIFIED: Requires safe receipt identifier without PII."),
-        ("Store", "NOT VERIFIED: Requires retail point / store link."),
+        ("Receipt", "NOT VERIFIED: Requires verification whether a safe source for Cloud receipt_ref exists without PII."),
+        ("Store", "NOT VERIFIED: Requires verification whether a reliable source for the Cloud store field exists."),
         ("Incremental Cursor", "NOT VERIFIED: Requires deterministic ordering fields and tie-breaker."),
         ("PII Review", "PASS: Zero customer PII, zero credentials, zero passwords present in discovery output."),
         ("Open Questions", "Awaiting Phase B execution on Windows host with live pilot POSCENTER ONE."),

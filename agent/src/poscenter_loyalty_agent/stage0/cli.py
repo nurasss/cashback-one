@@ -93,7 +93,7 @@ def cmd_probe_metadata(args: argparse.Namespace) -> int:
         print("=== Metadata Probe Completed Successfully ===")
         print(f"Total Discovered Objects:       {len(inventory.objects)}")
         print(f"Candidate Loyalty Cards:        {len(inventory.candidate_cards)}")
-        print(f"Candidate Balance Registers:    {len(inventory.candidate_registers)}")
+        print(f"Candidate Balance Sources:      {len(inventory.candidate_balance_sources)}")
         print(f"Candidate Transactions:         {len(inventory.candidate_transactions)}")
         print(f"Inventory JSON:                 {json_path}")
         print(f"Inventory Markdown:             {md_path}")

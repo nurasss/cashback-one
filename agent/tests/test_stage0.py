@@ -305,7 +305,7 @@ def test_all_mandatory_verified_mapping_passes_require_verified(tmp_path: Path) 
                     rk.replace("Synthetic", "Real"): rv.replace("Synthetic", "Real")
                     for rk, rv in v["value"].items()
                 }
-            v["evidence"] = ["Verified against bonus accumulation register movements"]
+            v["evidence"] = ["Verified against pilot movements data"]
 
     # Set cursor strategy to VERIFIED
     data["cursor_strategy"]["cards"]["state"] = "VERIFIED"
@@ -389,6 +389,7 @@ def test_candidate_discovery_heuristics() -> None:
     assert len(regs) == 1
     assert regs[0].object_name == "AccumulationRegisters.BonusPointsRegister"
     assert regs[0].requires_manual_verification is True
+    assert regs[0].role == "balance_source_candidate"
 
 
 def test_security_sanitizer_error_raised(tmp_path: Path) -> None:
@@ -678,6 +679,49 @@ def test_zero_speculative_assumptions_in_stage0_sources() -> None:
     example_content = example_path.read_text(encoding="utf-8")
     for marker in forbidden_markers:
         assert marker not in example_content, f"Forbidden speculative marker '{marker}' found in {example_path}"
+
+
+def test_zero_speculative_semantic_phrases_in_stage0_and_reports(tmp_path: Path) -> None:
+    """Stage 0 sources and generated discovery reports must contain zero speculative semantic phrases."""
+    stage0_dir = Path("agent/src/poscenter_loyalty_agent/stage0")
+    assert stage0_dir.exists()
+
+    forbidden_semantic_phrases = [
+        "accumulation register or balance source",
+        "deletion mark or blocked flag",
+        "bonus movement document/register",
+        "1C movement types",
+        "retail point / store link",
+        "Register or attribute supplying",
+        "blocked / deletion mark",
+        "Store / retail point reference",
+    ]
+
+    for py_file in stage0_dir.glob("*.py"):
+        content = py_file.read_text(encoding="utf-8")
+        for phrase in forbidden_semantic_phrases:
+            assert (
+                phrase.lower() not in content.lower()
+            ), f"Forbidden semantic phrase '{phrase}' found in source {py_file}"
+
+    # Also verify generated synthetic discovery reports
+    provider = FakeMetadataProvider()
+    inventory = provider.discover_metadata()
+    env_result = check_environment()
+
+    out_dir = tmp_path / "zero_assumption_reports"
+    write_inventory_reports(inventory, out_dir)
+    write_discovery_summary_report(env_result, inventory, out_dir)
+    write_discovery_summary_report(env_result, None, out_dir / "unconnected")
+
+    for report_file in out_dir.rglob("*.*"):
+        if report_file.is_file():
+            content = report_file.read_text(encoding="utf-8")
+            for phrase in forbidden_semantic_phrases:
+                assert (
+                    phrase.lower() not in content.lower()
+                ), f"Forbidden semantic phrase '{phrase}' found in report artifact {report_file}"
+
 
 
 

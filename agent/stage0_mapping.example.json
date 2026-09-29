@@ -47,7 +47,7 @@
       "value": "AccumulationRegisters.SyntheticRegisterA",
       "state": "CANDIDATE",
       "evidence": [
-        "Synthetic metadata probe: candidate balance register"
+        "Synthetic metadata probe: candidate balance source"
       ]
     },
     "blocked_source": {
@@ -115,7 +115,7 @@
       "value": "SyntheticPeriod",
       "state": "CANDIDATE",
       "evidence": [
-        "Synthetic metadata probe: register movement period"
+        "Synthetic metadata probe: movement timestamp field"
       ]
     },
     "balance_after_field": {
@@ -192,5 +192,5 @@
       "null_count": 0
     }
   },
-  "mapping_sha256": "6f899eefe05796473d5ac3479c9e764304b046d1e6dea5317006802acf4808cf"
+  "mapping_sha256": "29a127f58ec265db7801978725a168312bced4d97a45c456ea798cfada2bb749"
 }

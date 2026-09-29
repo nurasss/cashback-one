@@ -51,7 +51,7 @@ class CardMapping(BaseModel):
         description="Exact metadata object identifier discovered from the pilot configuration"
     )
     stable_source_id: MappingValue[str] = Field(
-        description="Exact stable source identifier or deterministic identity expression verified on the pilot configuration"
+        description="Single immutable identifier or verified deterministic composite identity verified on the pilot configuration"
     )
     barcode_field: MappingValue[str] = Field(
         description="Field containing 13-digit loyalty-card barcode string"
@@ -61,9 +61,15 @@ class CardMapping(BaseModel):
         default_factory=lambda: MappingValue[str](value="NOT_AVAILABLE", state="NOT_STARTED"),
         description="Field containing customer full name or NOT_AVAILABLE",
     )
-    balance_source: MappingValue[str] = Field(description="Register or attribute supplying the current balance")
-    blocked_source: MappingValue[str] = Field(description="Field or expression indicating blocked / deletion mark")
-    updated_at_source: MappingValue[str] = Field(description="Timestamp field or version indicating last modification")
+    balance_source: MappingValue[str] = Field(
+        description="Exact verified source or derivation rule for the current loyalty balance"
+    )
+    blocked_source: MappingValue[str] = Field(
+        description="Exact verified source or deterministic rule used to derive Cloud is_blocked"
+    )
+    updated_at_source: MappingValue[str] = Field(
+        description="Verified source or deterministic versioning rule used to derive Card.updated_at semantics"
+    )
 
 
 class TransactionMapping(BaseModel):
@@ -72,10 +78,10 @@ class TransactionMapping(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_object: MappingValue[str] = Field(
-        description="Exact transaction/movement metadata source discovered during Stage 0"
+        description="Exact metadata source or deterministic read model containing loyalty movements"
     )
     stable_source_id: MappingValue[str] = Field(
-        description="Deterministic stable immutable expression for Cloud external_id"
+        description="Single immutable identifier or verified deterministic composite identity for Cloud external_id"
     )
     card_relationship: MappingValue[str] = Field(description="Dimension or requisite linking movement to card")
     type_field: MappingValue[str] = Field(description="Field indicating movement direction or operation kind")
@@ -90,11 +96,11 @@ class TransactionMapping(BaseModel):
     )
     receipt_ref_field: MappingValue[str | None] = Field(
         default_factory=lambda: MappingValue[str | None](value=None, state="NOT_STARTED"),
-        description="Receipt / document reference or null",
+        description="Optional safe source for Cloud receipt_ref, or null if no reliable source exists",
     )
     store_field: MappingValue[str | None] = Field(
         default_factory=lambda: MappingValue[str | None](value=None, state="NOT_STARTED"),
-        description="Store / retail point reference or null",
+        description="Optional verified source for the Cloud store field, or null when no reliable source exists",
     )
 
 

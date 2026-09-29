@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -77,7 +77,9 @@ class CandidateMatch(BaseModel):
 
     object_name: str
     category: str
-    role: str = Field(description="Role: card, transaction, or balance_register")
+    role: str = Field(
+        description="Role: card, transaction, or balance_source_candidate (heuristic candidate only; not mapping evidence; not verification)"
+    )
     confidence_reason: str
     requires_manual_verification: bool = Field(default=True)
     matched_fields: list[str] = Field(default_factory=list)
@@ -103,7 +105,8 @@ class TargetedMetadataInventory(BaseModel):
     coverage_limitation: str = Field(
         default=(
             "Targeted discovery focused on core transactional loyalty objects. "
-            "Complete 1C metadata root enumeration was not performed."
+            "Complete 1C metadata root enumeration was not performed. "
+            "Category membership is only a search heuristic and is not evidence that the final mapping must use that category."
         ),
         description="Explicit notice regarding category coverage limitation",
     )
@@ -112,7 +115,20 @@ class TargetedMetadataInventory(BaseModel):
     objects: list[MetadataObject] = Field(default_factory=list)
     candidate_cards: list[CandidateMatch] = Field(default_factory=list)
     candidate_transactions: list[CandidateMatch] = Field(default_factory=list)
-    candidate_registers: list[CandidateMatch] = Field(default_factory=list)
+    candidate_balance_sources: list[CandidateMatch] = Field(
+        default_factory=list,
+        description="Heuristic candidates for balance sources (heuristic candidates only; not mapping evidence; not verification)",
+    )
+
+    def __init__(self, **data: Any) -> None:
+        if "candidate_registers" in data and "candidate_balance_sources" not in data:
+            data["candidate_balance_sources"] = data.pop("candidate_registers")
+        super().__init__(**data)
+
+    @property
+    def candidate_registers(self) -> list[CandidateMatch]:
+        """Backward-compatible alias for candidate_balance_sources."""
+        return self.candidate_balance_sources
 
 
 # Backward-compatible alias
@@ -120,7 +136,12 @@ MetadataInventory = TargetedMetadataInventory
 
 
 class CandidateDiscoveryHeuristic:
-    """Configurable, non-presumptive heuristics to surface candidate metadata objects."""
+    """Configurable, non-presumptive heuristics to surface candidate metadata objects.
+
+    Category membership is only a search heuristic and is not evidence that the
+    final mapping must use that category. All discovered candidates are heuristic
+    candidates only, not mapping evidence, and not verification.
+    """
 
     CARD_KEYWORDS = ("карт", "card", "клиент", "покупател", "дисконт", "client", "customer")
     PHONE_KEYWORDS = ("телефон", "phone", "тел", "моб", "mobile")
@@ -166,23 +187,23 @@ class CandidateDiscoveryHeuristic:
                         )
                     )
 
-            # Check for accumulation registers (balance / movements)
-            if obj.category == "AccumulationRegisters":
+            # Check for candidate balance sources (heuristic candidates only)
+            if obj.category in ("AccumulationRegisters", "InformationRegisters", "Catalogs"):
                 matched_fields = [f.name for f in obj.fields]
                 if any(k in text for k in cls.BALANCE_KEYWORDS):
                     regs.append(
                         CandidateMatch(
                             object_name=f"{obj.category}.{obj.name}",
                             category=obj.category,
-                            role="balance_register",
-                            confidence_reason="Accumulation register matching bonus / balance keywords",
+                            role="balance_source_candidate",
+                            confidence_reason="Matches bonus / balance keywords (heuristic candidate only; not mapping evidence; not verification)",
                             requires_manual_verification=True,
                             matched_fields=matched_fields,
                         )
                     )
 
             # Check for transaction documents or registers
-            if obj.category in ("Documents", "AccumulationRegisters"):
+            if obj.category in ("Documents", "AccumulationRegisters", "InformationRegisters"):
                 if any(k in text for k in cls.TX_KEYWORDS) or any(k in text for k in cls.BALANCE_KEYWORDS):
                     txs.append(
                         CandidateMatch(
@@ -273,7 +294,7 @@ class FakeMetadataProvider:
             objects=self.objects,
             candidate_cards=cards,
             candidate_transactions=txs,
-            candidate_registers=regs,
+            candidate_balance_sources=regs,
         )
 
 
@@ -410,7 +431,7 @@ class ComMetadataProvider:
                 objects=discovered_objects,
                 candidate_cards=cards,
                 candidate_transactions=txs,
-                candidate_registers=regs,
+                candidate_balance_sources=regs,
             )
 
         finally:
