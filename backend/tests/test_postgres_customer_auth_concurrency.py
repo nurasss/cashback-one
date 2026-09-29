@@ -14,7 +14,11 @@ from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
 from app.models.entities import LoginChallenge, User
-from app.services.auth_confirmation import confirm_login_challenge
+from app.services.auth_confirmation import (
+    ConfirmationResult,
+    ConfirmationStatus,
+    confirm_login_challenge,
+)
 from app.services.user_service import get_or_create_user_by_phone
 
 
@@ -59,13 +63,14 @@ async def pg_client(pg_session_maker) -> AsyncGenerator[AsyncClient, None]:  # t
 
 
 @pytest.mark.asyncio
-async def test_pg_auth_01_concurrent_confirmation(
+async def test_pg_auth_01_concurrent_different_phone_confirmation(
     pg_session_maker,  # type: ignore[no-untyped-def]
 ) -> None:
-    """PG-AUTH-01: Two concurrent confirmation events with the same code.
+    """PG-AUTH-01: Two concurrent confirmation events with DIFFERENT phones on same code.
 
-    Both must complete cleanly without 500 / IntegrityError.
-    Exactly one deterministic identity is saved.
+    Row locking prevents race condition: exactly one phone claims ownership,
+    the other receives ALREADY_CONFIRMED_OTHER_PHONE without leaking the winner's phone.
+    Neither fails with 500 / unhandled exception.
     """
     code = generate_challenge_code()
     async with pg_session_maker() as s:
@@ -79,21 +84,34 @@ async def test_pg_auth_01_concurrent_confirmation(
         await s.commit()
         challenge_id = challenge.id
 
-    async def worker_confirm(phone: str) -> None:
+    async def worker_confirm(phone: str) -> ConfirmationResult:
         async with pg_session_maker() as s:
-            await confirm_login_challenge(s, code, phone)
+            return await confirm_login_challenge(s, code, phone)
 
-    # Concurrently confirm with the same phone
-    await asyncio.gather(
+    # Concurrently confirm with different phones
+    res1, res2 = await asyncio.gather(
         worker_confirm("+77017770001"),
-        worker_confirm("+77017770001"),
+        worker_confirm("+77017770002"),
     )
+
+    statuses = {res1.status, res2.status}
+    assert statuses == {
+        ConfirmationStatus.CONFIRMED,
+        ConfirmationStatus.ALREADY_CONFIRMED_OTHER_PHONE,
+    }
+
+    winner = res1 if res1.status == ConfirmationStatus.CONFIRMED else res2
+    loser = res2 if res1.status == ConfirmationStatus.CONFIRMED else res1
+
+    assert winner.is_success is True
+    assert loser.is_success is False
+    assert loser.error_message is not None
 
     async with pg_session_maker() as s:
         c = await s.get(LoginChallenge, challenge_id)
         assert c is not None
         assert c.status == "confirmed"
-        assert c.phone == "+77017770001"
+        assert c.phone in {"+77017770001", "+77017770002"}
 
 
 @pytest.mark.asyncio
@@ -170,3 +188,60 @@ async def test_pg_auth_04_unique_phone_constraint(
             u2 = User(phone="+77028881122", language="kz")
             s.add(u2)
             await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_pg_auth_05_unique_challenge_code_hash_constraint(
+    pg_session_maker,  # type: ignore[no-untyped-def]
+) -> None:
+    """PG-AUTH-05: DB unique constraint uq_login_challenges_code_hash rejects duplicates."""
+    digest = hash_challenge_code("ABCDEFGH")
+    async with pg_session_maker() as s:
+        c1 = LoginChallenge(
+            device_id="dev-c1",
+            code_hash=digest,
+            status="pending",
+            expires_at=datetime.now(UTC) + timedelta(minutes=3),
+        )
+        s.add(c1)
+        await s.commit()
+
+    with pytest.raises(IntegrityError):
+        async with pg_session_maker() as s:
+            c2 = LoginChallenge(
+                device_id="dev-c2",
+                code_hash=digest,
+                status="pending",
+                expires_at=datetime.now(UTC) + timedelta(minutes=3),
+            )
+            s.add(c2)
+            await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_pg_auth_06_concurrent_login_preserves_custom_language(
+    pg_session_maker,  # type: ignore[no-untyped-def]
+) -> None:
+    """PG-AUTH-06: Existing user with custom language 'kz' is not overwritten by concurrent auth."""
+    phone = "+77018889900"
+    async with pg_session_maker() as s:
+        u = await get_or_create_user_by_phone(s, phone, language="kz")
+        await s.commit()
+        assert u.language == "kz"
+
+    # Concurrently execute 3 user resolution requests with default language="ru"
+    async def resolve_default() -> User:
+        async with pg_session_maker() as s:
+            user = await get_or_create_user_by_phone(s, phone, language="ru")
+            await s.commit()
+            return user
+
+    users = await asyncio.gather(resolve_default(), resolve_default(), resolve_default())
+    for resolved in users:
+        assert resolved.language == "kz"
+
+    async with pg_session_maker() as s:
+        db_user = await s.get(User, u.id)
+        assert db_user is not None
+        assert db_user.language == "kz"
+

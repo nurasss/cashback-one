@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 
 from pydantic import Field, model_validator
@@ -80,8 +81,15 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SIGNING_KEY must be provided and be at least 32 characters long")
             if not self.auth_challenge_hash_key or len(self.auth_challenge_hash_key.strip()) < 32:
                 raise ValueError("AUTH_CHALLENGE_HASH_KEY must be provided and be at least 32 characters long")
-            if not self.whatsapp_login_number or not self.whatsapp_login_number.strip():
-                raise ValueError("WHATSAPP_LOGIN_NUMBER must be provided in environment or .env")
+
+        # Validate WHATSAPP_LOGIN_NUMBER format (E.164)
+        if not self.whatsapp_login_number or not self.whatsapp_login_number.strip():
+            raise ValueError("WHATSAPP_LOGIN_NUMBER must be provided in environment or .env")
+        self.whatsapp_login_number = self.whatsapp_login_number.strip()
+        if not re.match(r"^\+[1-9]\d{7,14}$", self.whatsapp_login_number):
+            raise ValueError(
+                "WHATSAPP_LOGIN_NUMBER must be in valid E.164 format (+[1-9] followed by 7-14 digits, e.g. +77001234567)"
+            )
 
         return self
 

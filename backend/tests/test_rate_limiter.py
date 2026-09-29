@@ -1,10 +1,13 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import redis.asyncio as aioredis
 from httpx import AsyncClient
 
 from app.core.config import settings
+from app.core.errors import AppError
 from app.services.rate_limiter import (
+    RATE_LIMIT_LUA_SCRIPT,
     InMemoryRateLimiter,
     RedisRateLimiter,
     _test_limiter,
@@ -57,26 +60,68 @@ async def test_challenge_rate_limiting_via_api(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_redis_rate_limiter_unit_pipeline() -> None:
-    """RedisRateLimiter atomic pipeline behaves correctly."""
+async def test_redis_rate_limiter_lua_atomic() -> None:
+    """RedisRateLimiter uses atomic Lua script and enforces limit semantics."""
     mock_redis = MagicMock()
-    mock_pipeline = MagicMock()
-
-    # Async context manager for pipeline
-    mock_redis.pipeline.return_value.__aenter__ = AsyncMock(return_value=mock_pipeline)
-    mock_redis.pipeline.return_value.__aexit__ = AsyncMock(return_value=None)
-    mock_redis.expire = AsyncMock()
-
-    # Case 1: First request (count=1, ttl=-1) -> not limited, expire set
-    mock_pipeline.execute = AsyncMock(return_value=[1, -1])
+    mock_redis.eval = AsyncMock()
     limiter = RedisRateLimiter(mock_redis)
+
+    # 1. First request returns count=1 -> not limited
+    mock_redis.eval.return_value = 1
     is_limited = await limiter.is_rate_limited("test-key", limit=5, window_seconds=60)
     assert is_limited is False
-    mock_redis.expire.assert_awaited_once_with("rate_limit:test-key", 60)
+    mock_redis.eval.assert_awaited_once_with(
+        RATE_LIMIT_LUA_SCRIPT,
+        1,
+        "rate_limit:test-key",
+        "60",
+    )
 
-    # Case 2: Exceeded limit (count=6, ttl=50) -> limited
-    mock_redis.expire.reset_mock()
-    mock_pipeline.execute = AsyncMock(return_value=[6, 50])
-    is_limited_2 = await limiter.is_rate_limited("test-key", limit=5, window_seconds=60)
-    assert is_limited_2 is True
-    mock_redis.expire.assert_not_awaited()
+    # 2. Reaching exact limit returns count=5 -> not limited
+    mock_redis.eval.return_value = 5
+    assert await limiter.is_rate_limited("test-key", limit=5, window_seconds=60) is False
+
+    # 3. Exceeding limit returns count=6 -> limited
+    mock_redis.eval.return_value = 6
+    assert await limiter.is_rate_limited("test-key", limit=5, window_seconds=60) is True
+
+
+@pytest.mark.asyncio
+async def test_redis_rate_limiter_failure_raises_503() -> None:
+    """If Redis is unavailable, rate limiter fails closed with 503 AppError."""
+    mock_redis = MagicMock()
+    mock_redis.eval = AsyncMock(side_effect=aioredis.ConnectionError("Redis connection refused"))
+    limiter = RedisRateLimiter(mock_redis)
+
+    with pytest.raises(AppError) as exc_info:
+        await limiter.is_rate_limited("fail-key", limit=5, window_seconds=60)
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "AUTH_RATE_LIMIT_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_challenge_rate_limiter_unavailable_returns_503_via_api(
+    client: AsyncClient,
+) -> None:
+    """When rate limiter raises AUTH_RATE_LIMIT_UNAVAILABLE, API returns controlled 503."""
+    from app.main import app
+    from app.services.rate_limiter import get_rate_limiter
+
+    class FailingLimiter:
+        async def is_rate_limited(self, key: str, limit: int, window_seconds: int) -> bool:
+            raise AppError(
+                code="AUTH_RATE_LIMIT_UNAVAILABLE",
+                message="Rate limiting service temporarily unavailable",
+                status_code=503,
+            )
+
+    app.dependency_overrides[get_rate_limiter] = lambda: FailingLimiter()
+    try:
+        res = await client.post("/auth/challenge", json={"device_id": "dev-503"})
+        assert res.status_code == 503
+        assert res.json()["error"]["code"] == "AUTH_RATE_LIMIT_UNAVAILABLE"
+    finally:
+        app.dependency_overrides.pop(get_rate_limiter, None)
+
+

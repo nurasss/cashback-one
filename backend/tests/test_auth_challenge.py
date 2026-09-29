@@ -69,9 +69,74 @@ async def test_create_challenge_success(client: AsyncClient, db_session: AsyncSe
 
 @pytest.mark.asyncio
 async def test_create_challenge_invalid_device_rejected(client: AsyncClient) -> None:
-    """POST /auth/challenge with empty device_id must be rejected with 422."""
-    response = await client.post("/auth/challenge", json={"device_id": ""})
-    assert response.status_code == 422
+    """POST /auth/challenge with empty or whitespace-only device_id must be rejected with 422."""
+    res1 = await client.post("/auth/challenge", json={"device_id": ""})
+    assert res1.status_code == 422
+
+    res2 = await client.post("/auth/challenge", json={"device_id": "   "})
+    assert res2.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_challenge_device_id_normalized(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """POST /auth/challenge strips whitespace and stores normalized device_id."""
+    res = await client.post("/auth/challenge", json={"device_id": "  padded-device-id  "})
+    assert res.status_code == 200
+    cid = res.json()["challenge_id"]
+
+    challenge = await db_session.get(LoginChallenge, uuid.UUID(cid))
+    assert challenge is not None
+    assert challenge.device_id == "padded-device-id"
+
+    # Status check with padded header also matches normalized device_id
+    poll = await client.get(f"/auth/challenge/{cid}", headers={"X-Device-Id": " padded-device-id "})
+    assert poll.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_create_challenge_collision_retry_success(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If challenge code collides, the retry loop generates a new code and succeeds."""
+    # Create an initial challenge with a known code
+    init_res = await client.post("/auth/challenge", json={"device_id": "dev-col-1"})
+    colliding_code = init_res.json()["code"]
+
+    attempts = 0
+    from app.api import auth
+
+    def mock_generate_code() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return colliding_code  # Force collision on 1st attempt
+        return generate_challenge_code()  # Unique code on subsequent attempts
+
+    monkeypatch.setattr(auth, "generate_challenge_code", mock_generate_code)
+
+    res = await client.post("/auth/challenge", json={"device_id": "dev-col-2"})
+    assert res.status_code == 200
+    assert attempts >= 2
+    assert res.json()["code"] != colliding_code
+
+
+@pytest.mark.asyncio
+async def test_create_challenge_collision_exhausted_500(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If 5 consecutive collisions occur, a controlled 500 error is returned."""
+    init_res = await client.post("/auth/challenge", json={"device_id": "dev-exhaust-1"})
+    colliding_code = init_res.json()["code"]
+
+    from app.api import auth
+
+    monkeypatch.setattr(auth, "generate_challenge_code", lambda: colliding_code)
+
+    res = await client.post("/auth/challenge", json={"device_id": "dev-exhaust-2"})
+    assert res.status_code == 500
+    assert res.json()["error"]["code"] == "CHALLENGE_GENERATION_FAILED"
 
 
 @pytest.mark.asyncio
@@ -118,6 +183,7 @@ async def test_challenge_status_missing_device_header_rejected(client: AsyncClie
 async def test_challenge_status_unknown_id_404(client: AsyncClient) -> None:
     """GET /auth/challenge/{id} with non-existent UUID returns 404."""
     import uuid
+
     res = await client.get(
         f"/auth/challenge/{uuid.uuid4()}",
         headers={"X-Device-Id": "device-any"},
@@ -161,8 +227,7 @@ async def test_challenge_single_use_consumed_cannot_issue_second_session(
 
     # Confirm via internal service
     confirmed = await confirm_login_challenge(db_session, code, "+77019998877")
-    assert confirmed is not None
-    assert confirmed.status == "confirmed"
+    assert confirmed.is_success is True
 
     # First polling exchange -> tokens issued
     poll_1 = await client.get(
@@ -182,3 +247,4 @@ async def test_challenge_single_use_consumed_cannot_issue_second_session(
     )
     assert poll_2.status_code == 409
     assert poll_2.json()["error"]["code"] == "CHALLENGE_ALREADY_CONSUMED"
+

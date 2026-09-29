@@ -166,6 +166,7 @@ class LoginChallenge(Base, UUIDPrimaryKey):
 
     __tablename__ = "login_challenges"
     __table_args__ = (
+        UniqueConstraint("code_hash", name="uq_login_challenges_code_hash"),
         Index("ix_login_challenges_code_hash", "code_hash"),
         Index("ix_login_challenges_device_id", "device_id"),
         Index("ix_login_challenges_expires_at", "expires_at"),

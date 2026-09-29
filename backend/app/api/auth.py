@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -67,18 +68,46 @@ async def create_challenge(
             status_code=429,
         )
 
-    code = generate_challenge_code()
-    code_digest = hash_challenge_code(code)
+    # Retry loop (up to 5 attempts) to guarantee uniqueness on collision
+    max_retries = 5
+    challenge: LoginChallenge | None = None
+    code = ""
     expires_at = utcnow() + timedelta(seconds=settings.challenge_ttl_seconds)
 
-    challenge = LoginChallenge(
-        device_id=body.device_id,
-        code_hash=code_digest,
-        status="pending",
-        expires_at=expires_at,
-    )
-    session.add(challenge)
-    await session.commit()
+    for attempt in range(max_retries):
+        code = generate_challenge_code()
+        code_digest = hash_challenge_code(code)
+        expires_at = utcnow() + timedelta(seconds=settings.challenge_ttl_seconds)
+
+        candidate = LoginChallenge(
+            device_id=body.device_id,
+            code_hash=code_digest,
+            status="pending",
+            expires_at=expires_at,
+        )
+        try:
+            async with session.begin_nested():
+                session.add(candidate)
+                await session.flush()
+            await session.commit()
+            challenge = candidate
+            break
+        except IntegrityError:
+            challenge = None
+            if attempt == max_retries - 1:
+                await session.rollback()
+                raise AppError(
+                    code="CHALLENGE_GENERATION_FAILED",
+                    message="Failed to generate unique login challenge. Please try again later.",
+                    status_code=500,
+                )
+
+    if challenge is None:
+        raise AppError(
+            code="CHALLENGE_GENERATION_FAILED",
+            message="Failed to generate unique login challenge. Please try again later.",
+            status_code=500,
+        )
 
     login_url = build_whatsapp_login_url(code)
 
@@ -97,13 +126,13 @@ async def create_challenge(
     response_model_exclude_none=True,
 )
 async def get_challenge_status(
-
     challenge_id: uuid.UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
     x_device_id: Annotated[str | None, Header(alias="X-Device-Id")] = None,
 ) -> ChallengeStatusResponse:
     """Check challenge status and exchange confirmed challenge for access & refresh tokens."""
-    if not x_device_id or not x_device_id.strip():
+    normalized_device_id = x_device_id.strip() if x_device_id else ""
+    if not normalized_device_id:
         raise AppError(
             code="DEVICE_HEADER_MISSING",
             message="X-Device-Id header is required to verify challenge ownership",
@@ -126,7 +155,7 @@ async def get_challenge_status(
         )
 
     # Validate device binding
-    if challenge.device_id != x_device_id.strip():
+    if challenge.device_id != normalized_device_id:
         raise AppError(
             code="DEVICE_MISMATCH",
             message="Device identifier does not match challenge owner",

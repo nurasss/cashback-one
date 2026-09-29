@@ -78,17 +78,24 @@
 * **Миграции Alembic:**
   * `0002_agent_heartbeat_fields.py`: добавление полей `last_sync_at` и `last_error` в таблицу `agents`.
 
-### Реализовано в рамках TASK-003 (Customer Authentication Core):
+### Реализовано в рамках TASK-003 + TASK-003-FIX (Customer Authentication Core):
 * **Обратная WhatsApp-аутентификация (Reverse Flow):**
   * `POST /auth/challenge`: генерация криптостойкого 8-значного кода (алфавит без неоднозначных символов), формирование ссылки `wa.me`, фиксация TTL 3 минуты.
   * Хранение кодов только в виде HMAC-SHA256 digests (`login_challenges.code_hash`).
+  * Уникальное ограничение `uq_login_challenges_code_hash` и автоматический retry-механизм генерации (до 5 попыток) с откатом savepoint при коллизиях.
+  * Нормализация `device_id` (strip whitespace, валидация длины 1-128, отклонение пробельных строк с кодом 422).
   * Привязка к устройству (`device_id`) и проверка через заголовок `X-Device-Id`.
-* **Rate Limiting:**
-  * Ограничение запросов на устройство и IP-адрес через Redis (`RedisRateLimiter`) с детерминированным in-memory бекендом для тестов (`InMemoryRateLimiter`).
+* **Atomic Rate Limiting:**
+  * Ограничение запросов на устройство и IP-адрес через Redis (`RedisRateLimiter`) с использованием атомарного Lua-скрипта (INCR + EXPIRE на 1-м запросе без сброса TTL).
+  * Fail-closed безопасность: при отказе Redis возвращается контролируемый `503 Service Unavailable` (`AUTH_RATE_LIMIT_UNAVAILABLE`).
+  * Управление соединениями Redis через FastAPI lifespan (`main.py`) с корректным закрытием (`aclose()`).
 * **Доменный сервис подтверждения:**
-  * Provider-independent сервис `confirm_login_challenge(session, code, sender_phone)` для обработки входящих сообщений от провайдера с атомарной защитой от race condition.
+  * Provider-independent сервис `confirm_login_challenge(session, code, sender_phone)` возвращает структурированный `ConfirmationResult` со статусами (`CONFIRMED`, `ALREADY_CONFIRMED_SAME_PHONE`, `ALREADY_CONFIRMED_OTHER_PHONE`, `EXPIRED`, `NOT_FOUND`, `CONSUMED`).
+  * Строгая изоляция: номер первого пользователя никогда не раскрывается стороннему вызывающему.
 * **Идентификация покупателей и модель сессий:**
   * Инвариант `one normalized phone -> one User` с уникальным ограничением `uq_users_phone`.
+  * Сохранение настроек профиля (включая язык `kz`) при повторных входах через `ON CONFLICT (phone) DO NOTHING`.
+  * Валидация номера бизнес-аккаунта WhatsApp по строгому стандарту E.164 (`^\+[1-9]\d{7,14}$`).
   * Таблица `auth_sessions` с безопасным хранением refresh-токенов в виде SHA-256 хэшей.
   * Access JWT (HS256, 15 минут TTL) со стандартными клеймами `sub`, `sid`, `typ=access`.
 * **Эндпоинты работы с токенами:**
@@ -97,8 +104,9 @@
   * `POST /auth/logout`: отзыв текущей сессии (`revoked_at != null`).
 * **Миграции Alembic:**
   * `0003_customer_auth_core.py`: создание таблицы `auth_sessions`, добавление `uq_users_phone`, расширение `login_challenges`.
+  * `0004_auth_hardening.py`: добавление уникального ограничения `uq_login_challenges_code_hash`.
 * **Тестирование:**
-  * 73 автоматических теста (100% passing), включая специализированные конкурентные тесты на PostgreSQL 16.
+  * 89 автоматических тестов (100% passing), включая специализированные конкурентные тесты на PostgreSQL 16.
 
 ### Отложено до следующих задач:
 * Адаптер вебхуков Wappi (`POST /webhooks/wappi`) (TASK-004).

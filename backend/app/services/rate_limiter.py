@@ -1,9 +1,12 @@
 import time
-from typing import Protocol
+from collections.abc import Awaitable
+from typing import Any, Protocol, cast
 
 import redis.asyncio as aioredis
+from fastapi import Request
 
 from app.core.config import settings
+from app.core.errors import AppError
 
 
 class RateLimiter(Protocol):
@@ -40,38 +43,72 @@ class InMemoryRateLimiter:
         self._records.clear()
 
 
+RATE_LIMIT_LUA_SCRIPT = """
+local current = redis.call("INCR", KEYS[1])
+if current == 1 then
+    redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return current
+"""
+
+
 class RedisRateLimiter:
-    """Multi-process safe Redis rate limiter using atomic sliding/fixed window counters."""
+    """Multi-process safe Redis rate limiter using atomic Lua fixed-window counter."""
 
     def __init__(self, client: aioredis.Redis) -> None:
         self.client = client
 
     async def is_rate_limited(self, key: str, limit: int, window_seconds: int) -> bool:
         redis_key = f"rate_limit:{key}"
-        async with self.client.pipeline(transaction=True) as pipe:
-            pipe.incr(redis_key)
-            pipe.ttl(redis_key)
-            results = await pipe.execute()
-
-        current_count: int = results[0]
-        ttl: int = results[1]
-
-        # Set expiry on first access or if key had no TTL
-        if ttl == -1 or current_count == 1:
-            await self.client.expire(redis_key, window_seconds)
-
-        return current_count > limit
+        try:
+            eval_res = self.client.eval(
+                RATE_LIMIT_LUA_SCRIPT,
+                1,
+                redis_key,
+                str(window_seconds),
+            )
+            current_count = await cast(Awaitable[Any], eval_res)
+            return int(current_count) > limit
+        except (aioredis.RedisError, OSError) as exc:
+            raise AppError(
+                code="AUTH_RATE_LIMIT_UNAVAILABLE",
+                message="Rate limiting service temporarily unavailable",
+                status_code=503,
+            ) from exc
 
 
 # Global singleton test limiter to share deterministic state across dependency injections
 _test_limiter = InMemoryRateLimiter()
 
+# Shared Redis client instance for production/dev
+_shared_redis_client: aioredis.Redis | None = None
 
-def get_rate_limiter() -> RateLimiter:
+
+def get_redis_client() -> aioredis.Redis:
+    """Resolve or instantiate shared Redis client."""
+    global _shared_redis_client
+    if _shared_redis_client is None:
+        _shared_redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)  # type: ignore[no-untyped-call]
+    return _shared_redis_client
+
+
+async def close_redis_client() -> None:
+    """Gracefully close shared Redis client connections."""
+    global _shared_redis_client
+    if _shared_redis_client is not None:
+        await _shared_redis_client.aclose()
+        _shared_redis_client = None
+
+
+def get_rate_limiter(request: Request) -> RateLimiter:
     """FastAPI dependency to resolve the active rate limiter."""
     if settings.app_env.lower() == "test":
         return _test_limiter
 
-    client = aioredis.from_url(settings.redis_url, decode_responses=True)  # type: ignore[no-untyped-call]
-    return RedisRateLimiter(client)
+    if hasattr(request.app.state, "redis") and request.app.state.redis is not None:
+        return RedisRateLimiter(request.app.state.redis)
+
+    return RedisRateLimiter(get_redis_client())
+
+
 

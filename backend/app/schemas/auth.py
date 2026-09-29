@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CreateChallengeRequest(BaseModel):
@@ -13,6 +13,16 @@ class CreateChallengeRequest(BaseModel):
         max_length=128,
         description="Unique device identifier of the mobile installation",
     )
+
+    @field_validator("device_id")
+    @classmethod
+    def normalize_and_validate_device_id(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("device_id cannot be blank or whitespace-only")
+        if len(stripped) > 128:
+            raise ValueError("device_id length cannot exceed 128 characters")
+        return stripped
 
 
 class CreateChallengeResponse(BaseModel):

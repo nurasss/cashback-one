@@ -102,3 +102,27 @@ def test_config_dev_with_sqlite_rejected() -> None:
             _env_file=None,
         )
     assert "SQLite is only permitted when APP_ENV=test" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "invalid_phone",
+    [
+        "abc",
+        "77001234567",  # Missing leading +
+        "+0123456789",  # First digit after + cannot be 0 in E.164
+        "+7",  # Too short
+        "+7" + "1" * 15,  # Too long (>15 digits total)
+        "+7 700 123 45 67",  # Spaces inside not allowed
+        "+7-700-123-45-67",  # Hyphens not allowed
+    ],
+)
+def test_config_invalid_whatsapp_login_number_rejected(invalid_phone: str) -> None:
+    """WHATSAPP_LOGIN_NUMBER must strictly follow E.164 format."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="test",
+            database_url="sqlite+aiosqlite:///:memory:",
+            whatsapp_login_number=invalid_phone,
+            _env_file=None,
+        )
+    assert "WHATSAPP_LOGIN_NUMBER must be in valid E.164 format" in str(exc_info.value)

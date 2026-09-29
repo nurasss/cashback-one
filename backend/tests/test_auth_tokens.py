@@ -43,6 +43,24 @@ async def test_user_identity_creation_and_reuse(db_session: AsyncSession) -> Non
     assert len(users) == 1
 
 
+@pytest.mark.asyncio
+async def test_user_language_preserved_on_repeated_login(db_session: AsyncSession) -> None:
+    """Subsequent logins must never reset user profile preferences (such as language kz)."""
+    user = await get_or_create_user_by_phone(db_session, "+77015556677", language="kz")
+    await db_session.commit()
+    assert user.language == "kz"
+
+    # Second login with default language="ru" must NOT overwrite user's "kz"
+    user_repeat = await get_or_create_user_by_phone(db_session, "+77015556677", language="ru")
+    await db_session.commit()
+    assert user_repeat.id == user.id
+    assert user_repeat.language == "kz"
+
+    refreshed = await db_session.get(User, user.id)
+    assert refreshed is not None
+    assert refreshed.language == "kz"
+
+
 def test_access_jwt_valid_claims_and_verification() -> None:
     """Access JWT contains required claims and decodes successfully."""
     user_id = uuid.uuid4()

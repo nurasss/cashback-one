@@ -1,5 +1,6 @@
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +17,8 @@ async def get_or_create_user_by_phone(
     """Resolve or create customer identity by normalized phone atomically.
 
     Guarantees 'one normalized phone -> one User' invariant under concurrent requests
-    using database-level ON CONFLICT DO UPDATE.
+    using database-level ON CONFLICT DO NOTHING, preserving existing user profile
+    fields (including language preferences).
     """
     normalized_phone = normalize_phone(raw_phone)
     bind = session.get_bind()
@@ -26,22 +28,22 @@ async def get_or_create_user_by_phone(
         stmt = (
             pg_insert(User)
             .values(id=user_uuid, phone=normalized_phone, language=language)
-            .on_conflict_do_update(
-                index_elements=["phone"],
-                set_={"language": language},
-            )
+            .on_conflict_do_nothing(index_elements=["phone"])
             .returning(User.id)
         )
     else:
         stmt = (
             sqlite_insert(User)
             .values(id=user_uuid, phone=normalized_phone, language=language)
-            .on_conflict_do_update(
-                index_elements=["phone"],
-                set_={"language": language},
-            )
+            .on_conflict_do_nothing(index_elements=["phone"])
             .returning(User.id)
         )
 
-    resolved_id: uuid.UUID = (await session.execute(stmt)).scalar_one()
+    result = await session.execute(stmt)
+    resolved_id: uuid.UUID | None = result.scalar_one_or_none()
+    if resolved_id is None:
+        select_stmt = select(User.id).where(User.phone == normalized_phone)
+        resolved_id = (await session.execute(select_stmt)).scalar_one()
+
     return await session.get_one(User, resolved_id)
+
