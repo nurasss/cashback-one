@@ -130,6 +130,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_service.add_argument("service_args", nargs=argparse.REMAINDER, help="Arguments passed to win32serviceutil")
     p_service.set_defaults(func=cmd_service)
 
+    # stage0 discovery toolkit
+    from poscenter_loyalty_agent.stage0.cli import register_stage0_subparsers
+    register_stage0_subparsers(subparsers)
+
     return parser
 
 

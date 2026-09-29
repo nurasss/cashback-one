@@ -1,0 +1,74 @@
+{
+  "mapping_version": "1.0.0",
+  "one_configuration_identity": {
+    "configuration_name": "RetailDemo",
+    "configuration_version": "2.3.12.45",
+    "platform_version": "8.3.24.1342"
+  },
+  "discovered_at": "2026-09-29T18:00:00Z",
+  "cards": {
+    "source_object": "Catalogs.LoyaltyCards",
+    "stable_source_id": "Ref",
+    "barcode_field": "CardCode",
+    "phone_field": "PhoneNumber",
+    "full_name_field": "CustomerName",
+    "balance_source": "AccumulationRegisters.BonusBalances.Balance",
+    "blocked_source": "IsBlocked",
+    "updated_at_source": "ModifiedAt"
+  },
+  "transactions": {
+    "source_object": "AccumulationRegisters.BonusMovements",
+    "stable_source_id": "Recorder.Number + \"_\" + LineNumber",
+    "card_relationship": "LoyaltyCard",
+    "type_field": "RecordType",
+    "type_mapping": {
+      "Receipt": "accrual",
+      "Expense": "redemption"
+    },
+    "amount_field": "PointsAmount",
+    "balance_after_field": "NOT_AVAILABLE",
+    "occurred_at_field": "Period",
+    "receipt_ref_field": "Recorder.Number",
+    "store_field": "RetailStore"
+  },
+  "cursor_strategy": {
+    "cards_cursor_strategy": "keyset_timestamp_ref",
+    "cards_ordering_fields": [
+      "ModifiedAt",
+      "Ref"
+    ],
+    "cards_tie_breaker": "Ref",
+    "transactions_cursor_strategy": "keyset_period_recorder",
+    "transactions_ordering_fields": [
+      "Period",
+      "Recorder",
+      "LineNumber"
+    ],
+    "transactions_tie_breaker": "Recorder"
+  },
+  "evidence": {
+    "barcode_aggregate": {
+      "sample_size": 100,
+      "valid_13_digit_count": 98,
+      "invalid_count": 2,
+      "null_count": 0
+    },
+    "phone_aggregate": {
+      "null_count": 5,
+      "normalizable_count": 93,
+      "invalid_count": 2
+    },
+    "name_aggregate": {
+      "field_exists": true,
+      "type": "String",
+      "null_count": 10,
+      "non_null_count": 90
+    },
+    "balance_aggregate": {
+      "is_numeric": true,
+      "precision": 2,
+      "allows_negative": false
+    }
+  },
+  "mapping_sha256": "3dc526766e51be470e782e17b57f7feb4064ce1a6940c9f190e2fae35259d84b"
+}

@@ -28,7 +28,7 @@ def calculate_backoff(
         # Random variation between -jitter_range and +jitter_range
         capped += random.uniform(-jitter_range, jitter_range)
     # Strictly bound final delay so that jitter can never exceed max_seconds
-    return min(max_seconds, max(0.01, capped))
+    return float(min(max_seconds, max(0.01, capped)))
 
 
 class RetryState:

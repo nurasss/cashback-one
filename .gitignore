@@ -62,3 +62,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Stage 0 Discovery outputs (PII / commercial protection)
+stage0_output/
+
