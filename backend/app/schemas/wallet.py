@@ -1,8 +1,27 @@
+import re
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+
+
+class BindCardRequest(BaseModel):
+    """Request payload for manual card binding via barcode/QR."""
+
+    barcode: str
+    business_id: uuid.UUID | None = None
+
+    @field_validator("barcode", mode="before")
+    @classmethod
+    def validate_barcode(cls, val: Any) -> str:
+        if not isinstance(val, str):
+            raise ValueError("Barcode must be a string")  # noqa: TRY004
+        cleaned = val.strip()
+        if not re.fullmatch(r"^\d{13}$", cleaned):
+            raise ValueError("Barcode must be exactly 13 digits")
+        return cleaned
 
 
 class BusinessBranding(BaseModel):

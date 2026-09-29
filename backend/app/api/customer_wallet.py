@@ -9,11 +9,13 @@ from app.api.deps import get_current_user
 from app.db.session import get_session
 from app.models.entities import User
 from app.schemas.wallet import (
+    BindCardRequest,
     CustomerCardResponse,
     CustomerTransactionHistoryResponse,
 )
 from app.services.wallet_service import (
     auto_bind_cards_by_phone,
+    bind_customer_card,
     get_customer_card_detail,
     get_customer_card_transactions,
     get_customer_cards,
@@ -35,6 +37,29 @@ async def list_cards(
     await auto_bind_cards_by_phone(session, current_user)
     await session.commit()
     return await get_customer_cards(session, current_user.id)
+
+
+@router.post(
+    "/cards/bind",
+    response_model=CustomerCardResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def bind_card(
+    body: BindCardRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CustomerCardResponse:
+    """Manually bind an existing loyalty card via barcode or scanned QR.
+
+    Requires phone ownership match. Idempotent for existing visible bindings,
+    and explicitly unhides previously soft-hidden bindings owned by the customer.
+    """
+    return await bind_customer_card(
+        session=session,
+        user=current_user,
+        barcode=body.barcode,
+        business_id=body.business_id,
+    )
 
 
 @router.get("/cards/{card_id}", response_model=CustomerCardResponse)

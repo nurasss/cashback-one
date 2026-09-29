@@ -131,7 +131,77 @@ Retrieves details for a single active loyalty card owned by the customer.
 
 ---
 
-### 3.3. Soft-Hide Card from Wallet
+### 3.3. Manual Card Binding (Barcode / QR)
+**`POST /me/cards/bind`**
+
+Binds an existing loyalty card mirrored from POSCENTER ONE to the authenticated customer using a 13-digit barcode or scanned QR code.
+
+> **QR Scanner Architecture**: QR scanning is performed by the mobile client. Backend receives the decoded 13-digit barcode.
+>
+> **Activation Requirement**: Cashier/activation-code verification for cards without a phone is not implemented yet.
+
+#### Request Body
+```json
+{
+  "barcode": "0123456789012",
+  "business_id": null
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `barcode` | string | Yes | 13-digit EAN-13 string (`^\d{13}$`), preserves leading zeros. |
+| `business_id` | UUID | No | Optional tenant business ID to disambiguate identical barcodes across retailers. |
+
+#### Business & Prefix Resolution
+1. Searches existing mirror `cards` in active businesses (`status == "active"`).
+2. If `business_id` is provided, matches `(business_id, barcode)`. Returns `404 CARD_NOT_FOUND` if not found or business is inactive.
+3. If `business_id` is omitted:
+   - If exactly 1 candidate card is found across active businesses, uses it.
+   - If multiple candidate cards are found, applies `business.barcode_prefixes` matching (`barcode.startswith(prefix)`).
+   - If prefix resolution yields exactly 1 business, uses it.
+   - If prefix resolution is ambiguous or yields no match, returns `409 BUSINESS_SELECTION_REQUIRED` with candidate businesses. The mobile app prompts the user to select the retailer and re-invokes with `business_id`.
+
+#### Phone Ownership Verification
+- If `card.phone IS NULL`: returns `409 CARD_ACTIVATION_REQUIRED`.
+- If `card.phone` is malformed: returns `409 CARD_BIND_NOT_ALLOWED`.
+- If `normalize(card.phone) != current_user.phone`: returns `409 CARD_BIND_NOT_ALLOWED`.
+- Customer personal data (phones, balances, names) is never leaked in errors or logs.
+
+#### Existing Ownership & Manual Unhide
+- **Already bound and visible**: Idempotent request; returns existing card representation (200 OK).
+- **Already bound and soft-hidden**: Explicit re-add; sets `hidden_at = NULL` while preserving initial `bound_at` and `bind_method` (200 OK).
+- **Bound to another user**: Returns `409 CARD_BIND_NOT_ALLOWED` without reassigning ownership.
+
+#### Blocked Cards
+- If `card.is_blocked == true`, linking succeeds if phone matches; returned representation reflects `"is_blocked": true`.
+
+#### Response (200 OK)
+Returns the standard `CustomerCardResponse` (same representation as `GET /me/cards/{id}`):
+```json
+{
+  "id": "18f3a3f0-4567-4e89-8d12-654321fedcba",
+  "barcode": "0123456789012",
+  "balance": "1250.5000",
+  "is_blocked": false,
+  "bound_at": "2026-09-29T10:00:00Z",
+  "updated_at": "2026-09-29T10:00:00Z",
+  "bind_method": "manual_barcode",
+  "business": {
+    "id": "a90bcf12-1111-4444-8888-000000000001",
+    "name": "Magnum Cash & Carry",
+    "branding": {
+      "logo_url": "https://cdn.example.com/magnum-logo.png",
+      "primary_color": "#E30613",
+      "accent_color": "#FFD100"
+    }
+  }
+}
+```
+
+---
+
+### 3.4. Soft-Hide Card from Wallet
 **`DELETE /me/cards/{card_id}`**
 
 Soft-hides a card from the customer's wallet view.
@@ -152,7 +222,7 @@ Empty body.
 
 ---
 
-### 3.4. Get Card Transaction History
+### 3.5. Get Card Transaction History
 **`GET /me/cards/{card_id}/transactions`**
 
 Returns a deterministic cursor-paginated list of transactions mirrored from POSCENTER ONE for this loyalty card.
@@ -216,5 +286,8 @@ All error responses adhere to the standard POSCENTER Loyalty error envelope:
 | `401` | `SESSION_NOT_FOUND` | Session ID in token does not exist |
 | `401` | `USER_NOT_FOUND` | User account deactivated or deleted |
 | `400` | `INVALID_CURSOR` | Pagination cursor format is corrupt |
-| `404` | `CARD_NOT_FOUND` | Card not found or not owned by user (IDOR protected) |
-| `422` | `VALIDATION_ERROR` | Request validation error (e.g. invalid UUID format) |
+| `404` | `CARD_NOT_FOUND` | Card not found, business inactive, or not owned by user (IDOR protected) |
+| `409` | `BUSINESS_SELECTION_REQUIRED` | Multiple businesses match barcode; user selection required |
+| `409` | `CARD_ACTIVATION_REQUIRED` | Card has no phone in ONE; activation required |
+| `409` | `CARD_BIND_NOT_ALLOWED` | Card phone does not match user or card is owned by another user |
+| `422` | `VALIDATION_ERROR` | Request validation error (e.g. invalid barcode format or UUID) |
