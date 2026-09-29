@@ -16,7 +16,7 @@ from app.core.config import settings
 settings.app_env = "test"
 settings.database_url = "sqlite+aiosqlite:///:memory:"
 
-import app.models
+import app.models.entities
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import app

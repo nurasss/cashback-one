@@ -111,6 +111,7 @@ class UserCard(Base, UUIDPrimaryKey):
     __table_args__ = (
         UniqueConstraint("card_id", name="uq_user_cards_card_id"),
         Index("ix_user_cards_user_id", "user_id"),
+        Index("ix_user_cards_user_id_hidden_at", "user_id", "hidden_at"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -127,6 +128,9 @@ class UserCard(Base, UUIDPrimaryKey):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     bind_method: Mapped[str] = mapped_column(String(32), default="phone_auto", nullable=False)
+    hidden_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class Transaction(Base, UUIDPrimaryKey):
@@ -139,6 +143,7 @@ class Transaction(Base, UUIDPrimaryKey):
     __table_args__ = (
         UniqueConstraint("card_id", "external_id", name="uq_transactions_card_external"),
         Index("ix_transactions_occurred_at", "occurred_at"),
+        Index("ix_transactions_card_id_occurred_at", "card_id", "occurred_at"),
     )
 
     card_id: Mapped[uuid.UUID] = mapped_column(
