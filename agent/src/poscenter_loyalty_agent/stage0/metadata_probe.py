@@ -210,7 +210,7 @@ class CandidateDiscoveryHeuristic:
                             object_name=f"{obj.category}.{obj.name}",
                             category=obj.category,
                             role="transaction",
-                            confidence_reason="Source matches sales / transaction / bonus movement keywords",
+                            confidence_reason="Source matches configured transaction/movement candidate keywords; heuristic only, not mapping evidence.",
                             requires_manual_verification=True,
                             matched_fields=[f.name for f in obj.fields[:5]],
                         )

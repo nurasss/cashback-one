@@ -73,7 +73,7 @@ class CardMapping(BaseModel):
 
 
 class TransactionMapping(BaseModel):
-    """Verified metadata mapping for loyalty bonus movements/transactions."""
+    """Verified mapping for loyalty transaction/movement data."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -83,16 +83,24 @@ class TransactionMapping(BaseModel):
     stable_source_id: MappingValue[str] = Field(
         description="Single immutable identifier or verified deterministic composite identity for Cloud external_id"
     )
-    card_relationship: MappingValue[str] = Field(description="Dimension or requisite linking movement to card")
-    type_field: MappingValue[str] = Field(description="Field indicating movement direction or operation kind")
+    card_relationship: MappingValue[str] = Field(
+        description="Verified source or deterministic relationship used to associate a movement with the loyalty card"
+    )
+    type_field: MappingValue[str] = Field(
+        description="Verified source or deterministic rule exposing the source movement semantics required for Cloud type mapping"
+    )
     type_mapping: MappingValue[dict[str, str]] = Field(
         description="Verified deterministic mapping from source movement semantics to the canonical Cloud transaction type string"
     )
-    amount_field: MappingValue[str] = Field(description="Field storing transaction bonus amount")
-    occurred_at_field: MappingValue[str] = Field(description="Movement timestamp field")
+    amount_field: MappingValue[str] = Field(
+        description="Verified source or deterministic derivation rule for the Cloud transaction amount"
+    )
+    occurred_at_field: MappingValue[str] = Field(
+        description="Verified source or deterministic rule used to derive the Cloud occurred_at timestamp"
+    )
     balance_after_field: MappingValue[str | None] = Field(
         default_factory=lambda: MappingValue[str | None](value=None, state="NOT_STARTED"),
-        description="Field storing balance after movement, or null",
+        description="Optional verified source or deterministic derivation rule for Cloud balance_after, or null when unavailable",
     )
     receipt_ref_field: MappingValue[str | None] = Field(
         default_factory=lambda: MappingValue[str | None](value=None, state="NOT_STARTED"),

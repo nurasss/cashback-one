@@ -81,14 +81,20 @@ Run the preflight environment check:
 python -m poscenter_loyalty_agent.main stage0 check-environment
 ```
 
-**Expected verification status for Windows pilot:**
+**Expected verification status for Windows pilot after preflight check:**
 ```text
-REAL_WINDOWS_SERVICE:        VERIFIED (or Windows host confirmed)
+REAL_WINDOWS_SERVICE:        NOT VERIFIED
 REAL_V83_COMCONNECTOR:       VERIFIED
 REAL_ONE_CONNECTION:         VERIFIED
-REAL_ONE_METADATA_DISCOVERY: NOT VERIFIED (elevated only after probe)
+REAL_ONE_METADATA_DISCOVERY: NOT VERIFIED
 REAL_ONE_MAPPING:            NOT VERIFIED
 ```
+
+> [!NOTE]
+> **Windows Host vs Windows Service Boundary:**
+> Running Stage 0 on Windows verifies only platform/COM/connectivity conditions.
+> It does **NOT** verify Windows Service installation, SCM registration, start/stop behavior, recovery behavior, or service-account execution.
+> `REAL_WINDOWS_SERVICE` remains `NOT VERIFIED` throughout Stage 0 (including after `probe-metadata`), and can only become `VERIFIED` after an independent Windows Service lifecycle test.
 
 Artifact created: `stage0_output/environment.json`.
 

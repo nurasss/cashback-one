@@ -49,6 +49,14 @@ from poscenter_loyalty_agent.stage0.report import (
     write_inventory_reports,
 )
 
+TESTS_DIR = Path(__file__).resolve().parent
+AGENT_DIR = TESTS_DIR.parent
+REPO_ROOT = AGENT_DIR.parent
+
+EXAMPLE_MAPPING = AGENT_DIR / "stage0_mapping.example.json"
+STAGE0_SRC_DIR = AGENT_DIR / "src" / "poscenter_loyalty_agent" / "stage0"
+RUNBOOK_PATH = REPO_ROOT / "docs" / "STAGE0_WINDOWS_RUNBOOK.md"
+
 
 def test_non_windows_environment_reports_not_verified() -> None:
     """On non-Windows hosts, environment check safely reports NOT VERIFIED flags without errors."""
@@ -241,7 +249,7 @@ def test_inventory_reports_coverage_truthfully(tmp_path: Path) -> None:
 
 def test_synthetic_example_cannot_pass_require_verified() -> None:
     """agent/stage0_mapping.example.json passes normal validation, but fails --require-verified."""
-    example_path = Path("agent/stage0_mapping.example.json")
+    example_path = EXAMPLE_MAPPING
     assert example_path.exists()
 
     # Normal validation: PASS
@@ -258,7 +266,7 @@ def test_synthetic_example_cannot_pass_require_verified() -> None:
 
 def test_candidate_mapping_cannot_pass_require_verified(tmp_path: Path) -> None:
     """Real discovery mapping with CANDIDATE states is rejected by --require-verified."""
-    example_path = Path("agent/stage0_mapping.example.json")
+    example_path = EXAMPLE_MAPPING
     data = json.loads(example_path.read_text(encoding="utf-8"))
 
     # Switch to real_discovery with real configuration, but leave states as CANDIDATE
@@ -277,7 +285,7 @@ def test_candidate_mapping_cannot_pass_require_verified(tmp_path: Path) -> None:
 
 def test_all_mandatory_verified_mapping_passes_require_verified(tmp_path: Path) -> None:
     """A genuine real_discovery mapping with all 16 mandatory P0 decisions VERIFIED passes."""
-    example_path = Path("agent/stage0_mapping.example.json")
+    example_path = EXAMPLE_MAPPING
     data = json.loads(example_path.read_text(encoding="utf-8"))
 
     data["artifact_kind"] = "real_discovery"
@@ -334,7 +342,7 @@ def test_all_mandatory_verified_mapping_passes_require_verified(tmp_path: Path) 
 
 def test_mapping_fingerprint_tamper_detection(tmp_path: Path) -> None:
     """Tampering with any mapped character invalidates fingerprint check."""
-    example_path = Path("agent/stage0_mapping.example.json")
+    example_path = EXAMPLE_MAPPING
     data = json.loads(example_path.read_text(encoding="utf-8"))
 
     orig_fp = data["mapping_sha256"]
@@ -538,7 +546,7 @@ def test_real_probe_sanitizer_failure_leaves_not_verified(tmp_path: Path) -> Non
 
 def test_verified_mapping_empty_evidence_rejected(tmp_path: Path) -> None:
     """A mandatory P0 field with state=VERIFIED and empty evidence list is rejected by --require-verified."""
-    example_path = Path("agent/stage0_mapping.example.json")
+    example_path = EXAMPLE_MAPPING
     data = json.loads(example_path.read_text(encoding="utf-8"))
 
     data["artifact_kind"] = "real_discovery"
@@ -596,7 +604,7 @@ def test_verified_mapping_empty_evidence_rejected(tmp_path: Path) -> None:
 
 def test_verified_mapping_whitespace_evidence_rejected(tmp_path: Path) -> None:
     """A mandatory P0 field with state=VERIFIED and whitespace-only evidence is rejected."""
-    example_path = Path("agent/stage0_mapping.example.json")
+    example_path = EXAMPLE_MAPPING
     data = json.loads(example_path.read_text(encoding="utf-8"))
 
     data["artifact_kind"] = "real_discovery"
@@ -654,7 +662,7 @@ def test_verified_mapping_whitespace_evidence_rejected(tmp_path: Path) -> None:
 
 def test_zero_speculative_assumptions_in_stage0_sources() -> None:
     """Stage 0 production sources and example mapping must contain zero speculative markers."""
-    stage0_dir = Path("agent/src/poscenter_loyalty_agent/stage0")
+    stage0_dir = STAGE0_SRC_DIR
     assert stage0_dir.exists()
 
     forbidden_markers = [
@@ -675,7 +683,7 @@ def test_zero_speculative_assumptions_in_stage0_sources() -> None:
             assert marker not in content, f"Forbidden speculative marker '{marker}' found in {py_file}"
 
     # Also check stage0_mapping.example.json
-    example_path = Path("agent/stage0_mapping.example.json")
+    example_path = EXAMPLE_MAPPING
     example_content = example_path.read_text(encoding="utf-8")
     for marker in forbidden_markers:
         assert marker not in example_content, f"Forbidden speculative marker '{marker}' found in {example_path}"
@@ -683,7 +691,7 @@ def test_zero_speculative_assumptions_in_stage0_sources() -> None:
 
 def test_zero_speculative_semantic_phrases_in_stage0_and_reports(tmp_path: Path) -> None:
     """Stage 0 sources and generated discovery reports must contain zero speculative semantic phrases."""
-    stage0_dir = Path("agent/src/poscenter_loyalty_agent/stage0")
+    stage0_dir = STAGE0_SRC_DIR
     assert stage0_dir.exists()
 
     forbidden_semantic_phrases = [
@@ -695,6 +703,12 @@ def test_zero_speculative_semantic_phrases_in_stage0_and_reports(tmp_path: Path)
         "Register or attribute supplying",
         "blocked / deletion mark",
         "Store / retail point reference",
+        "Dimension or requisite linking",
+        "Field storing transaction bonus amount",
+        "Movement timestamp field",
+        "Field storing balance after movement",
+        "REAL_WINDOWS_SERVICE:        VERIFIED (or Windows host confirmed)",
+        "REAL_WINDOWS_SERVICE: VERIFIED (or Windows host confirmed)",
     ]
 
     for py_file in stage0_dir.glob("*.py"):
@@ -721,6 +735,14 @@ def test_zero_speculative_semantic_phrases_in_stage0_and_reports(tmp_path: Path)
                 assert (
                     phrase.lower() not in content.lower()
                 ), f"Forbidden semantic phrase '{phrase}' found in report artifact {report_file}"
+
+    # Also verify Windows Runbook documentation
+    if RUNBOOK_PATH.exists():
+        runbook_content = RUNBOOK_PATH.read_text(encoding="utf-8")
+        for phrase in forbidden_semantic_phrases:
+            assert (
+                phrase.lower() not in runbook_content.lower()
+            ), f"Forbidden semantic phrase '{phrase}' found in runbook {RUNBOOK_PATH}"
 
 
 
