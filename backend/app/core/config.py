@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "POSCENTER Loyalty Backend"
-    app_version: str = "0.3.0"
+    app_version: str = "0.4.0"
     app_env: str = "development"
     database_url: str = Field(
         default="",
@@ -36,6 +36,24 @@ class Settings(BaseSettings):
     whatsapp_login_number: str = Field(
         default="",
         description="WhatsApp business login number in E.164 format (+77001234567).",
+    )
+
+    # Wappi Webhook Configuration (TASK-004)
+    wappi_login_profile_id: str = Field(
+        default="",
+        description="Wappi WhatsApp instance/profile ID for login messages.",
+    )
+    wappi_webhook_auth_header: str = Field(
+        default="X-Wappi-Secret",
+        description="Header name used to authenticate incoming Wappi webhooks.",
+    )
+    wappi_webhook_auth_secret: str = Field(
+        default="",
+        description="Shared secret for incoming Wappi webhook authentication (min 32 chars).",
+    )
+    wappi_webhook_max_body_bytes: int = Field(
+        default=65536,
+        description="Maximum allowed body size for Wappi webhook requests (default 64KB).",
     )
 
     # Auth TTL and limits
@@ -74,6 +92,12 @@ class Settings(BaseSettings):
                 self.auth_challenge_hash_key = "test_challenge_hash_key_at_least_32_chars_long_12345"
             if not self.whatsapp_login_number:
                 self.whatsapp_login_number = "+77001234567"
+            if not self.wappi_login_profile_id:
+                self.wappi_login_profile_id = "test-wappi-login-profile"
+            if not self.wappi_webhook_auth_header:
+                self.wappi_webhook_auth_header = "X-Wappi-Secret"
+            if not self.wappi_webhook_auth_secret:
+                self.wappi_webhook_auth_secret = "test_wappi_webhook_secret_min_32_characters_12345"
         else:
             if not self.redis_url or not self.redis_url.strip():
                 raise ValueError("REDIS_URL must be explicitly provided in environment or .env")
@@ -81,6 +105,12 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SIGNING_KEY must be provided and be at least 32 characters long")
             if not self.auth_challenge_hash_key or len(self.auth_challenge_hash_key.strip()) < 32:
                 raise ValueError("AUTH_CHALLENGE_HASH_KEY must be provided and be at least 32 characters long")
+            if not self.wappi_login_profile_id or not self.wappi_login_profile_id.strip():
+                raise ValueError("WAPPI_LOGIN_PROFILE_ID must be provided in environment or .env")
+            if not self.wappi_webhook_auth_header or not self.wappi_webhook_auth_header.strip():
+                raise ValueError("WAPPI_WEBHOOK_AUTH_HEADER must be provided in environment or .env")
+            if not self.wappi_webhook_auth_secret or len(self.wappi_webhook_auth_secret.strip()) < 32:
+                raise ValueError("WAPPI_WEBHOOK_AUTH_SECRET must be provided and be at least 32 characters long")
 
         # Validate WHATSAPP_LOGIN_NUMBER format (E.164)
         if not self.whatsapp_login_number or not self.whatsapp_login_number.strip():

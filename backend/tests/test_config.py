@@ -41,10 +41,14 @@ def test_config_dev_with_postgres_url_allowed() -> None:
         jwt_signing_key="a" * 32,
         auth_challenge_hash_key="b" * 32,
         whatsapp_login_number="+77001234567",
+        wappi_login_profile_id="prod-profile-id-12345",
+        wappi_webhook_auth_header="X-Wappi-Secret",
+        wappi_webhook_auth_secret="c" * 32,
         _env_file=None,
     )
     assert cfg.app_env == "development"
     assert "postgresql+asyncpg" in cfg.database_url
+    assert cfg.wappi_login_profile_id == "prod-profile-id-12345"
 
 
 def test_config_dev_without_redis_url_rejected() -> None:
@@ -126,3 +130,58 @@ def test_config_invalid_whatsapp_login_number_rejected(invalid_phone: str) -> No
             _env_file=None,
         )
     assert "WHATSAPP_LOGIN_NUMBER must be in valid E.164 format" in str(exc_info.value)
+
+
+def test_config_dev_missing_wappi_login_profile_id_rejected() -> None:
+    """WAPPI_LOGIN_PROFILE_ID must be provided in development/production."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="",
+            wappi_webhook_auth_header="X-Wappi-Secret",
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "WAPPI_LOGIN_PROFILE_ID" in str(exc_info.value)
+
+
+def test_config_dev_short_wappi_webhook_auth_secret_rejected() -> None:
+    """WAPPI_WEBHOOK_AUTH_SECRET shorter than 32 characters must be rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            wappi_webhook_auth_header="X-Wappi-Secret",
+            wappi_webhook_auth_secret="short_secret",
+            _env_file=None,
+        )
+    assert "WAPPI_WEBHOOK_AUTH_SECRET" in str(exc_info.value)
+
+
+def test_config_dev_missing_wappi_webhook_auth_header_rejected() -> None:
+    """WAPPI_WEBHOOK_AUTH_HEADER must not be empty."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            app_env="development",
+            database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
+            redis_url="redis://localhost:6379/0",
+            jwt_signing_key="a" * 32,
+            auth_challenge_hash_key="b" * 32,
+            whatsapp_login_number="+77001234567",
+            wappi_login_profile_id="prod-profile-id",
+            wappi_webhook_auth_header="",
+            wappi_webhook_auth_secret="c" * 32,
+            _env_file=None,
+        )
+    assert "WAPPI_WEBHOOK_AUTH_HEADER" in str(exc_info.value)
+

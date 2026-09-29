@@ -10,6 +10,7 @@ from app.models.entities import (
     Transaction,
     User,
     UserCard,
+    WappiWebhookEvent,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "Transaction",
     "User",
     "UserCard",
+    "WappiWebhookEvent",
 ]

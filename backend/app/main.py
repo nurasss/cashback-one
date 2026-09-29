@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from app.api.agent_sync import router as agent_sync_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.webhooks import router as webhooks_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
 from app.services.rate_limiter import close_redis_client, get_redis_client
@@ -34,5 +35,6 @@ register_error_handlers(app)
 app.include_router(health_router)
 app.include_router(agent_sync_router)
 app.include_router(auth_router)
+app.include_router(webhooks_router)
 
 

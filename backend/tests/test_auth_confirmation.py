@@ -149,3 +149,66 @@ async def test_confirm_login_challenge_consumed_returns_consumed(
     assert result.is_success is False
     assert result.status == ConfirmationStatus.CONSUMED
 
+
+@pytest.mark.parametrize("invalid_phone", ["", "   ", "\t\n"])
+@pytest.mark.asyncio
+async def test_confirm_login_challenge_empty_phone_rejected_remains_pending(
+    db_session: AsyncSession, invalid_phone: str
+) -> None:
+    """Regression test (TASK-004 Carry-over fix): Empty/whitespace phone raises 422, challenge stays pending."""
+    from app.core.errors import AppError
+
+    code = generate_challenge_code()
+    challenge = LoginChallenge(
+        device_id="dev-confirm-empty-phone",
+        code_hash=hash_challenge_code(code),
+        status="pending",
+        expires_at=datetime.now(UTC) + timedelta(minutes=3),
+    )
+    db_session.add(challenge)
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await confirm_login_challenge(db_session, code, invalid_phone)
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.code == "INVALID_PHONE_FORMAT"
+
+    # Crucial invariant: Challenge must remain strictly pending and phone must be NULL
+    refreshed = await db_session.get(LoginChallenge, challenge.id)
+    assert refreshed is not None
+    assert refreshed.status == "pending"
+    assert refreshed.phone is None
+    assert refreshed.confirmed_at is None
+
+
+@pytest.mark.asyncio
+async def test_confirm_login_challenge_without_immediate_commit(
+    db_session: AsyncSession,
+) -> None:
+    """When commit=False, caller controls transaction lifecycle."""
+    code = generate_challenge_code()
+    challenge = LoginChallenge(
+        device_id="dev-confirm-no-commit",
+        code_hash=hash_challenge_code(code),
+        status="pending",
+        expires_at=datetime.now(UTC) + timedelta(minutes=3),
+    )
+    db_session.add(challenge)
+    await db_session.commit()
+
+    c_id = challenge.id
+    res = await confirm_login_challenge(db_session, code, "+77015554433", commit=False)
+    assert res.is_success is True
+    assert res.status == ConfirmationStatus.CONFIRMED
+
+    # Roll back instead of commit
+    await db_session.rollback()
+
+    # Verify rollback: status must still be pending
+    refreshed = await db_session.get(LoginChallenge, c_id)
+    assert refreshed is not None
+    assert refreshed.status == "pending"
+    assert refreshed.phone is None
+
+

@@ -288,3 +288,21 @@ class AuditLog(Base, UUIDPrimaryKey):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
+
+
+class WappiWebhookEvent(Base, UUIDPrimaryKey):
+    """Wappi webhook idempotency log and audit trail."""
+
+    __tablename__ = "wappi_webhook_events"
+    __table_args__ = (
+        UniqueConstraint("profile_id", "message_id", name="uq_wappi_webhook_events_profile_message"),
+        Index("ix_wappi_webhook_events_received_at", "received_at"),
+    )
+
+    profile_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    message_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    wh_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[str] = mapped_column(String(64), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )

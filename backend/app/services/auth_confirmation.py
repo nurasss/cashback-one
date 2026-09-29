@@ -33,10 +33,11 @@ async def confirm_login_challenge(
     session: AsyncSession,
     code: str,
     sender_phone: str,
+    commit: bool = True,
 ) -> ConfirmationResult:
     """Internal provider-independent domain service to confirm a WhatsApp login challenge.
 
-    This service will be invoked by future WhatsApp/Wappi webhook adapters.
+    This service is invoked by WhatsApp/Wappi webhook adapters.
     It verifies the HMAC digest, validates TTL, binds the normalized sender phone,
     and transitions challenge status from 'pending' to 'confirmed' atomically.
 
@@ -44,6 +45,13 @@ async def confirm_login_challenge(
     confirmed challenge, it returns ALREADY_CONFIRMED_OTHER_PHONE and does not expose
     the original phone number.
     """
+    if not sender_phone or not str(sender_phone).strip():
+        raise AppError(
+            code="INVALID_PHONE_FORMAT",
+            message="Sender phone number cannot be empty",
+            status_code=422,
+        )
+
     normalized_code = code.strip().upper()
     try:
         normalized_phone = normalize_phone(sender_phone)
@@ -53,6 +61,13 @@ async def confirm_login_challenge(
             message=f"Invalid sender phone number: {err}",
             status_code=422,
         ) from err
+
+    if not normalized_phone:
+        raise AppError(
+            code="INVALID_PHONE_FORMAT",
+            message="Sender phone number could not be normalized to valid E.164 format",
+            status_code=422,
+        )
 
     code_digest = hash_challenge_code(normalized_code)
 
@@ -76,7 +91,8 @@ async def confirm_login_challenge(
     if as_utc(challenge.expires_at) <= utcnow():
         if challenge.status == "pending":
             challenge.status = "expired"
-            await session.commit()
+            if commit:
+                await session.commit()
         return ConfirmationResult(
             status=ConfirmationStatus.EXPIRED,
             challenge_id=challenge.id,
@@ -113,7 +129,8 @@ async def confirm_login_challenge(
         challenge.phone = normalized_phone
         challenge.status = "confirmed"
         challenge.confirmed_at = utcnow()
-        await session.commit()
+        if commit:
+            await session.commit()
         return ConfirmationResult(
             status=ConfirmationStatus.CONFIRMED,
             challenge_id=challenge.id,
@@ -125,4 +142,5 @@ async def confirm_login_challenge(
         challenge_id=challenge.id,
         is_success=False,
     )
+
 

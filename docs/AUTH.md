@@ -108,13 +108,32 @@
 
 ---
 
-## 6. Граница провайдера сообщений (Wappi Boundary)
+## 6. Входящий Webhook Wappi (TASK-004)
 
-> **IMPORTANT:**
->
-> Actual Wappi webhook payload and webhook authentication mechanism must be verified against the active Wappi profile/documentation before TASK-004.
+В рамках TASK-004 реализован production-ready адаптер входящего вебхука Wappi:
 
-* В рамках TASK-003 реализовано независимое от провайдера доменное ядро подтверждения:
-  `app.services.auth_confirmation.confirm_login_challenge(session, code, sender_phone)`.
-* Публичный незащищенный HTTP-эндпоинт подтверждения challenge намеренно **НЕ создавался**.
-* В TASK-004 к этому сервису будет подключен адаптер вебхуков Wappi после получения точных спецификаций входящих сообщений.
+* **Эндпоинт:** `POST /webhooks/wappi`.
+* **Спецификация интеграции:** полная документация зафиксирована в [WAPPI_WEBHOOK_CONTRACT.md](file:///Users/nuras/Desktop/cashback-one/docs/WAPPI_WEBHOOK_CONTRACT.md).
+* **Аутентификация вебхука:**
+  - Имя заголовка конфигурируется через `WAPPI_WEBHOOK_AUTH_HEADER` (по умолчанию `X-Wappi-Secret`).
+  - Секрет проверяется с использованием алгоритма постоянного времени `hmac.compare_digest`.
+  - При отсутствии заголовка или несовпадении секрета возвращается `401 Unauthorized` (`INVALID_WEBHOOK_AUTH`).
+* **Защита от перегрузки (Payload Guard):**
+  - Ограничение размера входящего тела через `WAPPI_WEBHOOK_MAX_BODY_BYTES` (по умолчанию 64 КБ). При превышении возвращается `413 Payload Too Large`.
+* **Изоляция профиля (Profile Isolation):**
+  - Обрабатываются сообщения только от инстанса `WAPPI_LOGIN_PROFILE_ID`. Сообщения других профилей игнорируются (`ignored_profile`).
+* **Идемпотентность и аудит сообщений:**
+  - Таблица `wappi_webhook_events` с уникальным ограничением `(profile_id, message_id)`.
+  - Concurrency-safe speculative insert (`ON CONFLICT (profile_id, message_id) DO NOTHING`).
+  - При повторной доставке того же `message_id` возвращается `200 OK` с `result: "duplicate"`, исключая повторные подтверждения и ошибки `IntegrityError` (HTTP 500).
+* **Фильтрация и валидация:**
+  - `wh_type` должен быть строго `"incoming_message"`.
+  - `type` сообщения должен быть строго `"chat"`.
+  - Групповые чаты (`@g.us`, `chat_type != dialog`) отклоняются.
+  - JID отправителя валидируется по маске `^(\d{10,15})@c\.us$`, номер нормализуется в E.164.
+  - Код авторизации валидируется: длина 8 символов, только символы из криптографического алфавита.
+* **Атомарность:**
+  - Подтверждение challenge через `confirm_login_challenge(session, code, sender_phone, commit=False)` и фиксация статуса в `wappi_webhook_events` коммитятся в рамках одной транзакции СУБД.
+* **Изоляция номеров (Second-Phone Attack Protection):**
+  - При попытке подтвердить уже подтвержденный challenge другим номером телефона возвращается `already_confirmed_other_phone` без раскрытия номера первого покупателя.
+
