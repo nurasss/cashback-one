@@ -83,7 +83,7 @@ async def list_card_transactions(
 ) -> CustomerTransactionHistoryResponse:
     """Retrieve deterministic cursor-paginated transaction history for a card.
 
-    Supports optional filtering by transaction type (e.g. accrual, redemption).
+    type performs exact filtering by the canonical type received from ONE.
     Returns 404 if the card is not found or not owned by the user.
     """
     return await get_customer_card_transactions(

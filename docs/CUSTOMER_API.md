@@ -54,6 +54,7 @@ sequenceDiagram
 2. **Hidden Card Preservation**: If a customer previously soft-hid a card (`hidden_at IS NOT NULL`), auto-binding will **never** unhide it automatically.
 3. **Multi-Business Support**: All cards across all business tenants matching the customer's verified phone are discovered and bound.
 4. **Concurrency Safety**: Implemented via PostgreSQL `ON CONFLICT (card_id) DO NOTHING`, completely avoiding race-condition `IntegrityError` or duplicate entries.
+5. **PII Sanitization**: Auto-bind operational logs never log customer phone numbers, full names, user IDs, or access tokens.
 
 ---
 
@@ -69,10 +70,11 @@ Returns all active (non-hidden) loyalty cards belonging to the authenticated cus
 [
   {
     "id": "18f3a3f0-4567-4e89-8d12-654321fedcba",
-    "barcode": "MAGNUM-77011234567",
+    "barcode": "0123456789012",
     "balance": "1250.5000",
     "is_blocked": false,
     "bound_at": "2026-09-29T10:00:00Z",
+    "updated_at": "2026-09-29T10:00:00Z",
     "bind_method": "phone_auto",
     "business": {
       "id": "a90bcf12-1111-4444-8888-000000000001",
@@ -87,7 +89,10 @@ Returns all active (non-hidden) loyalty cards belonging to the authenticated cus
 ]
 ```
 
-*Note: `balance` is strictly formatted as a 4-decimal numeric string (e.g. `"1250.5000"`), avoiding floating point precision artifacts.*
+*Notes:*
+- `balance` is strictly formatted as a 4-decimal numeric string (e.g. `"1250.5000"`), avoiding floating point precision artifacts.
+- `barcode` is a 13-digit string preserving any leading zeros (e.g. `"0123456789012"`, EAN-13 compatible).
+- `updated_at` reflects the latest mirror snapshot timestamp from POSCENTER ONE for this `Card`. Customer API is strictly read-only relative to the loyalty mirror: customer operations never alter `cards.updated_at`.
 
 ---
 
@@ -106,10 +111,11 @@ Retrieves details for a single active loyalty card owned by the customer.
 ```json
 {
   "id": "18f3a3f0-4567-4e89-8d12-654321fedcba",
-  "barcode": "MAGNUM-77011234567",
+  "barcode": "0123456789012",
   "balance": "1250.5000",
   "is_blocked": false,
   "bound_at": "2026-09-29T10:00:00Z",
+  "updated_at": "2026-09-29T10:00:00Z",
   "bind_method": "phone_auto",
   "business": {
     "id": "a90bcf12-1111-4444-8888-000000000001",
@@ -130,13 +136,16 @@ Retrieves details for a single active loyalty card owned by the customer.
 
 Soft-hides a card from the customer's wallet view.
 
-#### Semantics
+#### Semantics & Concurrency Safety
+- Executed as an atomic database update: `UPDATE user_cards SET hidden_at = now() WHERE user_id = :uid AND card_id = :cid AND hidden_at IS NULL RETURNING id`.
+- Concurrency-safe: Under concurrent DELETE requests for the same card, exactly one request receives `204 No Content` and all competing requests receive `404 CARD_NOT_FOUND` (0 x 500 errors).
 - Does **NOT** delete the card from `cards`.
-- Does **NOT** alter the mirror balance or card blocked state.
+- Does **NOT** alter the mirror snapshot `cards.updated_at`, balance, or card blocked state.
 - Updates `user_cards.hidden_at = utcnow()`.
 - Subsequent `GET /me/cards` will omit this card.
 - Subsequent `GET /me/cards/{card_id}` will return `404 CARD_NOT_FOUND`.
 - Calling `DELETE` on an already hidden or unowned card returns `404 CARD_NOT_FOUND`.
+- Soft-hidden cards are **never** resurrected by subsequent auto-bind queries.
 
 #### Response (204 No Content)
 Empty body.
@@ -153,7 +162,7 @@ Returns a deterministic cursor-paginated list of transactions mirrored from POSC
 |---|---|---|---|---|
 | `limit` | integer | No | Maximum items per page | Default: `20`, Min: `1`, Max: `100` |
 | `cursor` | string | No | Opaque base64 pagination cursor | Optional |
-| `type` | string | No | Filter by operation type (`accrual`, `redemption`, etc.) | Optional |
+| `type` | string | No | Exact filtering by the canonical type received from ONE (e.g. `accrual`, `redemption`) | Optional |
 
 #### Keyset Cursor Specification
 - **Determinism**: Results are strictly ordered by `Transaction.occurred_at DESC, Transaction.id DESC`.

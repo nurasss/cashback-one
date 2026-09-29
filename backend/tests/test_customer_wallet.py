@@ -16,6 +16,7 @@ async def seed_user_with_card(
     phone: str = "+77019998877",
     balance: Decimal = Decimal("1250.5000"),
     business_name: str = "Magnum Cash&Carry",
+    barcode: str = "0123456789012",
 ) -> tuple[User, str, Card, Business]:
     """Helper fixture to create a business, card, customer user, and binding."""
     business = Business(
@@ -31,7 +32,7 @@ async def seed_user_with_card(
 
     card = Card(
         business_id=business.id,
-        barcode=f"CARD-{uuid.uuid4().hex[:8].upper()}",
+        barcode=barcode,
         phone=phone,
         balance=balance,
         is_blocked=False,
@@ -67,7 +68,7 @@ async def test_get_customer_cards_list(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """GET /me/cards returns cards with 4-decimal balance strings and branding."""
+    """GET /me/cards returns cards with 4-decimal balance strings, branding, and updated_at."""
     _user, token, card, business = await seed_user_with_card(
         db_session, balance=Decimal("1250.5000")
     )
@@ -86,6 +87,7 @@ async def test_get_customer_cards_list(
     assert item["balance"] == "1250.5000"
     assert isinstance(item["balance"], str)
     assert item["is_blocked"] is False
+    assert item["updated_at"] is not None
     assert item["bind_method"] == "phone_auto"
     assert item["business"]["id"] == str(business.id)
     assert item["business"]["name"] == "Magnum Cash&Carry"
@@ -99,7 +101,7 @@ async def test_get_customer_card_detail(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """GET /me/cards/{id} returns single card detail."""
+    """GET /me/cards/{id} returns single card detail with updated_at."""
     _user, token, card, business = await seed_user_with_card(db_session)
 
     response = await client.get(
@@ -110,6 +112,7 @@ async def test_get_customer_card_detail(
     data = response.json()
     assert data["id"] == str(card.id)
     assert data["barcode"] == card.barcode
+    assert data["updated_at"] is not None
     assert data["business"]["name"] == business.name
 
 
@@ -343,3 +346,81 @@ async def test_card_transactions_invalid_limit(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp_high.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_card_updated_at_preserved_on_soft_hide(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Card.updated_at in cards table is NOT altered when soft-hiding a card."""
+    _user, token, card, _ = await seed_user_with_card(db_session)
+    t1 = card.updated_at
+
+    delete_resp = await client.delete(
+        f"/me/cards/{card.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert delete_resp.status_code == 204
+
+    # Direct DB inspection of mirror card
+    raw_card = await db_session.get(Card, card.id)
+    assert raw_card is not None
+    assert raw_card.updated_at == t1
+
+
+@pytest.mark.asyncio
+async def test_card_barcode_leading_zero_preserved(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Barcode '0123456789012' must preserve leading zero in API responses, not cast to int."""
+    _user, token, card, _ = await seed_user_with_card(
+        db_session, barcode="0123456789012"
+    )
+
+    # 1. List endpoint
+    list_resp = await client.get(
+        "/me/cards",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_resp.status_code == 200
+    items = list_resp.json()
+    assert len(items) == 1
+    assert items[0]["barcode"] == "0123456789012"
+    assert isinstance(items[0]["barcode"], str)
+    assert items[0]["barcode"].startswith("0")
+
+    # 2. Detail endpoint
+    detail_resp = await client.get(
+        f"/me/cards/{card.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["barcode"] == "0123456789012"
+    assert isinstance(detail["barcode"], str)
+    assert detail["barcode"].startswith("0")
+
+
+@pytest.mark.asyncio
+async def test_sequential_card_soft_hide_204_then_404(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """First DELETE returns 204, sequential second DELETE returns 404."""
+    _user, token, card, _ = await seed_user_with_card(db_session)
+
+    resp1 = await client.delete(
+        f"/me/cards/{card.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp1.status_code == 204
+
+    resp2 = await client.delete(
+        f"/me/cards/{card.id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp2.status_code == 404
+    assert resp2.json()["error"]["code"] == "CARD_NOT_FOUND"
+

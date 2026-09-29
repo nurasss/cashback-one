@@ -29,13 +29,13 @@ async def test_auto_bind_multi_business(
     user_phone = "+77015550011"
     card1 = Card(
         business_id=biz1.id,
-        barcode="BAR-BIZ1",
+        barcode="0123456789011",
         phone=user_phone,
         balance=Decimal("100.0000"),
     )
     card2 = Card(
         business_id=biz2.id,
-        barcode="BAR-BIZ2",
+        barcode="0123456789012",
         phone=user_phone,
         balance=Decimal("200.0000"),
     )
@@ -66,7 +66,7 @@ async def test_auto_bind_multi_business(
     data = response.json()
     assert len(data) == 2
     barcodes = {c["barcode"] for c in data}
-    assert barcodes == {"BAR-BIZ1", "BAR-BIZ2"}
+    assert barcodes == {"0123456789011", "0123456789012"}
 
     # 5. Check user_cards table bindings
     bindings = (
@@ -91,7 +91,7 @@ async def test_auto_bind_does_not_unhide_soft_hidden_card(
     user_phone = "+77015550022"
     card = Card(
         business_id=biz.id,
-        barcode="BAR-HIDDEN",
+        barcode="0123456789022",
         phone=user_phone,
         balance=Decimal("500.0000"),
     )
@@ -148,7 +148,7 @@ async def test_auto_bind_cross_user_isolation(
     card_phone = "+77015550033"
     card = Card(
         business_id=biz.id,
-        barcode="BAR-SHARED",
+        barcode="0123456789033",
         phone=card_phone,
         balance=Decimal("700.0000"),
     )
@@ -205,7 +205,7 @@ async def test_auto_bind_phone_normalization(
 
     card = Card(
         business_id=biz.id,
-        barcode="BAR-TEL",
+        barcode="0123456789044",
         phone=normalize_phone("+7 (701) 123-45-67"),
         balance=Decimal("350.0000"),
     )
@@ -233,4 +233,70 @@ async def test_auto_bind_phone_normalization(
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 1
-    assert items[0]["barcode"] == "BAR-TEL"
+    assert items[0]["barcode"] == "0123456789044"
+
+
+@pytest.mark.asyncio
+async def test_auto_bind_pii_not_in_logs(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Auto-bind conflict warning must NOT log user phone, full_name, or user IDs."""
+    import logging
+
+    biz = Business(name="Security Test Store")
+    db_session.add(biz)
+    await db_session.flush()
+
+    conflict_phone = "+77019998877"
+    card = Card(
+        business_id=biz.id,
+        barcode="0123456789099",
+        phone=conflict_phone,
+        balance=Decimal("150.0000"),
+    )
+    db_session.add(card)
+
+    user_a = User(phone="+77011112233", language="ru")
+    user_b = User(phone=conflict_phone, language="en")
+    db_session.add_all([user_a, user_b])
+    await db_session.flush()
+
+    # Pre-bind to User A
+    uc_a = UserCard(user_id=user_a.id, card_id=card.id, bind_method="phone_auto")
+    db_session.add(uc_a)
+
+    auth_b = AuthSession(
+        user_id=user_b.id,
+        device_id="device-pii",
+        refresh_token_hash=hash_refresh_token(f"rfr_{uuid.uuid4()}"),
+        expires_at=utcnow() + timedelta(days=30),
+    )
+    db_session.add(auth_b)
+    await db_session.commit()
+
+    token_b = create_access_token(user_id=user_b.id, session_id=auth_b.id)
+
+    with caplog.at_level(logging.WARNING):
+        resp = await client.get(
+            "/me/cards",
+            headers={"Authorization": f"Bearer {token_b}"},
+        )
+        assert resp.status_code == 200
+
+    # Ensure warning was logged
+    warning_logs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("Auto-bind skipped because candidate card" in msg for msg in warning_logs)
+
+    # STRICT PII ASSERTIONS:
+    # 1. Full phone must NOT appear in any log
+    assert conflict_phone not in caplog.text
+    assert "+770" not in caplog.text
+    assert "77019998877" not in caplog.text
+    # 2. User IDs must NOT appear in any log
+    assert str(user_b.id) not in caplog.text
+    assert str(user_a.id) not in caplog.text
+    # 3. Tokens must NOT appear in log
+    assert token_b not in caplog.text
+

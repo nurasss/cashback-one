@@ -34,6 +34,7 @@ class CustomerCardResponse(BaseModel):
     barcode: str
     balance: Decimal
     is_blocked: bool
+    updated_at: datetime
     bound_at: datetime
     bind_method: str
     business: BusinessInfo

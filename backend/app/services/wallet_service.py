@@ -4,7 +4,7 @@ import logging
 import uuid
 from datetime import datetime
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,11 +83,8 @@ async def auto_bind_cards_by_phone(
     for row in existing_bindings:
         if row.user_id != user.id:
             logger.warning(
-                "Card %s matches phone %s of user %s but is already bound to user %s",
+                "Auto-bind skipped because candidate card %s already has an owner",
                 row.card_id,
-                clean_phone,
-                user.id,
-                row.user_id,
             )
 
     unbound_card_ids = [cid for cid in candidate_card_ids if cid not in bound_card_ids]
@@ -171,6 +168,7 @@ async def get_customer_cards(
                 barcode=card.barcode,
                 balance=card.balance,
                 is_blocked=card.is_blocked,
+                updated_at=card.updated_at,
                 bound_at=bound_at,
                 bind_method=bind_method,
                 business=BusinessInfo(
@@ -214,6 +212,7 @@ async def get_customer_card_detail(
         barcode=card.barcode,
         balance=card.balance,
         is_blocked=card.is_blocked,
+        updated_at=card.updated_at,
         bound_at=bound_at,
         bind_method=bind_method,
         business=BusinessInfo(
@@ -229,21 +228,26 @@ async def hide_customer_card(
     user_id: uuid.UUID,
     card_id: uuid.UUID,
 ) -> None:
-    """Soft-hide card from user wallet by setting hidden_at timestamp."""
-    stmt = select(UserCard).where(
-        UserCard.user_id == user_id,
-        UserCard.card_id == card_id,
-        UserCard.hidden_at.is_(None),
+    """Soft-hide card from user wallet by atomically setting hidden_at timestamp."""
+    now = utcnow()
+    stmt = (
+        update(UserCard)
+        .where(
+            UserCard.user_id == user_id,
+            UserCard.card_id == card_id,
+            UserCard.hidden_at.is_(None),
+        )
+        .values(hidden_at=now)
+        .returning(UserCard.id)
     )
-    user_card = (await session.execute(stmt)).scalar_one_or_none()
-    if not user_card:
+    result = await session.execute(stmt)
+    updated_id = result.scalar_one_or_none()
+    if not updated_id:
         raise AppError(
             code="CARD_NOT_FOUND",
             message="Card not found in your wallet",
             status_code=404,
         )
-
-    user_card.hidden_at = utcnow()
     await session.commit()
 
 
