@@ -124,7 +124,7 @@ class CandidateDiscoveryHeuristic:
 
     CARD_KEYWORDS = ("карт", "card", "клиент", "покупател", "дисконт", "client", "customer")
     PHONE_KEYWORDS = ("телефон", "phone", "тел", "моб", "mobile")
-    BARCODE_KEYWORDS = ("штрихкод", "штрих", "barcode", "кодкарты", "cardcode", "ean")
+    BARCODE_KEYWORDS = ("штрихкод", "штрих", "barcode", "кодкарты", "cardcode")
     BALANCE_KEYWORDS = ("бонус", "bonus", "баланс", "balance", "остаток", "баллы", "points")
     TX_KEYWORDS = ("продаж", "чек", "движение", "movement", "sales", "receipt", "операция")
 

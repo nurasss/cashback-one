@@ -53,7 +53,7 @@ class SampleEvidenceBuilder:
         """Inspect a single card record strictly in memory without retaining raw strings."""
         self._sample_size += 1
 
-        # 1. Barcode inspection (13-digit EAN check)
+        # 1. Barcode inspection (13-digit barcode check)
         if barcode is None or str(barcode).strip() == "":
             self._barcode_null += 1
         else:

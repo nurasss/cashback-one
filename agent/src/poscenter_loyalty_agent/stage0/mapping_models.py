@@ -47,9 +47,15 @@ class CardMapping(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    source_object: MappingValue[str] = Field(description="Metadata object name (e.g. Catalogs.InformationCards)")
-    stable_source_id: MappingValue[str] = Field(description="Stable primary key field in 1C (e.g. Ref / UUID)")
-    barcode_field: MappingValue[str] = Field(description="Field containing 13-digit EAN barcode")
+    source_object: MappingValue[str] = Field(
+        description="Exact metadata object identifier discovered from the pilot configuration"
+    )
+    stable_source_id: MappingValue[str] = Field(
+        description="Exact stable source identifier or deterministic identity expression verified on the pilot configuration"
+    )
+    barcode_field: MappingValue[str] = Field(
+        description="Field containing 13-digit loyalty-card barcode string"
+    )
     phone_field: MappingValue[str] = Field(description="Field containing customer phone number")
     full_name_field: MappingValue[str] = Field(
         default_factory=lambda: MappingValue[str](value="NOT_AVAILABLE", state="NOT_STARTED"),
@@ -65,14 +71,16 @@ class TransactionMapping(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    source_object: MappingValue[str] = Field(description="Metadata source (e.g. AccumulationRegisters.BonusPoints)")
+    source_object: MappingValue[str] = Field(
+        description="Exact transaction/movement metadata source discovered during Stage 0"
+    )
     stable_source_id: MappingValue[str] = Field(
         description="Deterministic stable immutable expression for Cloud external_id"
     )
     card_relationship: MappingValue[str] = Field(description="Dimension or requisite linking movement to card")
     type_field: MappingValue[str] = Field(description="Field indicating movement direction or operation kind")
     type_mapping: MappingValue[dict[str, str]] = Field(
-        description="Explicit dictionary mapping 1C movement types to 'accrual' or 'redemption'"
+        description="Verified deterministic mapping from source movement semantics to the canonical Cloud transaction type string"
     )
     amount_field: MappingValue[str] = Field(description="Field storing transaction bonus amount")
     occurred_at_field: MappingValue[str] = Field(description="Movement timestamp field")
@@ -95,7 +103,7 @@ class EntityCursorStrategy(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    strategy_name: str = Field(description="Strategy name (e.g. keyset_timestamp_ref)")
+    strategy_name: str = Field(description="Deterministic cursor pagination strategy identifier")
     ordering_fields: list[str] = Field(description="Fields determining ordering")
     tie_breaker: str = Field(description="Deterministic tie-breaker field")
 

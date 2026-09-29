@@ -300,6 +300,11 @@ def test_all_mandatory_verified_mapping_passes_require_verified(tmp_path: Path) 
             v["state"] = "VERIFIED"
             if isinstance(v["value"], str):
                 v["value"] = v["value"].replace("Synthetic", "Real")
+            elif isinstance(v["value"], dict):
+                v["value"] = {
+                    rk.replace("Synthetic", "Real"): rv.replace("Synthetic", "Real")
+                    for rk, rv in v["value"].items()
+                }
             v["evidence"] = ["Verified against bonus accumulation register movements"]
 
     # Set cursor strategy to VERIFIED
@@ -553,6 +558,11 @@ def test_verified_mapping_empty_evidence_rejected(tmp_path: Path) -> None:
             v["state"] = "VERIFIED"
             if isinstance(v["value"], str):
                 v["value"] = v["value"].replace("Synthetic", "Real")
+            elif isinstance(v["value"], dict):
+                v["value"] = {
+                    rk.replace("Synthetic", "Real"): rv.replace("Synthetic", "Real")
+                    for rk, rv in v["value"].items()
+                }
             v["evidence"] = ["Valid movement evidence from pilot database"]
 
     data["cursor_strategy"]["cards"]["state"] = "VERIFIED"
@@ -606,6 +616,11 @@ def test_verified_mapping_whitespace_evidence_rejected(tmp_path: Path) -> None:
             v["state"] = "VERIFIED"
             if isinstance(v["value"], str):
                 v["value"] = v["value"].replace("Synthetic", "Real")
+            elif isinstance(v["value"], dict):
+                v["value"] = {
+                    rk.replace("Synthetic", "Real"): rv.replace("Synthetic", "Real")
+                    for rk, rv in v["value"].items()
+                }
             v["evidence"] = ["Valid evidence from pilot database"]
 
     data["cursor_strategy"]["cards"]["state"] = "VERIFIED"
@@ -634,5 +649,35 @@ def test_verified_mapping_whitespace_evidence_rejected(tmp_path: Path) -> None:
         "Mandatory mapping field 'cards.barcode_field' is VERIFIED but has no verification evidence" in e
         for e in report.errors
     )
+
+
+def test_zero_speculative_assumptions_in_stage0_sources() -> None:
+    """Stage 0 production sources and example mapping must contain zero speculative markers."""
+    stage0_dir = Path("agent/src/poscenter_loyalty_agent/stage0")
+    assert stage0_dir.exists()
+
+    forbidden_markers = [
+        "Catalogs.InformationCards",
+        "InformationCards",
+        "AccumulationRegisters.BonusPoints",
+        "BonusPoints",
+        "EAN-13",
+        "13-digit EAN",
+        "accrual",
+        "redemption",
+        "Ref / UUID",
+    ]
+
+    for py_file in stage0_dir.glob("*.py"):
+        content = py_file.read_text(encoding="utf-8")
+        for marker in forbidden_markers:
+            assert marker not in content, f"Forbidden speculative marker '{marker}' found in {py_file}"
+
+    # Also check stage0_mapping.example.json
+    example_path = Path("agent/stage0_mapping.example.json")
+    example_content = example_path.read_text(encoding="utf-8")
+    for marker in forbidden_markers:
+        assert marker not in example_content, f"Forbidden speculative marker '{marker}' found in {example_path}"
+
 
 

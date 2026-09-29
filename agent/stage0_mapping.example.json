@@ -96,8 +96,8 @@
     },
     "type_mapping": {
       "value": {
-        "0": "accrual",
-        "1": "redemption"
+        "SyntheticSourceTypeA": "CanonicalTypeA",
+        "SyntheticSourceTypeB": "CanonicalTypeB"
       },
       "state": "CANDIDATE",
       "evidence": [
@@ -192,5 +192,5 @@
       "null_count": 0
     }
   },
-  "mapping_sha256": "f3fc2131bf52ac8c9cf2b4dc9770472bbe4306b18eba6371bd544a617e1d143b"
+  "mapping_sha256": "6f899eefe05796473d5ac3479c9e764304b046d1e6dea5317006802acf4808cf"
 }

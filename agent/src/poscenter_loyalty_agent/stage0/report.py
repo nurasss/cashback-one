@@ -162,7 +162,7 @@ def write_discovery_summary_report(
 
     sections = [
         ("Card Source", "NOT VERIFIED: Requires real pilot POSCENTER ONE infobase execution."),
-        ("Barcode", "NOT VERIFIED: Requires aggregate proof of 13-digit EAN cards in pilot."),
+        ("Barcode", "NOT VERIFIED: Requires aggregate proof of the 13-digit loyalty-card barcode field."),
         ("Phone", "NOT VERIFIED: Requires aggregate proof of customer mobile phone field."),
         ("Customer Name", "NOT VERIFIED: Requires inspection of customer full name field."),
         ("Balance", "NOT VERIFIED: Requires proof of accumulation register or balance source."),
