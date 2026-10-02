@@ -67,13 +67,17 @@ if [ "${CONFIRM_FLAG}" != "--confirm-overwrite" ]; then
     fi
 fi
 
+# Step 3: Verify target database connectivity before restoration
+echo "[INFO] Verifying target database connectivity on ${PGHOST}:${PGPORT}/${TARGET_DB}..."
+if ! psql --host="${PGHOST}" --port="${PGPORT}" --username="${PGUSER}" --dbname="${TARGET_DB}" -c "SELECT 1;" >/dev/null 2>&1; then
+    echo "[ERROR] Cannot connect to target database '${TARGET_DB}' on ${PGHOST}:${PGPORT}." >&2
+    exit 1
+fi
+
+# Step 4: Execute pg_restore
 echo "[INFO] Restoring database '${TARGET_DB}' from '${BACKUP_FILE}'..."
 
-# Execute pg_restore:
-# --clean: clean (drop) database objects before recreating them
-# --if-exists: do not error if objects do not exist during drop
-# --no-owner: do not output commands to set ownership of objects
-# --no-privileges: prevent restoration of access privileges (grant/revoke)
+RESTORE_EXIT=0
 pg_restore \
     --host="${PGHOST}" \
     --port="${PGPORT}" \
@@ -84,11 +88,27 @@ pg_restore \
     --no-owner \
     --no-privileges \
     --verbose \
-    "${BACKUP_FILE}" || {
-        # Note: pg_restore may return 1 on warnings (e.g. drop table if not exists).
-        # We verify DB connectivity and health afterward.
-        RESTORE_EXIT=$?
-        echo "[WARNING] pg_restore exited with code ${RESTORE_EXIT} (may be non-fatal warnings)."
-    }
+    "${BACKUP_FILE}" || RESTORE_EXIT=$?
 
-echo "[SUCCESS] Restore command completed for '${TARGET_DB}'."
+if [ "${RESTORE_EXIT}" -gt 1 ]; then
+    echo "[ERROR] pg_restore failed with fatal error code ${RESTORE_EXIT}." >&2
+    exit "${RESTORE_EXIT}"
+fi
+if [ "${RESTORE_EXIT}" -eq 1 ]; then
+    echo "[WARNING] pg_restore completed with non-fatal warnings (code 1)."
+fi
+
+# Step 5: Post-restore verification (connectivity and schema migration version)
+echo "[INFO] Verifying database integrity and schema version..."
+if ! psql --host="${PGHOST}" --port="${PGPORT}" --username="${PGUSER}" --dbname="${TARGET_DB}" -c "SELECT 1;" >/dev/null 2>&1; then
+    echo "[ERROR] Post-restore connectivity check failed for '${TARGET_DB}'." >&2
+    exit 1
+fi
+
+ALEMBIC_VERSION=$(psql --host="${PGHOST}" --port="${PGPORT}" --username="${PGUSER}" --dbname="${TARGET_DB}" -t -A -c "SELECT version_num FROM alembic_version LIMIT 1;" 2>/dev/null || true)
+if [ -z "${ALEMBIC_VERSION}" ]; then
+    echo "[ERROR] Post-restore check failed: 'alembic_version' table is empty or missing in '${TARGET_DB}'." >&2
+    exit 1
+fi
+
+echo "[SUCCESS] Restore completed successfully for '${TARGET_DB}'. Current schema version: ${ALEMBIC_VERSION}"

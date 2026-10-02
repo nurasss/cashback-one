@@ -196,3 +196,117 @@ def test_log_redaction_removes_sensitive_data() -> None:
     assert "rfr_refresh_secret_1234567890" not in redacted
     assert "[REDACTED]" in redacted
     assert "postgresql://[REDACTED]:[REDACTED]@db.example.com:5432/poscenter" in redacted
+
+
+def test_app_env_trimming_and_normalization() -> None:
+    kwargs = _build_valid_prod_kwargs()
+    kwargs["app_env"] = "  PRODUCTION  "
+    s1 = Settings(**kwargs)
+    assert s1.app_env == "production"
+
+    kwargs["app_env"] = "production "
+    s2 = Settings(**kwargs)
+    assert s2.app_env == "production"
+
+
+@pytest.mark.parametrize("invalid_env", ["prod", "production2", "foo", "dev", "stage", ""])
+def test_app_env_rejects_invalid_values(invalid_env: str) -> None:
+    kwargs = _build_valid_prod_kwargs()
+    kwargs["app_env"] = invalid_env
+    with pytest.raises(ValueError, match="Invalid APP_ENV"):
+        Settings(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "unsafe_ips",
+    [
+        "*",
+        "0.0.0.0/0",
+        "::/0",
+        "127.0.0.1,0.0.0.0/0",
+        "10.0.0.0/8,::/0",
+        "",
+        "   ",
+        ", , ",
+        "invalid_ip_format",
+    ],
+)
+def test_production_config_rejects_unsafe_proxy_ips(unsafe_ips: str) -> None:
+    kwargs = _build_valid_prod_kwargs()
+    kwargs["forwarded_allow_ips"] = unsafe_ips
+    with pytest.raises(ValueError):
+        Settings(**kwargs)
+
+
+def test_log_redaction_comprehensive() -> None:
+    from app.core.logging import safe_route_path
+
+    raw_log = """
+    User phone=+77011234567 requested OTP otp="987654"
+    Customer JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdef1234567890
+    Agent Key: agk_live_test_secret_agent_key_value
+    Agent Key Hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    ONE string: Provider=fixture;Password=topsecretonepass;Data Source=localhost
+    PostgreSQL URL: postgresql://admin:secret123456@db.internal:5432/poscenter
+    Redis URL: redis://:redispass123456@cache.internal:6379/0
+    Authorization: Bearer my-access-token-12345
+    Cookie: admin_session=adm_rfr_session_cookie_secret_12345; test=1
+    X-Agent-Key: agk_header_secret_agent_key_123
+    Card Barcode: 1234567890123
+    Customer Name: full_name="Ivan Ivanov"
+    """
+    clean = redact_sensitive_text(raw_log)
+
+    for forbidden in [
+        "+77011234567",
+        "987654",
+        "agk_live_test_secret_agent_key_value",
+        "topsecretonepass",
+        "secret123456",
+        "redispass123456",
+        "my-access-token-12345",
+        "adm_rfr_session_cookie_secret_12345",
+        "agk_header_secret_agent_key_123",
+        "1234567890123",
+        "Ivan Ivanov",
+    ]:
+        assert forbidden not in clean
+
+    # Test safe_route_path redacts identifiers and numbers in paths
+    assert safe_route_path("/customers/+77011234567/wallet") == "/customers/[REDACTED]/wallet"
+    assert safe_route_path("/cards/1234567890123") == "/cards/[REDACTED]"
+    assert safe_route_path("/admin/agents/550e8400-e29b-41d4-a716-446655440000") == "/admin/agents/[REDACTED]"
+    assert safe_route_path("/health/ready") == "/health/ready"
+
+
+def test_https_trust_chain_and_proxy_verification() -> None:
+    from starlette.requests import Request
+    from app.services.admin_security import is_trusted_proxy_client, get_effective_scheme
+
+    # Trusted proxy: 127.0.0.1 (configured in settings)
+    assert is_trusted_proxy_client("127.0.0.1") is True
+    # Untrusted client IP
+    assert is_trusted_proxy_client("198.51.100.1") is False
+
+    # Mock request from untrusted client trying to spoof X-Forwarded-Proto
+    scope_untrusted = {
+        "type": "http",
+        "scheme": "http",
+        "path": "/",
+        "client": ("198.51.100.1", 12345),
+        "headers": [(b"x-forwarded-proto", b"https")],
+    }
+    req_untrusted = Request(scope_untrusted)
+    assert get_effective_scheme(req_untrusted) == "http"
+
+    # Mock request from trusted proxy with X-Forwarded-Proto: https
+    scope_trusted = {
+        "type": "http",
+        "scheme": "http",
+        "path": "/",
+        "client": ("127.0.0.1", 12345),
+        "headers": [(b"x-forwarded-proto", b"https")],
+    }
+    req_trusted = Request(scope_trusted)
+    assert get_effective_scheme(req_trusted) == "https"
+

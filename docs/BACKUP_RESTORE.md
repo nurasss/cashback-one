@@ -4,11 +4,23 @@ This document defines the operational procedures for backing up and restoring th
 
 ---
 
-## 1. Backup Strategy & Design
+## 1. Mandatory Project Scope & Disclaimers
+
+> [!IMPORTANT]
+> The following operational limitations apply to the backup and recovery baseline:
+> - **Real SMS adapter = NOT IMPLEMENTED**: Only `SMS_PROVIDER_MODE=disabled` is supported.
+> - **Real ONE / TASK-009B = DEFERRED**: POSCENTER ONE database discovery and live catalog integration are deferred.
+> - **Production TLS deployment = NOT VERIFIED/NOT DEPLOYED**: Smoke tests use local HTTP; production TLS must be terminated at network edge.
+> - **SLA 99% = NOT VERIFIED**: High-availability multi-node clustering and automatic failover are not validated.
+> - **p95 <= 500 ms = NOT VERIFIED**: Latency under peak load is not verified.
+
+---
+
+## 2. Backup Strategy & Design
 
 ### Format
 - Backups use `pg_dump` with custom binary format (`-Fc`).
-- Format `-Fc` provides native gzip compression, is arch-independent, supports selective table/schema restores, and allows parallel restoration (`pg_restore -j`).
+- Format `-Fc` provides native gzip compression, is architecture-independent, supports selective table/schema restores, and allows parallel restoration (`pg_restore -j`).
 
 ### Integrity & Security
 - **Checksums**: Every backup file generates an adjacent `.sha256` checksum file immediately upon creation and is verified in-place.
@@ -17,7 +29,7 @@ This document defines the operational procedures for backing up and restoring th
 
 ---
 
-## 2. Backup Execution
+## 3. Backup Execution
 
 ### Manual Backup
 ```bash
@@ -36,7 +48,7 @@ Output artifacts in `./backups/postgres`:
 
 ---
 
-## 3. Automated Scheduling
+## 4. Automated Scheduling
 
 ### Cron Job (Daily at 02:00 UTC)
 ```crontab
@@ -75,12 +87,14 @@ WantedBy=timers.target
 
 ---
 
-## 4. Disaster Recovery & Restore Procedure
+## 5. Disaster Recovery & Restore Procedure
 
-### Safety Requirements
-1. The restore script automatically verifies the `.sha256` checksum of the backup file before initiating restoration. If checksum validation fails, execution aborts immediately.
-2. An explicit `--confirm-overwrite` argument (or interactive prompt) is required to prevent accidental database overwrites.
-3. Stop the application backend services or redirect traffic before performing a production database restore.
+### Safety Requirements & Fail-Closed Design
+1. **Pre-Restore Connectivity Check**: `restore_postgres.sh` tests database connectivity (`SELECT 1;`) before touching schema or data. If connection fails, it aborts with non-zero exit code.
+2. **Checksum Verification**: The script verifies the `.sha256` checksum before restoring.
+3. **Safety Confirmation**: Overwrite confirmation is required (`--confirm-overwrite` or interactive prompt).
+4. **Fatal Error Handling**: Fatal exit codes from `pg_restore` (exit code `> 1`) abort the script immediately.
+5. **Post-Restore Schema Verification**: The script queries `alembic_version` to verify schema integrity. If missing or inaccessible, it exits with error code 1.
 
 ### Manual Verification of Checksum
 ```bash
@@ -112,4 +126,4 @@ export PGPASSWORD="your-admin-password"
    ```bash
    curl -i http://127.0.0.1:8000/health/ready
    ```
-   Must return HTTP 200 OK with `status: ok` and all dependencies green.
+   Must return HTTP 200 OK with `status: ready` and database component `ok`.

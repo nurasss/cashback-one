@@ -136,21 +136,66 @@ def is_loopback_hostname(hostname: str | None) -> bool:
         return False
 
 
+def is_trusted_proxy_client(ip: str | None) -> bool:
+    if not ip:
+        return False
+    raw_ips = settings.forwarded_allow_ips.strip() if settings.forwarded_allow_ips else ""
+    if not raw_ips or raw_ips in {"*", "all"}:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for part in raw_ips.split(","):
+        entry = part.strip()
+        if not entry:
+            continue
+        try:
+            if "/" in entry:
+                net = ipaddress.ip_network(entry, strict=False)
+                if net.prefixlen > 0 and addr in net:
+                    return True
+            else:
+                if addr == ipaddress.ip_address(entry):
+                    return True
+        except ValueError:
+            continue
+    return False
+
+
+def get_effective_scheme(request: Request) -> str:
+    peer_ip = request.client.host if request.client else None
+    if peer_ip and is_trusted_proxy_client(peer_ip):
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        if forwarded_proto:
+            proto = forwarded_proto.split(",")[0].strip().lower()
+            if proto in {"http", "https"}:
+                return proto
+    if hasattr(request, "scope") and "scheme" in request.scope:
+        return str(request.scope["scheme"])
+    return request.url.scheme
+
+
 def is_explicit_dev_http(request: Request) -> bool:
     return (
-        request.url.scheme == "http"
+        get_effective_scheme(request) == "http"
         and settings.app_env.lower() == "development"
         and settings.admin_allow_insecure_http
     )
 
 
 def require_admin_transport(request: Request) -> None:
-    if request.url.scheme != "https" and not is_explicit_dev_http(request):
+    scheme = get_effective_scheme(request)
+    if scheme != "https" and not is_explicit_dev_http(request):
         raise AppError("ADMIN_HTTPS_REQUIRED", "Admin access requires a secure connection", 400)
 
 
 def secure_admin_cookie(request: Request) -> bool:
-    return not is_explicit_dev_http(request)
+    if is_explicit_dev_http(request):
+        return False
+    if settings.app_env.lower() == "production":
+        return True
+    return get_effective_scheme(request) == "https"
 
 
 def sanitize_agent_error(value: str | None) -> str | None:

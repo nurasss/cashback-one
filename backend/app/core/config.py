@@ -1,7 +1,9 @@
+import ipaddress
 import re
 from functools import lru_cache
+from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _FORBIDDEN_WEAK_SECRETS: set[str] = {
@@ -132,6 +134,39 @@ class Settings(BaseSettings):
     sync_max_cards_batch: int = 500
     sync_max_transactions_batch: int = 1000
 
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def validate_app_env(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            raise TypeError(f"APP_ENV must be a string, got {type(v).__name__}")
+        normalized = v.strip().lower()
+        if normalized not in {"test", "development", "production"}:
+            raise ValueError(
+                f"Invalid APP_ENV '{v}'. Allowed environments: development, production, test"
+            )
+        return normalized
+
+    @field_validator("admin_allowed_origins", mode="before")
+    @classmethod
+    def parse_admin_allowed_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            clean = v.strip()
+            if not clean:
+                return []
+            if clean.startswith("[") and clean.endswith("]"):
+                try:
+                    import json
+
+                    parsed = json.loads(clean)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except (ValueError, TypeError):
+                    pass
+            return [p.strip() for p in clean.split(",") if p.strip()]
+        if isinstance(v, (list, tuple, set)):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []
+
     @model_validator(mode="after")
     def validate_configuration(self) -> "Settings":
         db_url = self.database_url.strip() if self.database_url else ""
@@ -139,7 +174,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_URL must be explicitly provided in environment or .env"
             )
-        if self.app_env.lower() in {"development", "production"} and db_url.startswith("sqlite"):
+        if self.app_env in {"development", "production"} and db_url.startswith("sqlite"):
             raise ValueError(
                 "SQLite is only permitted when APP_ENV=test. DATABASE_URL must not use SQLite in production or development. PostgreSQL is required."
             )
@@ -215,8 +250,27 @@ class Settings(BaseSettings):
                     raise ValueError("DATABASE_URL must be a PostgreSQL connection URL in production")
                 if self.admin_allow_insecure_http:
                     raise ValueError("HTTP admin origins require explicit development opt-in: ADMIN_ALLOW_INSECURE_HTTP is strictly forbidden in production")
-                if self.forwarded_allow_ips.strip() in {"*", "0.0.0.0/0", "::/0"}:
-                    raise ValueError("FORWARDED_ALLOW_IPS must not trust all IPs ('*') in production")
+                # Check FORWARDED_ALLOW_IPS
+                raw_ips = self.forwarded_allow_ips.strip() if self.forwarded_allow_ips else ""
+                if not raw_ips:
+                    raise ValueError("FORWARDED_ALLOW_IPS must be explicitly specified in production")
+                entries = [p.strip() for p in raw_ips.split(",") if p.strip()]
+                if not entries:
+                    raise ValueError("FORWARDED_ALLOW_IPS must contain at least one valid IP or CIDR in production")
+                for entry in entries:
+                    if entry in {"*", "all"}:
+                        raise ValueError(f"FORWARDED_ALLOW_IPS must not trust all IPs or wildcard '{entry}' in production")
+                    try:
+                        if "/" in entry:
+                            net = ipaddress.ip_network(entry, strict=False)
+                            if net.prefixlen == 0:
+                                raise ValueError(
+                                    f"FORWARDED_ALLOW_IPS must not trust broad network prefix /0 ('{entry}') in production"
+                                )
+                        else:
+                            ipaddress.ip_address(entry)
+                    except ValueError as err:
+                        raise ValueError(f"Invalid IP or CIDR in FORWARDED_ALLOW_IPS: '{entry}'") from err
 
                 # Check weak / default secrets
                 for name, secret in [
