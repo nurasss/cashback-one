@@ -90,12 +90,9 @@ pg_restore \
     --verbose \
     "${BACKUP_FILE}" || RESTORE_EXIT=$?
 
-if [ "${RESTORE_EXIT}" -gt 1 ]; then
-    echo "[ERROR] pg_restore failed with fatal error code ${RESTORE_EXIT}." >&2
+if [ "${RESTORE_EXIT}" -ne 0 ]; then
+    echo "[ERROR] pg_restore failed with exit code ${RESTORE_EXIT}." >&2
     exit "${RESTORE_EXIT}"
-fi
-if [ "${RESTORE_EXIT}" -eq 1 ]; then
-    echo "[WARNING] pg_restore completed with non-fatal warnings (code 1)."
 fi
 
 # Step 5: Post-restore verification (connectivity and schema migration version)

@@ -93,8 +93,8 @@ WantedBy=timers.target
 1. **Pre-Restore Connectivity Check**: `restore_postgres.sh` tests database connectivity (`SELECT 1;`) before touching schema or data. If connection fails, it aborts with non-zero exit code.
 2. **Checksum Verification**: The script verifies the `.sha256` checksum before restoring.
 3. **Safety Confirmation**: Overwrite confirmation is required (`--confirm-overwrite` or interactive prompt).
-4. **Fatal Error Handling**: Fatal exit codes from `pg_restore` (exit code `> 1`) abort the script immediately.
-5. **Post-Restore Schema Verification**: The script queries `alembic_version` to verify schema integrity. If missing or inaccessible, it exits with error code 1.
+4. **Fatal Error Handling**: ANY non-zero exit code from `pg_restore` (including exit code 1) aborts the script immediately. The script never executes post-verification queries, never prints a success message, and terminates with non-zero exit status immediately.
+5. **Post-Restore Schema Verification**: On successful restoration (`pg_restore` exit 0), the script queries `alembic_version` to verify schema integrity. If missing or inaccessible, it exits with error code 1.
 
 ### Manual Verification of Checksum
 ```bash

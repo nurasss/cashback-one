@@ -34,14 +34,16 @@ The POSCENTER Loyalty Cloud system is containerized and organized as follows:
 
 ### Components
 1. **Nginx Reverse Proxy**:
-   - TLS termination (or accepts forwarded TLS from ALB/Cloudflare with `X-Forwarded-Proto`).
-   - Serves React Admin SPA static assets with immutable cache headers and complete HTTP security headers.
-   - Routes browser HTML navigations (`Accept: text/html`) to SPA `index.html`.
-   - Proxies backend APIs (`/health`, `/agent`, `/auth`, `/me`, `/webhooks`, `/admin` mutations/queries) to FastAPI.
+   - **Authoritative Model A TLS**: Nginx terminates TLS at the container edge (or serves as front proxy behind enterprise ingress). Under Model A, Nginx sets `proxy_set_header X-Forwarded-Proto $scheme;` authoritatively, preventing client-injected spoofed `X-Forwarded-Proto` headers from reaching backend services.
+   - **Deterministic Admin SPA vs API Routing**: Uses two independent maps (`$is_admin_api` from `X-Admin-Request: 1`, `$accepts_html` from `Accept: text/html`) combined into `$is_spa_route`. The `X-Admin-Request: 1` header has absolute precedence and always proxies to the backend API. Direct browser navigations requesting HTML rewrite internally to `/index.html last`.
+   - **Privacy-Preserving JSON Logs**: Access logs record request method, host, response code, timing, and client IP, but completely omit `$uri`, `$request_uri`, `$args`, `$query_string`, and `$http_referer` to prevent query string/credential leakage.
+   - Serves React Admin SPA static assets with immutable cache headers and complete HTTP security headers (CSP, HSTS, X-Content-Type-Options, Referrer-Policy, Permissions-Policy).
 2. **FastAPI Backend (Uvicorn)**:
    - Python 3.11+ / 3.14 async runtime.
+   - **Single Proxy Trust**: Trusted proxy IPs are strictly defined via `FORWARDED_ALLOW_IPS` matching the exact internal reverse proxy IP (`172.28.0.10` in smoke stack) and passed directly via Uvicorn CLI `--forwarded-allow-ips`. Broad CIDRs (`10.0.0.0/8`, `0.0.0.0/0`) are rejected.
+   - **Framework Route Template Logging**: Emits structured JSON logs containing normalized framework route templates (`route`, e.g. `/admin/cards/{card_id}`), never raw request paths containing customer IDs or query parameters. 404/unmatched routes log `"<unmatched>"`.
+   - **Production Exception Logging Hygiene**: In production, unhandled 500 exceptions emit `event="unhandled_request_exception"` with `exc_info=False`, logging only `request_id`, `route`, and `exception_class`. Traceback, raw exception messages, SQL parameters, and potential secrets are completely suppressed from production log sinks.
    - Enforces strict startup configuration validation.
-   - Redacts PII, credentials, tokens, and secrets from all logs.
    - Manages connection pool to PostgreSQL with timeouts and pre-ping.
 3. **PostgreSQL 16**:
    - Primary ACID datastore with strict constraints and Alembic migrations.
@@ -85,16 +87,17 @@ In `APP_ENV=production`, the application strictly enforces:
 A production-like smoke stack is provided in `deploy/compose.prod-smoke.yml`:
 
 ```bash
-# 1. Prepare environment configuration from template
-cp .env.prod-smoke.example .env.prod-smoke
+# 1. Generate strong ephemeral secrets (writes gitignored .env.prod-smoke)
+python3 scripts/generate_prod_smoke_env.py
 
-# 2. Review and ensure strong secrets
-# (Never use fixture secrets in live deployments)
-
-# 3. Launch the containerized smoke stack
+# 2. Launch the containerized smoke stack
 docker compose -f deploy/compose.prod-smoke.yml --env-file .env.prod-smoke up --build -d
 
-# 4. Check readiness and health
+# 3. Check readiness and health
 curl -f http://127.0.0.1:8080/health/live
 curl -f http://127.0.0.1:8080/health/ready
+
+# 4. Clean up smoke environment when done
+docker compose -f deploy/compose.prod-smoke.yml --env-file .env.prod-smoke down -v
 ```
+

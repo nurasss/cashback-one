@@ -53,7 +53,9 @@ The application provides two standard HTTP endpoints:
 
 - All production logs are emitted in structured JSON format (`LOG_FORMAT=json`).
 - Request traces are correlated via `X-Request-ID` (preserved if incoming, or generated as a UUID).
-- **PII & Credential Redaction**: Passwords, OTP codes, JWTs, agent keys, connection strings, phone numbers, barcodes, and cookies are automatically sanitized before output.
+- **Framework Route Templates**: Backend logs include normalized route templates (`route`, e.g. `/admin/cards/{card_id}`), never raw request paths containing customer IDs or query strings. Unmatched/404 requests log `"<unmatched>"`.
+- **Exception Hygiene**: In production, unhandled 500 exceptions emit `event="unhandled_request_exception"` with `exc_info=False`. Tracebacks, exception arguments, SQL queries, and potential secrets are completely suppressed from production logs.
+- **Proxy Access Logs**: Nginx access logs omit `$uri`, `$request_uri`, `$args`, `$query_string`, and `$http_referer` to prevent query string and credential leaks.
 - **Inspecting logs**:
   ```bash
   # View backend logs
@@ -62,6 +64,7 @@ The application provides two standard HTTP endpoints:
   # View proxy access logs (JSON formatted, query strings excluded)
   docker compose -f deploy/compose.prod-smoke.yml logs -f proxy
   ```
+
 
 ---
 

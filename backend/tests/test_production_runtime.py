@@ -281,7 +281,8 @@ def test_log_redaction_comprehensive() -> None:
 
 def test_https_trust_chain_and_proxy_verification() -> None:
     from starlette.requests import Request
-    from app.services.admin_security import is_trusted_proxy_client, get_effective_scheme
+
+    from app.services.admin_security import get_effective_scheme, is_trusted_proxy_client
 
     # Trusted proxy: 127.0.0.1 (configured in settings)
     assert is_trusted_proxy_client("127.0.0.1") is True
@@ -309,4 +310,187 @@ def test_https_trust_chain_and_proxy_verification() -> None:
     }
     req_trusted = Request(scope_trusted)
     assert get_effective_scheme(req_trusted) == "https"
+
+
+@pytest.mark.asyncio
+async def test_production_unhandled_exception_no_secrets(caplog: pytest.LogCaptureFixture) -> None:
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from app.core.config import settings
+    from app.core.errors import register_error_handlers
+    from app.core.logging import RequestCorrelationMiddleware
+
+    app = FastAPI()
+    app.add_middleware(RequestCorrelationMiddleware)
+    register_error_handlers(app)
+
+    secret_message = (
+        "postgresql://user:fixture-db-secret@db/x "
+        "OTP=fixture-otp-918273 "
+        "Password=fixture-one-secret "
+        "Fixture Person Name"
+    )
+
+    @app.get("/trigger-crash")
+    async def crash_endpoint() -> None:
+        raise RuntimeError(secret_message)
+
+    with patch.object(settings, "app_env", "production"), caplog.at_level("INFO"):
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            res = await ac.get("/trigger-crash", headers={"X-Request-ID": "test-req-12345"})
+            assert res.status_code == 500
+
+    app_logs = "\n".join(r.getMessage() + " " + str(getattr(r, "route", "")) for r in caplog.records if r.name.startswith("app."))
+    # Must NOT contain any fixture secrets
+    assert "fixture-db-secret" not in app_logs
+    assert "fixture-otp-918273" not in app_logs
+    assert "fixture-one-secret" not in app_logs
+    assert "Fixture Person Name" not in app_logs
+    # Must contain safe identifier and exception class
+    assert "unhandled_request_exception" in app_logs
+
+
+@pytest.mark.asyncio
+async def test_unmatched_arbitrary_path_no_leak(caplog: pytest.LogCaptureFixture) -> None:
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from app.core.config import settings
+    from app.core.errors import register_error_handlers
+    from app.core.logging import RequestCorrelationMiddleware
+
+    app = FastAPI()
+    app.add_middleware(RequestCorrelationMiddleware)
+    register_error_handlers(app)
+
+    @app.get("/health/ready")
+    async def ready_endpoint() -> dict[str, str]:
+        return {"status": "ok"}
+
+    path_with_secret = "/health/77001234567/0123456789012/fixture-path-secret"
+    with patch.object(settings, "app_env", "production"), caplog.at_level("INFO"):
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            res = await ac.get(path_with_secret)
+            assert res.status_code == 404
+
+    app_logs = "\n".join(r.getMessage() + " " + str(getattr(r, "route", "")) for r in caplog.records if r.name.startswith("app."))
+    assert "77001234567" not in app_logs
+    assert "0123456789012" not in app_logs
+    assert "fixture-path-secret" not in app_logs
+    assert "<unmatched>" in app_logs
+
+
+def test_nginx_access_log_no_raw_paths_and_authoritative_tls() -> None:
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    nginx_conf = (repo_root / "deploy" / "nginx" / "nginx.conf").read_text()
+    default_conf = (repo_root / "deploy" / "nginx" / "default.conf").read_text()
+
+    # Nginx access log format must not include raw URI/query/referer
+    assert "$request_uri" not in nginx_conf
+    assert '"uri"' not in nginx_conf
+    assert "$args" not in nginx_conf
+    assert "$query_string" not in nginx_conf
+    assert "$http_referer" not in nginx_conf
+
+    # Authoritative TLS Model A: Nginx sets X-Forwarded-Proto to $scheme
+    assert "proxy_set_header X-Forwarded-Proto $scheme;" in default_conf
+    assert "map $http_x_forwarded_proto" not in default_conf
+
+    # Independent maps for SPA routing
+    assert "map $http_x_admin_request $is_admin_api" in default_conf
+    assert "map $http_accept $accepts_html" in default_conf
+    assert 'map "$is_admin_api:$accepts_html" $is_spa_route' in default_conf
+
+
+@pytest.mark.parametrize(
+    ("x_admin_request", "accept_header", "expected_spa"),
+    [
+        # 1. Accept: text/html, no X-Admin-Request -> SPA
+        ("", "text/html", True),
+        # 2. Browser Accept list containing text/html, no X-Admin-Request -> SPA
+        ("", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", True),
+        # 3. Accept: text/html, X-Admin-Request: 1 -> backend (not SPA)
+        ("1", "text/html", False),
+        # 4. Accept: application/json, X-Admin-Request: 1 -> backend
+        ("1", "application/json", False),
+        # 5. Accept: application/json, no API header -> backend
+        ("", "application/json", False),
+        # 6. Unknown API + X-Admin-Request: 1 -> backend
+        ("1", "*/*", False),
+        # 7. Browser unknown route with text/html -> SPA
+        ("", "text/html; charset=utf-8", True),
+    ],
+)
+def test_spa_routing_matrix_logic(x_admin_request: str, accept_header: str, expected_spa: bool) -> None:
+    # Emulates the Nginx maps logic
+    is_admin_api = 1 if x_admin_request == "1" else 0
+    accepts_html = 1 if "text/html" in accept_header.lower() else 0
+    is_spa_route = 1 if (is_admin_api == 0 and accepts_html == 1) else 0
+
+    assert bool(is_spa_route) is expected_spa
+
+
+def test_compose_semantic_settings_load() -> None:
+    import sys
+    from pathlib import Path
+
+    from dotenv import dotenv_values
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    sys.path.insert(0, str(repo_root / "scripts"))
+    import generate_prod_smoke_env
+
+    smoke_env_file = generate_prod_smoke_env.generate_smoke_env()
+    env_vals = dotenv_values(smoke_env_file)
+
+    # Backend Settings load
+    s_backend = Settings(**env_vals)
+    assert s_backend.app_env == "production"
+    assert s_backend.forwarded_allow_ips == "172.28.0.10"
+    assert s_backend.sms_provider_mode == "disabled"
+    assert s_backend.admin_allowed_origins == ["https://admin.loyalty.local", "https://loyalty.local"]
+
+    # Migration Settings load
+    s_migration = Settings(**env_vals)
+    assert s_migration.app_env == "production"
+    assert s_migration.database_url.startswith("postgresql+asyncpg://")
+
+
+def test_https_spoof_rejected_by_admin_transport() -> None:
+    from starlette.requests import Request
+
+    from app.core.errors import AppError
+    from app.services.admin_security import require_admin_transport
+
+    # Untrusted client sends X-Forwarded-Proto: https
+    scope_untrusted = {
+        "type": "http",
+        "scheme": "http",
+        "path": "/admin/auth/login",
+        "client": ("198.51.100.1", 12345),
+        "headers": [(b"x-forwarded-proto", b"https")],
+    }
+    req_untrusted = Request(scope_untrusted)
+    with pytest.raises(AppError) as exc_info:
+        require_admin_transport(req_untrusted)
+    assert exc_info.value.code == "ADMIN_HTTPS_REQUIRED"
+
+    # Plain HTTP from proxy (Nginx Model A passes http when client connected via http)
+    scope_proxy_http = {
+        "type": "http",
+        "scheme": "http",
+        "path": "/admin/auth/login",
+        "client": ("127.0.0.1", 12345),
+        "headers": [(b"x-forwarded-proto", b"http")],
+    }
+    req_proxy_http = Request(scope_proxy_http)
+    with pytest.raises(AppError) as exc_info:
+        require_admin_transport(req_proxy_http)
+    assert exc_info.value.code == "ADMIN_HTTPS_REQUIRED"
+
 

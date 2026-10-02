@@ -73,6 +73,21 @@ def get_current_request_id() -> str:
     return request_id_ctx.get()
 
 
+def get_safe_route_id(request: Request) -> str:
+    """Extracts framework route template from request.scope if matched, or '<unmatched>'."""
+    if not hasattr(request, "scope") or not isinstance(request.scope, dict):
+        return "<unmatched>"
+    route = request.scope.get("route")
+    if route is not None:
+        path_format = getattr(route, "path_format", None)
+        if path_format and isinstance(path_format, str):
+            return path_format
+        path = getattr(route, "path", None)
+        if path and isinstance(path, str):
+            return path
+    return "<unmatched>"
+
+
 def safe_route_path(path: str) -> str:
     """Masks path parameters containing identifiers, phones, barcodes, or tokens."""
     if not path:
@@ -126,20 +141,23 @@ class StructuredJsonFormatter(logging.Formatter):
         if req_id:
             log_entry["request_id"] = req_id
 
-        # Include structured HTTP metadata if available, ensuring paths are safe and no query strings
-        if hasattr(record, "method"):
-            log_entry["method"] = record.method
-        if hasattr(record, "path"):
-            log_entry["path"] = safe_route_path(str(record.path))
-        if hasattr(record, "status"):
-            log_entry["status"] = record.status
-        if hasattr(record, "duration_ms"):
-            log_entry["duration_ms"] = record.duration_ms
+        # Route identification (never raw URLs or raw paths)
+        if hasattr(record, "route"):
+            log_entry["route"] = str(record.route)
+        elif hasattr(record, "path"):
+            p = str(record.path)
+            log_entry["route"] = p if (p.startswith("/") and "{" in p) or p in {"<unmatched>", "unmatched_route"} else "<unmatched>"
 
-        if record.exc_info and not record.exc_text:
-            record.exc_text = self.formatException(record.exc_info)
-        if record.exc_text:
-            log_entry["exception"] = redact_sensitive_text(record.exc_text)
+        for attr in ("method", "status", "duration_ms", "event", "exception_class"):
+            if hasattr(record, attr):
+                log_entry[attr] = getattr(record, attr)
+
+        # In production: NO raw traceback, NO exception serialization
+        if settings.app_env.lower() != "production":
+            if record.exc_info and not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+            if record.exc_text:
+                log_entry["exception"] = redact_sensitive_text(record.exc_text)
 
         return json.dumps(log_entry, ensure_ascii=False)
 
@@ -147,7 +165,7 @@ class StructuredJsonFormatter(logging.Formatter):
 class RequestCorrelationMiddleware(BaseHTTPMiddleware):
     """Extracts, validates, or generates X-Request-ID, binds it to contextvars,
 
-    and logs an access summary without PII or raw query strings.
+    and logs an access summary with route templates and without raw queries or paths.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -160,22 +178,37 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
         token = request_id_ctx.set(req_id)
         request.state.request_id = req_id
         start_time = time.monotonic()
-        safe_path = safe_route_path(request.url.path)
 
         try:
             response = await call_next(request)
         except Exception as exc:
             duration_ms = round((time.monotonic() - start_time) * 1000, 2)
-            logging.getLogger("app.access").error(
-                "Request failed with unhandled exception: %s",
-                exc.__class__.__name__,
-                extra={
-                    "request_id": req_id,
-                    "method": request.method,
-                    "path": safe_path,
-                    "duration_ms": duration_ms,
-                },
-            )
+            safe_route = get_safe_route_id(request)
+            if settings.app_env.lower() == "production":
+                logging.getLogger("app.access").error(
+                    "unhandled_request_exception",
+                    extra={
+                        "event": "unhandled_request_exception",
+                        "request_id": req_id,
+                        "method": request.method,
+                        "route": safe_route,
+                        "exception_class": exc.__class__.__name__,
+                        "duration_ms": duration_ms,
+                    },
+                    exc_info=False,
+                )
+            else:
+                logging.getLogger("app.access").error(
+                    "Request failed with unhandled exception: %s",
+                    exc.__class__.__name__,
+                    extra={
+                        "request_id": req_id,
+                        "method": request.method,
+                        "route": safe_route,
+                        "duration_ms": duration_ms,
+                    },
+                    exc_info=exc,
+                )
             raise
         finally:
             request_id_ctx.reset(token)
@@ -183,14 +216,15 @@ class RequestCorrelationMiddleware(BaseHTTPMiddleware):
         duration_ms = round((time.monotonic() - start_time) * 1000, 2)
         response.headers["X-Request-ID"] = req_id
 
-        # Safe access log: logs route path without PII, never raw query
-        if not request.url.path.startswith("/health/live"):
+        safe_route = get_safe_route_id(request)
+        # Safe access log: logs route template, never raw query or raw path
+        if safe_route != "/health/live":
             logging.getLogger("app.access").info(
                 "HTTP request completed",
                 extra={
                     "request_id": req_id,
                     "method": request.method,
-                    "path": safe_path,
+                    "route": safe_route,
                     "status": response.status_code,
                     "duration_ms": duration_ms,
                 },

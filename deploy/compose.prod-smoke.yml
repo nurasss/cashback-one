@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-poscenter_loyalty_smoke}
       POSTGRES_USER: ${POSTGRES_USER:-poscenter_app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fixture-smoke-db-password-super-secure-1234}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be provided}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -44,20 +44,20 @@ services:
       APP_ENV: production
       DEBUG: "false"
       APP_NAME: "POSCENTER Loyalty Migration"
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://poscenter_app:fixture-smoke-db-password-super-secure-1234@postgres:5432/poscenter_loyalty_smoke}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be provided}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-fixture-smoke-customer-jwt-secret-key-64-bytes-long-super-secure}
-      ADMIN_JWT_SIGNING_KEY: ${ADMIN_JWT_SIGNING_KEY:-fixture-smoke-admin-jwt-secret-key-64-bytes-long-super-secure-distinct}
-      AUTH_CHALLENGE_HASH_KEY: ${AUTH_CHALLENGE_HASH_KEY:-fixture-smoke-auth-challenge-hash-key-min-32-chars-entropy}
-      SMS_OTP_HASH_KEY: ${SMS_OTP_HASH_KEY:-fixture-smoke-sms-otp-hash-key-min-32-chars-long-entropy-123}
-      ADMIN_ALLOWED_ORIGINS: ${ADMIN_ALLOWED_ORIGINS:-https://admin.loyalty.local,https://loyalty.local}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY must be provided}
+      ADMIN_JWT_SIGNING_KEY: ${ADMIN_JWT_SIGNING_KEY:?ADMIN_JWT_SIGNING_KEY must be provided}
+      AUTH_CHALLENGE_HASH_KEY: ${AUTH_CHALLENGE_HASH_KEY:?AUTH_CHALLENGE_HASH_KEY must be provided}
+      SMS_OTP_HASH_KEY: ${SMS_OTP_HASH_KEY:?SMS_OTP_HASH_KEY must be provided}
+      ADMIN_ALLOWED_ORIGINS: ${ADMIN_ALLOWED_ORIGINS:-["https://admin.loyalty.local","https://loyalty.local"]}
       ADMIN_ALLOW_INSECURE_HTTP: "false"
       SMS_PROVIDER_MODE: "disabled"
       WHATSAPP_LOGIN_NUMBER: ${WHATSAPP_LOGIN_NUMBER:-+77001234567}
-      WAPPI_LOGIN_PROFILE_ID: ${WAPPI_LOGIN_PROFILE_ID:-fixture-wappi-login-profile-id-1234}
+      WAPPI_LOGIN_PROFILE_ID: ${WAPPI_LOGIN_PROFILE_ID:-smoke-profile-123}
       WAPPI_WEBHOOK_AUTH_HEADER: ${WAPPI_WEBHOOK_AUTH_HEADER:-X-Wappi-Webhook-Signature}
-      WAPPI_WEBHOOK_AUTH_SECRET: ${WAPPI_WEBHOOK_AUTH_SECRET:-fixture-smoke-wappi-webhook-auth-secret-min-32-chars-entropy}
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      WAPPI_WEBHOOK_AUTH_SECRET: ${WAPPI_WEBHOOK_AUTH_SECRET:?WAPPI_WEBHOOK_AUTH_SECRET must be provided}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.28.0.10}
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,26 +70,27 @@ services:
       dockerfile: Dockerfile
     container_name: loyalty_backend
     restart: unless-stopped
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"]
+    command: ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"$$FORWARDED_ALLOW_IPS\""]
     environment:
       APP_ENV: production
       DEBUG: "false"
       LOG_FORMAT: json
       LOG_LEVEL: INFO
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://poscenter_app:fixture-smoke-db-password-super-secure-1234@postgres:5432/poscenter_loyalty_smoke}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be provided}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-fixture-smoke-customer-jwt-secret-key-64-bytes-long-super-secure}
-      ADMIN_JWT_SIGNING_KEY: ${ADMIN_JWT_SIGNING_KEY:-fixture-smoke-admin-jwt-secret-key-64-bytes-long-super-secure-distinct}
-      AUTH_CHALLENGE_HASH_KEY: ${AUTH_CHALLENGE_HASH_KEY:-fixture-smoke-auth-challenge-hash-key-min-32-chars-entropy}
-      SMS_OTP_HASH_KEY: ${SMS_OTP_HASH_KEY:-fixture-smoke-sms-otp-hash-key-min-32-chars-long-entropy-123}
-      ADMIN_ALLOWED_ORIGINS: ${ADMIN_ALLOWED_ORIGINS:-https://admin.loyalty.local,https://loyalty.local}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY must be provided}
+      ADMIN_JWT_SIGNING_KEY: ${ADMIN_JWT_SIGNING_KEY:?ADMIN_JWT_SIGNING_KEY must be provided}
+      AUTH_CHALLENGE_HASH_KEY: ${AUTH_CHALLENGE_HASH_KEY:?AUTH_CHALLENGE_HASH_KEY must be provided}
+      SMS_OTP_HASH_KEY: ${SMS_OTP_HASH_KEY:?SMS_OTP_HASH_KEY must be provided}
+      ADMIN_ALLOWED_ORIGINS: ${ADMIN_ALLOWED_ORIGINS:-["https://admin.loyalty.local","https://loyalty.local"]}
       ADMIN_ALLOW_INSECURE_HTTP: "false"
       SMS_PROVIDER_MODE: "disabled"
       WHATSAPP_LOGIN_NUMBER: ${WHATSAPP_LOGIN_NUMBER:-+77001234567}
-      WAPPI_LOGIN_PROFILE_ID: ${WAPPI_LOGIN_PROFILE_ID:-fixture-wappi-login-profile-id-1234}
+      WAPPI_LOGIN_PROFILE_ID: ${WAPPI_LOGIN_PROFILE_ID:-smoke-profile-123}
       WAPPI_WEBHOOK_AUTH_HEADER: ${WAPPI_WEBHOOK_AUTH_HEADER:-X-Wappi-Webhook-Signature}
-      WAPPI_WEBHOOK_AUTH_SECRET: ${WAPPI_WEBHOOK_AUTH_SECRET:-fixture-smoke-wappi-webhook-auth-secret-min-32-chars-entropy}
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      WAPPI_WEBHOOK_AUTH_SECRET: ${WAPPI_WEBHOOK_AUTH_SECRET:?WAPPI_WEBHOOK_AUTH_SECRET must be provided}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.28.0.10}
+      UVICORN_FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.28.0.10}
       DB_POOL_SIZE: "10"
       DB_MAX_OVERFLOW: "5"
       DB_POOL_TIMEOUT_SECONDS: "10"
@@ -139,7 +140,8 @@ services:
       retries: 5
       start_period: 5s
     networks:
-      - loyalty_net
+      loyalty_net:
+        ipv4_address: 172.28.0.10
 
 volumes:
   postgres_data:
@@ -148,3 +150,6 @@ volumes:
 networks:
   loyalty_net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
