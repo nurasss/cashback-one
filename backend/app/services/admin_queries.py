@@ -28,7 +28,7 @@ from app.schemas.admin import (
     UserListItem,
     UserSearchRequest,
 )
-from app.services.admin_mutations import sanitize_admin_audit_state
+from app.services.admin_mutations import safe_audit_snapshot
 from app.services.admin_security import mask_phone, sanitize_agent_error
 
 T = TypeVar("T")
@@ -462,8 +462,8 @@ async def list_audit_logs(
             business_id=row.business_id,
             action=row.action,
             entity=row.entity,
-            before_state=sanitize_admin_audit_state(row.before_state),
-            after_state=sanitize_admin_audit_state(row.after_state),
+            before_state=safe_audit_snapshot(row.action, row.before_state),
+            after_state=safe_audit_snapshot(row.action, row.after_state),
             created_at=as_utc(row.created_at),
         ),
     )

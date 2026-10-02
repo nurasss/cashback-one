@@ -19,7 +19,14 @@ from app.schemas.admin import BusinessCreateRequest, BusinessUpdateRequest
 from app.services.agent_auth import issue_agent_key, revoke_agent, rotate_agent_key
 
 _SENSITIVE_AUDIT_KEY = re.compile(
-    r"(?:password|passwd|token|secret|jwt|otp|wappi|key_hash|agent.?key|api.?key|phone|barcode|full.?name)",
+    r"(?:password|passwd|pwd|token|secret|jwt|otp|wappi|key_hash|agent.?key|api.?key|"
+    r"phone|barcode(?!_prefixes)|full.?name|credential|database_url|connection_string|"
+    r"connection_password|authorization|cookie|signing_key|private_key)",
+    re.IGNORECASE,
+)
+_CONTAINS_CREDENTIALS = re.compile(
+    r"(?:password|pwd|secret|token)\s*=|"
+    r"[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+:[^/\s:@]+@",
     re.IGNORECASE,
 )
 _SECRET_VALUE = re.compile(
@@ -28,10 +35,62 @@ _SECRET_VALUE = re.compile(
     re.IGNORECASE,
 )
 
+_ALLOWED_AUDIT_ACTION_FIELDS: dict[str, set[str]] = {
+    "business_created": {
+        "id",
+        "name",
+        "status",
+        "logo_url",
+        "colors",
+        "barcode_prefixes",
+        "colors_changed",
+    },
+    "business_updated": {
+        "id",
+        "name",
+        "status",
+        "logo_url",
+        "colors",
+        "barcode_prefixes",
+        "colors_changed",
+    },
+    "agent_created": {
+        "agent_id",
+        "business_id",
+        "status",
+    },
+    "agent_key_rotated": {
+        "agent_id",
+        "business_id",
+        "key_rotated",
+        "rotated_at",
+    },
+    "agent_revoked": {
+        "agent_id",
+        "business_id",
+        "status",
+    },
+    "agent_full_resync_requested": {
+        "command_id",
+        "agent_id",
+        "business_id",
+        "status",
+    },
+    "card_unbound": {
+        "card_id",
+        "business_id",
+        "user_id",
+        "unbound",
+    },
+}
+
 
 def _is_sensitive_audit_key(key: str) -> bool:
+    normalized = key.strip().lower()
     # Business barcode prefixes are configured routing data; card barcodes are never audited.
-    return key.lower() != "barcode_prefixes" and _SENSITIVE_AUDIT_KEY.search(key) is not None
+    if normalized == "barcode_prefixes":
+        return False
+    return _SENSITIVE_AUDIT_KEY.search(normalized) is not None
 
 
 def _redact_url_query(value: str) -> str:
@@ -43,12 +102,6 @@ def _redact_url_query(value: str) -> str:
         query = "[REDACTED]" if parsed.query else ""
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
     return value
-
-
-def sanitize_admin_audit_state(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    if value is None:
-        return None
-    return cast(dict[str, Any], _safe_audit_value(value))
 
 
 def _safe_audit_value(value: Any, *, key: str = "") -> Any:
@@ -65,10 +118,52 @@ def _safe_audit_value(value: Any, *, key: str = "") -> Any:
     if isinstance(value, uuid.UUID):
         return str(value)
     if isinstance(value, str):
-        return _SECRET_VALUE.sub("[REDACTED]", _redact_url_query(value))
+        redacted = _redact_url_query(value)
+        if _CONTAINS_CREDENTIALS.search(redacted):
+            return "[REDACTED]"
+        return _SECRET_VALUE.sub("[REDACTED]", redacted)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return str(value)
+
+
+def safe_audit_snapshot(
+    action: str | None,
+    value: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Fail-closed audit state sanitizer and safe projector.
+
+    Legacy and unknown events project to None to prevent accidental disclosure of
+    arbitrary or legacy secrets. Known Admin mutation actions project only explicitly
+    allowlisted safe attributes, with recursive secret redaction defense in depth.
+    """
+    if value is None or not isinstance(value, Mapping):
+        return None
+    if not action or action not in _ALLOWED_AUDIT_ACTION_FIELDS:
+        return None
+
+    allowed_keys = _ALLOWED_AUDIT_ACTION_FIELDS[action]
+    projected: dict[str, Any] = {}
+    for k, v in value.items():
+        str_key = str(k)
+        if str_key in allowed_keys and not _is_sensitive_audit_key(str_key):
+            projected[str_key] = _safe_audit_value(v, key=str_key)
+
+    if not projected:
+        return None
+    return projected
+
+
+def sanitize_admin_audit_state(
+    value: Mapping[str, Any] | None,
+    *,
+    action: str | None = None,
+) -> dict[str, Any] | None:
+    if value is None or not isinstance(value, Mapping):
+        return None
+    if action is not None:
+        return safe_audit_snapshot(action, value)
+    return cast(dict[str, Any], _safe_audit_value(value))
 
 
 def _audit(
@@ -87,8 +182,8 @@ def _audit(
             business_id=business_id,
             action=action,
             entity=entity,
-            before_state=sanitize_admin_audit_state(before_state),
-            after_state=sanitize_admin_audit_state(after_state),
+            before_state=safe_audit_snapshot(action, before_state),
+            after_state=safe_audit_snapshot(action, after_state),
         )
     )
 
@@ -97,6 +192,7 @@ def _business_state(
     business: Business, *, colors_changed: bool | None = None
 ) -> dict[str, Any]:
     state: dict[str, Any] = {
+        "id": business.id,
         "name": business.name,
         "logo_url": business.logo_url,
         "colors": None if business.colors is None else {

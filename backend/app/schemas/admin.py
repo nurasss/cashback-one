@@ -45,11 +45,22 @@ def _validate_logo_url(value: str | None) -> str | None:
     return normalized
 
 
+_KNOWN_BRANDING_COLOR_KEYS = {"primary", "primary_color", "accent", "accent_color"}
+
+
 def _validate_colors(value: dict[str, object] | None) -> dict[str, object] | None:
     if value is None:
         return None
     if len(value) > 64:
         raise ValueError("colors may contain at most 64 entries")
+
+    for key in _KNOWN_BRANDING_COLOR_KEYS:
+        if key in value:
+            color_val = value[key]
+            if color_val is not None and not isinstance(color_val, str):
+                raise ValueError(f"{key} must be a string or null")
+            if isinstance(color_val, str) and len(color_val) > 128:
+                raise ValueError(f"{key} is too long")
 
     def check(item: object, depth: int = 0) -> None:
         if depth > 5:

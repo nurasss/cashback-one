@@ -7,12 +7,14 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import create_access_token as create_customer_access_token
+from app.core.security import hash_refresh_token
 from app.core.time import utcnow
 from app.db.session import get_session
 from app.main import app
 from app.models.admin import AdminSession, AdminUser, AgentCommand
-from app.models.entities import Agent, AuditLog, Business, Card, User, UserCard
-from app.services.admin_mutations import sanitize_admin_audit_state
+from app.models.entities import Agent, AuditLog, AuthSession, Business, Card, User, UserCard
+from app.services.admin_mutations import safe_audit_snapshot, sanitize_admin_audit_state
 from app.services.admin_security import (
     admin_refresh_token_hash,
     create_admin_access_token,
@@ -50,6 +52,41 @@ def test_audit_snapshot_removes_secret_fields_and_redacts_secret_values() -> Non
     ):
         assert secret not in serialized
     assert snapshot["barcode_prefixes"] == ["012"]
+
+    # Unknown or legacy action -> fails closed to None
+    assert (
+        safe_audit_snapshot(
+            "unknown_legacy_action",
+            {
+                "DATABASE_URL": "postgresql://fixture:fixture-password@localhost/db",
+                "ONE_CONNECTION_STRING": "Provider=fixture;Password=secret",
+            },
+        )
+        is None
+    )
+    assert safe_audit_snapshot(None, {"name": "test"}) is None
+
+    # Known action projects only allowlisted safe keys and redacts secrets
+    aid = uuid.uuid4()
+    bid = uuid.uuid4()
+    projected_agent = safe_audit_snapshot(
+        "agent_created",
+        {
+            "agent_id": aid,
+            "business_id": bid,
+            "status": "active",
+            "key_hash": "secret-hash",
+            "api_key": "agk_secret-key",
+            "ONE_CONNECTION_STRING": "Provider=fixture;Password=secret",
+        },
+    )
+    assert projected_agent == {
+        "agent_id": str(aid),
+        "business_id": str(bid),
+        "status": "active",
+    }
+    assert "key_hash" not in str(projected_agent)
+    assert "secret" not in str(projected_agent)
 
 
 @pytest.fixture
@@ -388,3 +425,233 @@ async def test_manager_unbind_is_scoped_idempotent_and_does_not_delete_business_
     global_audit = await mutation_client.get("/admin/audit", headers=root_headers)
     assert global_audit.status_code == 200
     assert len(global_audit.json()["items"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_legacy_audit_snapshot_secrets_are_never_disclosed_at_read_time(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.legacyaudit")
+    root_headers = await auth_headers(db_session, root)
+
+    tenant = await make_business(db_session, "Tenant Audit Scope")
+    manager = await make_admin(db_session, "business_manager", tenant.id, "manager.legacyaudit")
+    manager_headers = await auth_headers(db_session, manager)
+
+    # Insert legacy AuditLog row containing raw secrets, credentials, and connection strings
+    legacy_log = AuditLog(
+        actor="legacy_system_migrator",
+        admin_user_id=None,
+        business_id=None,
+        action="legacy_system_sync",
+        entity="system",
+        before_state={
+            "ONE_CONNECTION_STRING": "Provider=fixture;Password=fixture-one-db-secret",
+            "DATABASE_URL": "postgresql://fixture:fixture-db-password@localhost/db",
+        },
+        after_state={
+            "nested": {
+                "password": "fixture-nested-secret",
+                "token": "fixture-token-secret",
+            }
+        },
+    )
+    db_session.add(legacy_log)
+    await db_session.commit()
+
+    # Authenticated superadmin GET /admin/audit
+    response = await mutation_client.get("/admin/audit", headers=root_headers)
+    assert response.status_code == 200
+    res_text = response.text
+
+    # Assert response JSON does NOT contain any fixture secret string or raw connection string
+    for secret in (
+        "fixture-one-db-secret",
+        "fixture-db-password",
+        "fixture-nested-secret",
+        "fixture-token-secret",
+        "Provider=fixture",
+        "postgresql://",
+    ):
+        assert secret not in res_text, f"Secret string '{secret}' found in /admin/audit response!"
+
+    items = response.json()["items"]
+    legacy_item = next((item for item in items if item["id"] == str(legacy_log.id)), None)
+    assert legacy_item is not None
+    assert legacy_item["before_state"] is None
+    assert legacy_item["after_state"] is None
+
+    # Manager isolation check: legacy row has no business_id and must be invisible to manager
+    manager_res = await mutation_client.get("/admin/audit", headers=manager_headers)
+    assert manager_res.status_code == 200
+    assert not any(item["id"] == str(legacy_log.id) for item in manager_res.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_mutation_audit_events_never_record_raw_keys_hashes_or_passwords(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.auditwritetest")
+    headers = await auth_headers(db_session, root)
+
+    # 1. Create Business
+    b_resp = await mutation_client.post(
+        "/admin/businesses",
+        headers=headers,
+        json={"name": "Audit Security Business", "status": "active"},
+    )
+    assert b_resp.status_code == 201
+    business_id = b_resp.json()["id"]
+
+    # 2. Create Agent
+    a_resp = await mutation_client.post(
+        "/admin/agents",
+        headers=headers,
+        json={"business_id": business_id},
+    )
+    assert a_resp.status_code == 201
+    agent_id = a_resp.json()["agent"]["id"]
+    raw_key = a_resp.json()["api_key"]
+    assert raw_key.startswith("agk_")
+
+    # 3. Rotate Agent Key
+    rot_resp = await mutation_client.post(
+        f"/admin/agents/{agent_id}/rotate-key",
+        headers=headers,
+    )
+    assert rot_resp.status_code == 200
+    rotated_key = rot_resp.json()["api_key"]
+    assert rotated_key.startswith("agk_")
+    assert rotated_key != raw_key
+
+    # Query all audit logs for this business
+    events = (
+        await db_session.scalars(
+            select(AuditLog).where(AuditLog.business_id == uuid.UUID(business_id))
+        )
+    ).all()
+    assert len(events) >= 3
+
+    for ev in events:
+        ev_str = f"{ev.before_state} {ev.after_state}"
+        assert raw_key not in ev_str, f"Raw key leaked in audit event {ev.action}"
+        assert rotated_key not in ev_str, f"Rotated key leaked in audit event {ev.action}"
+        assert "key_hash" not in ev_str, f"Key hash leaked in audit event {ev.action}"
+        assert "password" not in ev_str
+        assert "token" not in ev_str
+        assert "secret" not in ev_str
+
+
+@pytest.mark.asyncio
+async def test_business_colors_validation_rejects_non_string_types(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.colorval")
+    headers = await auth_headers(db_session, root)
+
+    business = await make_business(db_session, "Color Test Business")
+
+    invalid_color_payloads = [
+        {"primary": 123},
+        {"accent": {"bad": "type"}},
+        {"primary_color": []},
+        {"accent_color": False},
+        {"primary": "valid", "accent": 456},
+        {"primary": ["#fff"]},
+    ]
+
+    # Verify POST /admin/businesses returns 422 for each
+    for colors in invalid_color_payloads:
+        resp = await mutation_client.post(
+            "/admin/businesses",
+            headers=headers,
+            json={"name": "Bad Colors", "colors": colors},
+        )
+        assert resp.status_code == 422, f"Expected 422 for colors {colors}, got {resp.status_code}"
+
+    # Verify PATCH /admin/businesses/{id} returns 422 for each
+    for colors in invalid_color_payloads:
+        resp = await mutation_client.patch(
+            f"/admin/businesses/{business.id}",
+            headers=headers,
+            json={"colors": colors},
+        )
+        assert resp.status_code == 422, f"Expected 422 for colors {colors}, got {resp.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_business_colors_contract_with_customer_wallet_end_to_end(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.brandinge2e")
+    headers = await auth_headers(db_session, root)
+
+    # 1. Superadmin creates Business with valid colors and logo
+    valid_colors = {
+        "primary": "#155d4a",
+        "accent": "#f59e0b",
+    }
+    create_resp = await mutation_client.post(
+        "/admin/businesses",
+        headers=headers,
+        json={
+            "name": "Branding Safe Market",
+            "logo_url": "https://cdn.example.test/branding_logo.svg",
+            "colors": valid_colors,
+        },
+    )
+    assert create_resp.status_code == 201
+    business_data = create_resp.json()
+    b_id = uuid.UUID(business_data["id"])
+
+    # 2. Create card of this business
+    card = Card(
+        business_id=b_id,
+        barcode="9988776655443",
+        phone="+77028889900",
+        balance=Decimal("250.0000"),
+        is_blocked=False,
+    )
+    db_session.add(card)
+
+    # 3. Create user and bind card
+    user = User(phone="+77028889900", language="ru")
+    db_session.add(user)
+    await db_session.flush()
+
+    user_card = UserCard(
+        user_id=user.id,
+        card_id=card.id,
+        bind_method="manual",
+    )
+    db_session.add(user_card)
+
+    auth_session = AuthSession(
+        user_id=user.id,
+        device_id="branding-device-uuid",
+        refresh_token_hash=hash_refresh_token(f"rfr_{uuid.uuid4()}"),
+        expires_at=utcnow() + timedelta(days=30),
+    )
+    db_session.add(auth_session)
+    await db_session.commit()
+
+    # 4. Customer requests GET /me/cards
+    customer_token = create_customer_access_token(user_id=user.id, session_id=auth_session.id)
+    customer_resp = await mutation_client.get(
+        "/me/cards",
+        headers={"Authorization": f"Bearer {customer_token}"},
+    )
+
+    # 5. Must return 200 (not 500)
+    assert customer_resp.status_code == 200
+    cards_data = customer_resp.json()
+    assert len(cards_data) == 1
+    card_view = cards_data[0]
+    assert card_view["id"] == str(card.id)
+
+    # 6. Branding successfully serialized
+    branding = card_view["business"]["branding"]
+    assert branding is not None
+    assert branding["primary_color"] == "#155d4a"
+    assert branding["accent_color"] == "#f59e0b"
+    assert branding["logo_url"] == "https://cdn.example.test/branding_logo.svg"

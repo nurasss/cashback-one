@@ -1,6 +1,6 @@
-# POSCENTER Loyalty Admin — TASK-011A
+# POSCENTER Loyalty Admin
 
-Read-only web console on Vite, React 19, TypeScript strict, React Router and TanStack Query. It talks to the existing Cloud Backend Admin API; it does not connect to POSCENTER ONE directly. No screens for creating/editing businesses, provisioning agents, rotating keys, resyncing, deleting customers or unbinding cards are present.
+Administrative web console built with Vite, React 19, TypeScript strict, React Router and TanStack Query. It communicates with the Cloud Backend Admin API; it does not connect to POSCENTER ONE directly. The console supports both operational monitoring and atomic administrative mutations: creating and editing businesses, provisioning POS agents, rotating agent keys, revoking agents, requesting full resyncs, and unbinding customer cards.
 
 ## Requirements and setup
 
