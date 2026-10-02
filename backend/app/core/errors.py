@@ -1,8 +1,11 @@
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+from app.core.logging import get_current_request_id
 
 
 class AppError(Exception):
@@ -44,4 +47,19 @@ def register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content={"error": {"code": "VALIDATION_ERROR", "message": details}},
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        req_id = getattr(request.state, "request_id", "") or get_current_request_id()
+        logging.getLogger("app.unhandled").error(
+            f"Unhandled exception during {request.method} {request.url.path}: {exc.__class__.__name__}",
+            exc_info=exc,
+            extra={"request_id": req_id, "method": request.method, "path": request.url.path},
+        )
+        headers = {"X-Request-ID": req_id} if req_id else {}
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"code": "INTERNAL_SERVER_ERROR", "message": "An internal server error occurred"}},
+            headers=headers,
         )

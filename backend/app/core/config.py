@@ -4,6 +4,25 @@ from functools import lru_cache
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_FORBIDDEN_WEAK_SECRETS: set[str] = {
+    "changeme",
+    "secret",
+    "development-secret",
+    "test-secret",
+    "default-key",
+    "admin123",
+    "password",
+}
+
+
+def _is_weak_secret(val: str) -> bool:
+    normalized = val.strip().lower()
+    if normalized in _FORBIDDEN_WEAK_SECRETS:
+        return True
+    if normalized.startswith(("change_me", "changeme")):
+        return True
+    return bool(normalized.startswith(("test_", "default")) or "fixture" in normalized)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -68,6 +87,22 @@ class Settings(BaseSettings):
     admin_max_stats_period_days: int = Field(default=90, ge=1, le=365)
     admin_allow_insecure_http: bool = False
 
+    # Production runtime, connection pool, and security settings (TASK-012)
+    debug: bool = Field(default=False, description="Debug mode. Must be False in production.")
+    db_pool_size: int = Field(default=10, ge=1, le=100, description="Database connection pool size.")
+    db_max_overflow: int = Field(default=20, ge=0, le=100, description="Max overflow connections beyond pool size.")
+    db_pool_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0, description="Database pool checkout timeout.")
+    db_pool_recycle_seconds: int = Field(default=1800, ge=60, le=86400, description="Database connection recycle seconds.")
+    db_pool_pre_ping: bool = Field(default=True, description="Enable connection health pre-ping.")
+    db_statement_timeout_ms: int = Field(default=10000, ge=100, le=60000, description="PostgreSQL statement timeout in ms.")
+
+    redis_connect_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0, description="Redis connection timeout in seconds.")
+    redis_socket_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0, description="Redis operation socket timeout in seconds.")
+
+    forwarded_allow_ips: str = Field(default="127.0.0.1", description="Trusted proxy IPs for forwarded headers. Never '*' in production.")
+    log_format: str = Field(default="json", description="Structured logging format: 'json' or 'text'.")
+    log_level: str = Field(default="INFO", description="Log level: DEBUG, INFO, WARNING, ERROR.")
+
     # SMS OTP Fallback Configuration (TASK-007)
     sms_otp_hash_key: str = Field(
         default="",
@@ -104,10 +139,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_URL must be explicitly provided in environment or .env"
             )
-        if self.app_env.lower() != "test" and db_url.startswith("sqlite"):
+        if self.app_env.lower() in {"development", "production"} and db_url.startswith("sqlite"):
             raise ValueError(
-                "DATABASE_URL must be a valid PostgreSQL connection string in development/production. "
-                "SQLite is only permitted when APP_ENV=test."
+                "SQLite is only permitted when APP_ENV=test. DATABASE_URL must not use SQLite in production or development. PostgreSQL is required."
             )
 
         # Validate SMS provider mode
@@ -171,6 +205,33 @@ class Settings(BaseSettings):
                 raise ValueError("ADMIN_JWT_SIGNING_KEY must be different from JWT_SIGNING_KEY")
             if not self.admin_allowed_origins:
                 raise ValueError("ADMIN_ALLOWED_ORIGINS must explicitly list trusted browser origins")
+
+            if self.app_env.lower() == "production":
+                if self.debug:
+                    raise ValueError("DEBUG must be disabled (False) in production")
+                if db_url.startswith("sqlite"):
+                    raise ValueError("DATABASE_URL must not use SQLite in production. PostgreSQL is required.")
+                if not db_url.startswith(("postgresql+asyncpg://", "postgresql://")):
+                    raise ValueError("DATABASE_URL must be a PostgreSQL connection URL in production")
+                if self.admin_allow_insecure_http:
+                    raise ValueError("HTTP admin origins require explicit development opt-in: ADMIN_ALLOW_INSECURE_HTTP is strictly forbidden in production")
+                if self.forwarded_allow_ips.strip() in {"*", "0.0.0.0/0", "::/0"}:
+                    raise ValueError("FORWARDED_ALLOW_IPS must not trust all IPs ('*') in production")
+
+                # Check weak / default secrets
+                for name, secret in [
+                    ("JWT_SIGNING_KEY", self.jwt_signing_key),
+                    ("ADMIN_JWT_SIGNING_KEY", self.admin_jwt_signing_key),
+                    ("AUTH_CHALLENGE_HASH_KEY", self.auth_challenge_hash_key),
+                    ("SMS_OTP_HASH_KEY", self.sms_otp_hash_key),
+                    ("WAPPI_WEBHOOK_AUTH_SECRET", self.wappi_webhook_auth_secret),
+                ]:
+                    if _is_weak_secret(secret):
+                        raise ValueError(f"{name} uses an insecure or default secret forbidden in production")
+
+                for raw_origin in self.admin_allowed_origins:
+                    if not raw_origin.strip().startswith("https://"):
+                        raise ValueError(f"All ADMIN_ALLOWED_ORIGINS must use HTTPS in production: '{raw_origin}'")
 
         # CORS and cookie origins are exact HTTP(S) origins, never wildcard URLs.
         from urllib.parse import urlsplit

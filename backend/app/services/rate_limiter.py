@@ -86,7 +86,12 @@ def get_redis_client() -> aioredis.Redis:
     """Resolve or instantiate shared Redis client."""
     global _shared_redis_client
     if _shared_redis_client is None:
-        _shared_redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+        _shared_redis_client = aioredis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=settings.redis_connect_timeout_seconds,
+            socket_timeout=settings.redis_socket_timeout_seconds,
+        )
     return _shared_redis_client
 
 

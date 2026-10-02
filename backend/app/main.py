@@ -13,8 +13,11 @@ from app.api.health import router as health_router
 from app.api.webhooks import router as webhooks_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
+from app.core.logging import RequestCorrelationMiddleware, configure_logging
 from app.core.request_limits import AdminBusinessPayloadLimitMiddleware
 from app.services.rate_limiter import close_redis_client, get_redis_client
+
+configure_logging()
 
 
 @asynccontextmanager
@@ -28,8 +31,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.app_env.lower() != "production" or settings.debug else None,
+    redoc_url="/redoc" if settings.app_env.lower() != "production" or settings.debug else None,
+    openapi_url="/openapi.json" if settings.app_env.lower() != "production" or settings.debug else None,
     lifespan=lifespan,
 )
 register_error_handlers(app)
@@ -42,6 +46,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Admin-Request"],
     max_age=600,
 )
+app.add_middleware(RequestCorrelationMiddleware)
 
 app.include_router(health_router)
 app.include_router(agent_sync_router)

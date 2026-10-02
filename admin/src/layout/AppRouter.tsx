@@ -27,9 +27,10 @@ function RouterState() {
     <button className="button button-primary" type="button" onClick={() => { void session.logout(); }}>Повторить выход</button>
   </div></main>;
   if (view.status === 'signing_out') return <LoadingPage label="Выполняем выход…" />;
-  if (view.status === 'authenticating') return <Routes><Route path="/login" element={<LoginPage />} /><Route path="*" element={<LoadingPage />} /></Routes>;
+  if (view.status === 'authenticating') return <Routes><Route path="/login" element={<LoginPage />} /><Route path="/admin/login" element={<LoginPage />} /><Route path="*" element={<LoadingPage />} /></Routes>;
   return <Routes>
     <Route path="/login" element={view.status === 'authenticated' ? <Navigate to="/" replace /> : <LoginPage />} />
+    <Route path="/admin/login" element={view.status === 'authenticated' ? <Navigate to="/" replace /> : <LoginPage />} />
     <Route element={<ProtectedLayout />}>
       <Route index element={<DashboardPage />} />
       <Route path="businesses" element={<RequireSuperadmin><BusinessesPage /></RequireSuperadmin>} />
@@ -40,6 +41,15 @@ function RouterState() {
       <Route path="cards/:cardId" element={<CardDetailPage />} />
       <Route path="users/:userId" element={<UserDetailPage />} />
       <Route path="audit" element={<AuditPage />} />
+      <Route path="admin" element={<DashboardPage />} />
+      <Route path="admin/businesses" element={<RequireSuperadmin><BusinessesPage /></RequireSuperadmin>} />
+      <Route path="admin/businesses/:businessId" element={<RequireSuperadmin><BusinessDetailPage /></RequireSuperadmin>} />
+      <Route path="admin/agents" element={<AgentsPage />} />
+      <Route path="admin/agents/:agentId" element={<AgentDetailPage />} />
+      <Route path="admin/operations" element={<OperationsPage />} />
+      <Route path="admin/cards/:cardId" element={<CardDetailPage />} />
+      <Route path="admin/users/:userId" element={<UserDetailPage />} />
+      <Route path="admin/audit" element={<AuditPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>
   </Routes>;
