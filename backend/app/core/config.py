@@ -56,6 +56,18 @@ class Settings(BaseSettings):
         description="Maximum allowed body size for Wappi webhook requests (default 64KB).",
     )
 
+    # Admin browser authentication and operational console.
+    admin_jwt_signing_key: str = Field(default="", description="Independent admin JWT signing key (minimum 32 characters).")
+    admin_access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    admin_refresh_token_ttl_seconds: int = Field(default=28800, ge=900, le=28800)
+    admin_allowed_origins: list[str] = Field(default_factory=list)
+    admin_login_limit: int = Field(default=5, ge=1, le=50)
+    admin_login_ip_limit: int = Field(default=20, ge=1, le=200)
+    admin_login_rate_window_seconds: int = Field(default=300, ge=30, le=3600)
+    admin_agent_stale_seconds: int = Field(default=900, ge=60, le=86400)
+    admin_max_stats_period_days: int = Field(default=90, ge=1, le=365)
+    admin_allow_insecure_http: bool = False
+
     # SMS OTP Fallback Configuration (TASK-007)
     sms_otp_hash_key: str = Field(
         default="",
@@ -126,6 +138,10 @@ class Settings(BaseSettings):
                 self.wappi_webhook_auth_header = "X-Test-Wappi-Auth"
             if not self.wappi_webhook_auth_secret:
                 self.wappi_webhook_auth_secret = "test_wappi_webhook_secret_min_32_characters_12345"
+            if not self.admin_jwt_signing_key:
+                self.admin_jwt_signing_key = "test_only_admin_signing_key_distinct_678901234567"
+            if not self.admin_allowed_origins:
+                self.admin_allowed_origins = ["https://admin.test"]
         else:
             if not self.redis_url or not self.redis_url.strip():
                 raise ValueError("REDIS_URL must be explicitly provided in environment or .env")
@@ -149,6 +165,52 @@ class Settings(BaseSettings):
                     "Only 'disabled' is currently supported."
                 )
 
+            if not self.admin_jwt_signing_key or len(self.admin_jwt_signing_key.strip()) < 32:
+                raise ValueError("ADMIN_JWT_SIGNING_KEY must be provided and at least 32 characters long")
+            if self.admin_jwt_signing_key == self.jwt_signing_key:
+                raise ValueError("ADMIN_JWT_SIGNING_KEY must be different from JWT_SIGNING_KEY")
+            if not self.admin_allowed_origins:
+                raise ValueError("ADMIN_ALLOWED_ORIGINS must explicitly list trusted browser origins")
+
+        # CORS and cookie origins are exact HTTP(S) origins, never wildcard URLs.
+        from urllib.parse import urlsplit
+
+        normalized_origins: list[str] = []
+        for raw_origin in self.admin_allowed_origins:
+            origin = raw_origin.strip()
+            try:
+                parsed_origin = urlsplit(origin)
+                hostname = parsed_origin.hostname
+                port = parsed_origin.port
+            except ValueError as err:
+                raise ValueError("ADMIN_ALLOWED_ORIGINS contains an invalid origin") from err
+            if (
+                not hostname
+                or parsed_origin.username
+                or parsed_origin.password
+                or parsed_origin.path
+                or parsed_origin.query
+                or parsed_origin.fragment
+                or parsed_origin.scheme not in {"https", "http"}
+            ):
+                raise ValueError("ADMIN_ALLOWED_ORIGINS must contain exact HTTP(S) origins, never wildcard URLs")
+            if parsed_origin.scheme == "http" and (
+                self.app_env.lower() not in {"test", "development"}
+                or not self.admin_allow_insecure_http
+            ):
+                raise ValueError("HTTP admin origins require explicit development opt-in")
+            default_port = (parsed_origin.scheme == "https" and port == 443) or (
+                parsed_origin.scheme == "http" and port == 80
+            )
+            host = hostname.lower()
+            authority = host if port is None or default_port else f"{host}:{port}"
+            if ":" in host and not host.startswith("["):
+                authority = f"[{host}]" if port is None or default_port else f"[{host}]:{port}"
+            normalized_origins.append(f"{parsed_origin.scheme}://{authority}")
+        if len(set(normalized_origins)) != len(normalized_origins):
+            raise ValueError("ADMIN_ALLOWED_ORIGINS must not contain duplicate origins")
+        self.admin_allowed_origins = normalized_origins
+
         # Validate WHATSAPP_LOGIN_NUMBER format (E.164)
         if not self.whatsapp_login_number or not self.whatsapp_login_number.strip():
             raise ValueError("WHATSAPP_LOGIN_NUMBER must be provided in environment or .env")
@@ -168,4 +230,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

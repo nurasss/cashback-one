@@ -39,6 +39,8 @@ def test_config_dev_with_postgres_url_allowed() -> None:
         database_url="postgresql+asyncpg://loyalty:secret@localhost:5432/poscenter",
         redis_url="redis://localhost:6379/0",
         jwt_signing_key="a" * 32,
+        admin_jwt_signing_key="z" * 32,
+        admin_allowed_origins=["https://admin.test"],
         auth_challenge_hash_key="b" * 32,
         whatsapp_login_number="+77001234567",
         sms_otp_hash_key="d" * 32,
@@ -362,6 +364,5 @@ def test_config_unknown_provider_mode_rejected() -> None:
             _env_file=None,
         )
     assert "Invalid SMS_PROVIDER_MODE 'unknown_vendor'" in str(exc_info.value)
-
 
 

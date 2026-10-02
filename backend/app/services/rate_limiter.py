@@ -1,6 +1,5 @@
 import time
-from collections.abc import Awaitable
-from typing import Any, Protocol, cast
+from typing import Protocol
 
 import redis.asyncio as aioredis
 from fastapi import Request
@@ -61,13 +60,12 @@ class RedisRateLimiter:
     async def is_rate_limited(self, key: str, limit: int, window_seconds: int) -> bool:
         redis_key = f"rate_limit:{key}"
         try:
-            eval_res = self.client.eval(
+            current_count = await self.client.eval(
                 RATE_LIMIT_LUA_SCRIPT,
                 1,
                 redis_key,
                 str(window_seconds),
             )
-            current_count = await cast(Awaitable[Any], eval_res)
             return int(current_count) > limit
         except (aioredis.RedisError, OSError) as exc:
             raise AppError(
@@ -88,7 +86,7 @@ def get_redis_client() -> aioredis.Redis:
     """Resolve or instantiate shared Redis client."""
     global _shared_redis_client
     if _shared_redis_client is None:
-        _shared_redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)  # type: ignore[no-untyped-call]
+        _shared_redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
     return _shared_redis_client
 
 
@@ -109,6 +107,5 @@ def get_rate_limiter(request: Request) -> RateLimiter:
         return RedisRateLimiter(request.app.state.redis)
 
     return RedisRateLimiter(get_redis_client())
-
 
 
