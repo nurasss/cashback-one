@@ -39,7 +39,7 @@ function RouterState() {
       <Route path="operations" element={<OperationsPage />} />
       <Route path="cards/:cardId" element={<CardDetailPage />} />
       <Route path="users/:userId" element={<UserDetailPage />} />
-      <Route path="audit" element={<RequireSuperadmin><AuditPage /></RequireSuperadmin>} />
+      <Route path="audit" element={<AuditPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>
   </Routes>;

@@ -15,6 +15,9 @@ export interface Agent {
   id: string; business_id: string; business_name: string; status: string; health: AgentHealth;
   last_seen_at: string | null; version: string | null; last_sync_at: string | null; last_error: string | null; created_at: string;
 }
+export interface AgentKeyDisclosure { agent: Agent; api_key: string }
+export interface AgentCommand { command_id: string; status: 'pending' | 'running' | 'completed' | 'failed'; execution: 'deferred' }
+export interface CardUnbindResult { status: 'unbound' | 'already_unbound' }
 export interface Dashboard {
   business_id: string | null; business_name: string | null; period_from: string; period_to: string; period_days: number;
   customers_with_business_cards: number; cards: number; unblocked_cards: number; transactions: number;
@@ -29,6 +32,10 @@ export interface AdminUser {
   id: string; phone_masked: string | null; language: string; created_at: string; business_cards_count: number;
 }
 export interface AdminUserDetail { id: string; phone: string | null; language: string; created_at: string; cards: Page<Card> }
-export interface AuditItem { id: string; actor: string; action: string; entity: string; created_at: string }
+export interface AuditItem {
+  id: string; actor: string; admin_user_id: string | null; business_id: string | null;
+  action: string; entity: string; before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null; created_at: string;
+}
 export interface AdminAccessToken { access_token: string; token_type: 'bearer'; expires_in: number }
 export interface PageQuery { limit: number; offset: number }

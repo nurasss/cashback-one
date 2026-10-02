@@ -7,7 +7,7 @@ export const adminNavigation: readonly NavItem[] = [
   { path: '/businesses', label: 'Бизнесы', icon: '◫', roles: ['superadmin'] },
   { path: '/agents', label: 'Агенты', icon: '⌁', roles: ['superadmin', 'business_manager'] },
   { path: '/operations', label: 'Карты и клиенты', icon: '▤', roles: ['superadmin', 'business_manager'] },
-  { path: '/audit', label: 'Журнал событий', icon: '≋', roles: ['superadmin'] },
+  { path: '/audit', label: 'Журнал событий', icon: '≋', roles: ['superadmin', 'business_manager'] },
 ];
 
 export function Navigation({ role }: { role: AdminRole }) {

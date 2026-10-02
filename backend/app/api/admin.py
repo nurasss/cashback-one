@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,13 +11,22 @@ from app.models.admin import AdminUser
 from app.schemas.admin import (
     AdminIdentity,
     AdminMeResponse,
+    AgentCommandResponse,
+    AgentCommandStatus,
+    AgentCreateRequest,
     AgentItem,
+    AgentKeyDisclosureResponse,
+    AgentRevokeResponse,
     AuditItem,
+    BusinessCreateRequest,
     BusinessDetail,
     BusinessListItem,
+    BusinessUpdateRequest,
     CardDetail,
     CardListItem,
     CardSearchRequest,
+    CardUnbindResponse,
+    CardUnbindStatus,
     DashboardResponse,
     Page,
     PaginationParams,
@@ -26,6 +35,15 @@ from app.schemas.admin import (
     UserSearchRequest,
 )
 from app.services.admin_auth import authenticate_admin
+from app.services.admin_mutations import (
+    create_agent,
+    create_business,
+    request_full_resync,
+    revoke_agent_access,
+    rotate_agent_api_key,
+    unbind_card,
+    update_business,
+)
 from app.services.admin_queries import (
     admin_identity,
     dashboard,
@@ -72,6 +90,18 @@ async def admin_businesses(
     return await list_businesses(db, page.limit, page.offset)
 
 
+@router.post("/businesses", response_model=BusinessDetail, status_code=201)
+async def admin_create_business(
+    body: BusinessCreateRequest,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> BusinessDetail:
+    scope.require_superadmin()
+    business = await create_business(db, admin, body)
+    return await get_business(db, business.id)
+
+
 @router.get("/businesses/{business_id}", response_model=BusinessDetail)
 async def admin_business_detail(
     business_id: uuid.UUID,
@@ -80,6 +110,19 @@ async def admin_business_detail(
 ) -> BusinessDetail:
     scope.require_superadmin()
     return await get_business(db, business_id)
+
+
+@router.patch("/businesses/{business_id}", response_model=BusinessDetail)
+async def admin_update_business(
+    business_id: uuid.UUID,
+    body: BusinessUpdateRequest,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> BusinessDetail:
+    scope.require_superadmin()
+    business = await update_business(db, admin, business_id, body)
+    return await get_business(db, business.id)
 
 
 @router.get("/agents", response_model=Page[AgentItem])
@@ -92,6 +135,18 @@ async def admin_agents(
     return await list_agents(db, scope, business_id, page.limit, page.offset)
 
 
+@router.post("/agents", response_model=AgentKeyDisclosureResponse, status_code=201)
+async def admin_create_agent(
+    body: AgentCreateRequest,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> AgentKeyDisclosureResponse:
+    scope.require_superadmin()
+    agent, raw_key = await create_agent(db, admin, body.business_id)
+    return AgentKeyDisclosureResponse(agent=await get_agent(db, scope, agent.id), api_key=raw_key)
+
+
 @router.get("/agents/{agent_id}", response_model=AgentItem)
 async def admin_agent_detail(
     agent_id: uuid.UUID,
@@ -99,6 +154,46 @@ async def admin_agent_detail(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> AgentItem:
     return await get_agent(db, scope, agent_id)
+
+
+@router.post("/agents/{agent_id}/rotate-key", response_model=AgentKeyDisclosureResponse)
+async def admin_rotate_agent_key(
+    agent_id: uuid.UUID,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> AgentKeyDisclosureResponse:
+    scope.require_superadmin()
+    agent, raw_key = await rotate_agent_api_key(db, admin, agent_id)
+    return AgentKeyDisclosureResponse(agent=await get_agent(db, scope, agent.id), api_key=raw_key)
+
+
+@router.post("/agents/{agent_id}/revoke", response_model=AgentRevokeResponse)
+async def admin_revoke_agent(
+    agent_id: uuid.UUID,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> AgentRevokeResponse:
+    scope.require_superadmin()
+    agent, _changed = await revoke_agent_access(db, admin, agent_id)
+    return AgentRevokeResponse(agent=await get_agent(db, scope, agent.id))
+
+
+@router.post(
+    "/agents/{agent_id}/full-resync", response_model=AgentCommandResponse, status_code=202
+)
+async def admin_request_full_resync(
+    agent_id: uuid.UUID,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> AgentCommandResponse:
+    scope.require_superadmin()
+    command, _created = await request_full_resync(db, admin, agent_id)
+    return AgentCommandResponse(
+        command_id=command.id, status=cast(AgentCommandStatus, command.status)
+    )
 
 
 @router.post("/cards/search", response_model=Page[CardListItem])
@@ -120,6 +215,17 @@ async def admin_card_detail(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> CardDetail:
     return await get_card_detail(db, scope, card_id)
+
+
+@router.post("/cards/{card_id}/unbind", response_model=CardUnbindResponse)
+async def admin_unbind_card(
+    card_id: uuid.UUID,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> CardUnbindResponse:
+    result = await unbind_card(db, admin, scope, card_id)
+    return CardUnbindResponse(status=cast(CardUnbindStatus, result))
 
 
 @router.post("/users/search", response_model=Page[UserListItem])
@@ -149,6 +255,4 @@ async def admin_audit(
     db: Annotated[AsyncSession, Depends(get_session)],
     page: Annotated[PaginationParams, Depends()],
 ) -> Page[AuditItem]:
-    # AuditLog has no tenant key; never expose it to a business manager.
-    scope.require_superadmin()
-    return await list_audit_logs(db, page.limit, page.offset)
+    return await list_audit_logs(db, scope, page.limit, page.offset)

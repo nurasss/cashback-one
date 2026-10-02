@@ -1,14 +1,154 @@
+import json
 import re
 import uuid
 from datetime import datetime
 from typing import Generic, Literal, TypeVar
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.admin_types import AdminRole
 
 T = TypeVar("T")
+BusinessStatus = Literal["active", "inactive"]
 
+
+def _normalize_business_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("name must not be empty")
+    return normalized
+
+
+def _validate_logo_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if len(normalized) > 1024:
+        raise ValueError("logo_url is too long")
+    try:
+        parsed = urlsplit(normalized)
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError:
+        raise ValueError("logo_url must be a valid HTTPS URL") from None
+    if (
+        parsed.scheme.lower() != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or any(ord(character) < 32 for character in normalized)
+    ):
+        raise ValueError("logo_url must be a valid HTTPS URL without embedded credentials")
+    return normalized
+
+
+def _validate_colors(value: dict[str, object] | None) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if len(value) > 64:
+        raise ValueError("colors may contain at most 64 entries")
+
+    def check(item: object, depth: int = 0) -> None:
+        if depth > 5:
+            raise ValueError("colors JSON nesting is too deep")
+        if isinstance(item, dict):
+            if len(item) > 64 or any(not isinstance(key, str) or len(key) > 64 for key in item):
+                raise ValueError("colors JSON object is too large")
+            for child in item.values():
+                check(child, depth + 1)
+        elif isinstance(item, list):
+            if len(item) > 64:
+                raise ValueError("colors JSON array is too large")
+            for child in item:
+                check(child, depth + 1)
+        elif item is not None and not isinstance(item, (str, int, float, bool)):
+            raise ValueError("colors must contain only JSON values")
+
+    check(value)
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        raise ValueError("colors must be valid JSON") from None
+    if len(encoded.encode("utf-8")) > 8192:
+        raise ValueError("colors JSON exceeds 8 KiB")
+    return value
+
+
+def _validate_barcode_prefixes(value: list[str] | None) -> list[str] | None:
+    if value is None:
+        return None
+    if len(value) > 64:
+        raise ValueError("barcode_prefixes may contain at most 64 entries")
+    if any(not prefix or prefix != prefix.strip() or len(prefix) > 32 for prefix in value):
+        raise ValueError("barcode prefixes must be non-empty strings up to 32 characters")
+    return value
+
+
+class BusinessCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    logo_url: str | None = Field(default=None, max_length=1024)
+    colors: dict[str, object] | None = None
+    barcode_prefixes: list[str] | None = Field(default=None, max_length=64)
+    status: BusinessStatus = "active"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _normalize_business_name(value) or ""
+
+    _logo = field_validator("logo_url")(_validate_logo_url)
+    _colors = field_validator("colors")(_validate_colors)
+    _prefixes = field_validator("barcode_prefixes")(_validate_barcode_prefixes)
+
+    @model_validator(mode="after")
+    def enforce_payload_bound(self) -> "BusinessCreateRequest":
+        encoded = json.dumps(self.model_dump(), ensure_ascii=False, default=str, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > 16_384:
+            raise ValueError("business payload exceeds 16 KiB")
+        return self
+
+
+class BusinessUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, max_length=255)
+    logo_url: str | None = Field(default=None, max_length=1024)
+    colors: dict[str, object] | None = None
+    barcode_prefixes: list[str] | None = Field(default=None, max_length=64)
+    status: BusinessStatus | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        return _normalize_business_name(value)
+
+    _logo = field_validator("logo_url")(_validate_logo_url)
+    _colors = field_validator("colors")(_validate_colors)
+    _prefixes = field_validator("barcode_prefixes")(_validate_barcode_prefixes)
+
+    @model_validator(mode="after")
+    def require_fields_and_non_null_required_values(self) -> "BusinessUpdateRequest":
+        if not self.model_fields_set:
+            raise ValueError("Provide at least one business field to update")
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be null")
+        if "status" in self.model_fields_set and self.status is None:
+            raise ValueError("status cannot be null")
+        return self
+
+    @model_validator(mode="after")
+    def enforce_payload_bound(self) -> "BusinessUpdateRequest":
+        encoded = json.dumps(
+            self.model_dump(exclude_unset=True), ensure_ascii=False, default=str, separators=(",", ":")
+        )
+        if len(encoded.encode("utf-8")) > 16_384:
+            raise ValueError("business update exceeds 16 KiB")
+        return self
 
 class AdminLoginRequest(BaseModel):
     login: str = Field(min_length=1, max_length=128)
@@ -78,6 +218,8 @@ class BusinessDetail(BusinessListItem):
 
 
 AgentHealth = Literal["online", "stale", "never_connected", "error", "disabled"]
+AgentCommandStatus = Literal["pending", "running", "completed", "failed"]
+CardUnbindStatus = Literal["unbound", "already_unbound"]
 
 
 class AgentItem(BaseModel):
@@ -93,8 +235,30 @@ class AgentItem(BaseModel):
     created_at: datetime
 
 
+class AgentCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    business_id: uuid.UUID
+
+
 class AgentDetail(AgentItem):
     pass
+
+
+class AgentKeyDisclosureResponse(BaseModel):
+    agent: AgentItem
+    api_key: str
+
+
+class AgentRevokeResponse(BaseModel):
+    agent: AgentItem
+    status: Literal["revoked"] = "revoked"
+
+
+class AgentCommandResponse(BaseModel):
+    command_id: uuid.UUID
+    status: AgentCommandStatus
+    execution: Literal["deferred"] = "deferred"
 
 
 class AgentHealthCounts(BaseModel):
@@ -211,6 +375,14 @@ class UserDetail(BaseModel):
 class AuditItem(BaseModel):
     id: uuid.UUID
     actor: str
+    admin_user_id: uuid.UUID | None
+    business_id: uuid.UUID | None
     action: str
     entity: str
+    before_state: dict[str, object] | None
+    after_state: dict[str, object] | None
     created_at: datetime
+
+
+class CardUnbindResponse(BaseModel):
+    status: CardUnbindStatus

@@ -307,10 +307,11 @@ async def test_superadmin_scope_and_audit_view_is_superadmin_only(
     manager_businesses = await admin_client.get("/admin/businesses", headers=manager_headers)
     assert manager_businesses.status_code == 403
     manager_audit = await admin_client.get("/admin/audit", headers=manager_headers)
-    assert manager_audit.status_code == 403
+    assert manager_audit.status_code == 200
+    assert manager_audit.json()["items"] == []
     root_audit = await admin_client.get("/admin/audit", headers=root_headers)
     assert root_audit.status_code == 200
-    assert "before_state" not in root_audit.json()["items"][0]
+    assert root_audit.json()["items"][0]["before_state"] is None
 
 
 @pytest.mark.asyncio

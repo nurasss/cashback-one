@@ -17,17 +17,26 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('role-aware admin navigation', () => {
-  it('only renders the superadmin business and audit routes for superadmins', () => {
+  it('renders tenant Audit for managers while keeping Businesses superadmin-only', () => {
     const view = render(<MemoryRouter><Navigation role="superadmin" /></MemoryRouter>);
     expect(view.getByRole('link', { name: /Бизнесы/ })).toBeInTheDocument();
     expect(view.getByRole('link', { name: /Журнал событий/ })).toBeInTheDocument();
     view.unmount();
+    view.unmount();
     const manager = render(<MemoryRouter><Navigation role="business_manager" /></MemoryRouter>);
     expect(manager.queryByRole('link', { name: /Бизнесы/ })).not.toBeInTheDocument();
-    expect(manager.queryByRole('link', { name: /Журнал событий/ })).not.toBeInTheDocument();
+    expect(manager.getByRole('link', { name: /Журнал событий/ })).toBeInTheDocument();
     expect(manager.getByRole('link', { name: /Агенты/ })).toBeInTheDocument();
     expect(manager.getByRole('link', { name: /Карты и клиенты/ })).toBeInTheDocument();
   });
+});
+
+it('keeps one-time agent-key disclosure out of persistent browser and query storage', async () => {
+  const fs = await import('node:fs');
+  const source = fs.readFileSync(`${process.cwd()}/src/features/AdminMutations.tsx`, 'utf8');
+  expect(source).not.toMatch(/\b(?:localStorage|sessionStorage|indexedDB)\b/i);
+  expect(source).not.toMatch(/useMutation|setQueryData|persistQueryClient/);
+  expect(source).toContain("session.api.request<AgentKeyDisclosure>('/admin/agents'");
 });
 
 it('keeps the SPA in a bootstrap state before revealing the sign-in form', async () => {

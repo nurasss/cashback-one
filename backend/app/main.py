@@ -13,6 +13,7 @@ from app.api.health import router as health_router
 from app.api.webhooks import router as webhooks_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
+from app.core.request_limits import AdminBusinessPayloadLimitMiddleware
 from app.services.rate_limiter import close_redis_client, get_redis_client
 
 
@@ -32,11 +33,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 register_error_handlers(app)
+app.add_middleware(AdminBusinessPayloadLimitMiddleware, max_bytes=16_384)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.admin_allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "X-Admin-Request"],
     max_age=600,
 )

@@ -1,4 +1,4 @@
-from app.models.admin import AdminSession, AdminUser
+from app.models.admin import AdminSession, AdminUser, AgentCommand
 from app.models.entities import (
     Agent,
     AuditLog,
@@ -18,6 +18,7 @@ __all__ = [
     "AdminSession",
     "AdminUser",
     "Agent",
+    "AgentCommand",
     "AuditLog",
     "Business",
     "Card",

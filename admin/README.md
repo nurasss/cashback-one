@@ -54,10 +54,10 @@ The SPA has no server rendering. `npm run build` runs TypeScript then Vite. Audi
 - Access JWTs live only in a JavaScript-memory session object. The refresh token is never returned in JSON or read by JavaScript; FastAPI places it in an HttpOnly, SameSite=Lax cookie scoped to `/admin`. The cookie is Secure except for explicitly enabled local/LAN development HTTP.
 - Every `/admin/*` request requires an exact allowlisted `Origin` and the `X-Admin-Request: 1` custom header. CORS credentials are enabled only for configured exact origins. TLS termination must pass the trusted external scheme to the ASGI server; see deployment settings for the trusted reverse-proxy boundary.
 - Admin JWTs use the separate issuer, audience, `typ=admin_access` and signing secret. `/me/*` customer tokens do not satisfy the Admin dependency; Admin tokens do not satisfy customer authentication.
-- Managers derive scope from their authenticated AdminUser. Manager queries add a `business_id = authenticated_admin.business_id` predicate in SQL. A manager cannot enumerate businesses or read the global AuditLog.
+- Managers derive scope from their authenticated AdminUser. Manager queries add a `business_id = authenticated_admin.business_id` predicate in SQL. A manager cannot enumerate businesses or mutate businesses/agents. The audit view includes only structurally scoped rows for the manager's own business; legacy rows without a business key remain superadmin-only.
 - Search submissions put phone/barcode criteria in POST bodies, never URLs. Card barcode comparisons preserve their exact 13-digit string, including leading zeroes. Phone lookup uses the existing backend `normalize_phone` function.
 - Tables use bounded pages (1–100 rows) and deterministic timestamp/ID ordering. Agent health uses the server's configured stale threshold; the dashboard says “unblocked cards” and counts only `is_blocked = false`.
-- Existing `AuditLog` has no business key. Its detail JSON is not displayed; only superadmins can read the global index. Tenant-safe manager audit is deferred until the data has a structural tenant reference.
+- Legacy `AuditLog` rows still have no business key and remain superadmin-only; Admin-created events are structurally tenant-scoped and safely display sanitized before/after state.
 
 ## Deployment response headers
 
@@ -76,7 +76,8 @@ Only enable HSTS after all intended subdomains are HTTPS. A TLS reverse proxy mu
 ## Known limits and future work
 
 - “Active card” has no confirmed business definition in the existing schema. Dashboard labels the measurable field `is_blocked = false` as “unblocked”, not “active”.
-- The current AuditLog cannot safely scope records to a manager's business; managers are denied the Audit route.
-- No write actions, Agent raw keys, activation flow, billing, forced resync, full-name card search, or audit JSON detail are exposed.
+- Legacy `AuditLog` entries without `business_id` remain visible only to superadmins. Newly written Admin events carry structural tenant/admin foreign keys and sanitized before/after state.
+- A full-resync request is persisted as pending, but Agent polling/execution remains deferred because no compatible command protocol exists yet.
+- Business deletion, arbitrary Admin rebind, customer deletion, billing, activation flows, and full-name card search are not exposed. Agent API keys are disclosed only in the successful create/rotate response.
 - Local/unit tests may use fixture records; production code always reads the real backend and has no fixture fallback.
 - Existing backend `SMS_PROVIDER_MODE` is not changed by this Admin task.

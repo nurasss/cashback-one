@@ -8,10 +8,10 @@ it('only renders scoped links for a business manager', () => {
   expect(screen.getByRole('link', { name: /Агенты/ })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /Карты и клиенты/ })).toBeInTheDocument();
   expect(screen.queryByRole('link', { name: /Бизнесы/ })).not.toBeInTheDocument();
-  expect(screen.queryByRole('link', { name: /Журнал событий/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /Журнал событий/ })).toBeInTheDocument();
 });
 
-it('shows Business and Audit navigation only for superadmin', () => {
+it('shows Business navigation only for superadmin and offers tenant audit to managers', () => {
   render(<MemoryRouter><Navigation role="superadmin" /></MemoryRouter>);
   expect(screen.getByRole('link', { name: /Бизнесы/ })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: /Журнал событий/ })).toBeInTheDocument();

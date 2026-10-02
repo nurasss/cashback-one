@@ -1,8 +1,10 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { messageForError } from '../api/errors';
 import { useAdminSession } from '../auth/provider';
-import { useBusinesses, useCard, useCardSearch, useUser, useUserSearch } from '../api/queries';
-import type { AdminUser, Card, PageQuery } from '../api/types';
+import { privateKey, useBusinesses, useCard, useCardSearch, useUser, useUserSearch } from '../api/queries';
+import type { AdminUser, Card, CardUnbindResult, PageQuery } from '../api/types';
 import { DataTable } from '../components/DataTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { formatBalance, formatDate } from '../utils/format';
@@ -69,7 +71,7 @@ function CardResults({ page, setPage, rows, hasMore }: { page: PageQuery; setPag
     { key: 'barcode', title: 'КАРТА', render: row => <Link className="table-name mono-value" to={`/cards/${encodeURIComponent(row.id)}`}>{row.barcode}<span>{row.business_name}</span></Link> },
     { key: 'balance', title: 'БАЛАНС', render: row => <span className="numeric-value">{formatBalance(row.balance)}</span>, align: 'right' },
     { key: 'status', title: 'СТАТУС', render: row => <StatusPill tone={row.is_blocked ? 'negative' : 'positive'}>{row.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</StatusPill> },
-    { key: 'owner', title: 'КЛИЕНТ', render: row => row.phone_masked ? <span>{row.phone_masked}</span> : <span className="muted-copy">Не привязана</span> },
+    { key: 'owner', title: 'КЛИЕНТ', render: row => row.bind_method && row.phone_masked ? <span>{row.phone_masked}</span> : <span className="muted-copy">Не привязана</span> },
     { key: 'updated', title: 'ОБНОВЛЕНА', render: row => <time dateTime={row.updated_at}>{formatDate(row.updated_at)}</time> },
   ]} />;
 }
@@ -83,12 +85,43 @@ function UserResults({ page, setPage, rows, hasMore }: { page: PageQuery; setPag
 }
 
 export function CardDetailPage() {
+  const { view, session } = useAdminSession();
+  const queryClient = useQueryClient();
   const { cardId = '' } = useParams<{ cardId: string }>();
   const query = useCard(cardId);
+  const [unbindBusy, setUnbindBusy] = useState(false);
+  const [unbindError, setUnbindError] = useState('');
+  const [unbindResult, setUnbindResult] = useState<CardUnbindResult['status'] | null>(null);
   if (query.isPending) return <LoadingPage label="Загружаем карту…" />;
   if (query.isError || !query.data) return <div className="page-stack"><ErrorNotice error={query.error} retry={() => { void query.refetch(); }} /></div>;
   const card = query.data;
-  return <div className="page-stack"><PageHeading eyebrow="КАРТЫ / ПРОФИЛЬ" title={card.business_name} subtitle="Карта и привязка отображаются только для доступных вам бизнесов." actions={<Link className="button button-secondary" to="/operations">К результатам поиска</Link>} />
+  const canUnbind = view.status === 'authenticated' && (view.admin.role === 'superadmin' || view.admin.role === 'business_manager');
+  const submitUnbind = async () => {
+    const maskedCustomer = card.phone_masked ?? 'клиент не указан';
+    const warning = `Отвязать карту?\n\nБизнес: ${card.business_name}\nКлиент: ${maskedCustomer}\nШтрихкод: ${card.barcode}\n\nБудет удалена только связь с клиентом. Карта и баланс сохранятся.`;
+    if (!window.confirm(warning)) return;
+    setUnbindBusy(true); setUnbindError(''); setUnbindResult(null);
+    try {
+      const result = await session.api.request<CardUnbindResult>(`/admin/cards/${encodeURIComponent(card.id)}/unbind`, { method: 'POST', body: {} });
+      setUnbindResult(result.status);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'card', card.id] }),
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'user'] }),
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'card-search'] }),
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'user-search'] }),
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'business', card.business_id] }),
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'dashboard'] }),
+      ]);
+    } catch (error) {
+      setUnbindError(messageForError(error));
+    } finally { setUnbindBusy(false); }
+  };
+  return <div className="page-stack"><PageHeading eyebrow="КАРТЫ / ПРОФИЛЬ" title={card.business_name} subtitle="Карта и привязка отображаются только для доступных вам бизнесов." actions={<>
+      {canUnbind && <button className="button button-danger" type="button" disabled={unbindBusy || !card.bind_method} onClick={() => { void submitUnbind(); }}>{unbindBusy ? 'Отвязываем…' : 'Отвязать карту'}</button>}
+      <Link className="button button-secondary" to="/operations">К результатам поиска</Link>
+    </>} />
+    {unbindError && <p className="form-error" role="alert">{unbindError}</p>}
+    {unbindResult && <p className="success-copy" role="status">{unbindResult === 'unbound' ? 'Привязка удалена. Карта и баланс сохранены.' : 'Карта уже была отвязана.'}</p>}
     <section className="surface-card"><dl className="detail-list">
       <Detail label="Номер карты"><span className="mono-value">{card.barcode}</span></Detail><Detail label="Баланс"><strong className="numeric-value">{formatBalance(card.balance)}</strong></Detail>
       <Detail label="Статус"><StatusPill tone={card.is_blocked ? 'negative' : 'positive'}>{card.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</StatusPill></Detail>

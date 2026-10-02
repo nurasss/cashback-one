@@ -28,6 +28,7 @@ from app.schemas.admin import (
     UserListItem,
     UserSearchRequest,
 )
+from app.services.admin_mutations import sanitize_admin_audit_state
 from app.services.admin_security import mask_phone, sanitize_agent_error
 
 T = TypeVar("T")
@@ -435,10 +436,16 @@ async def get_user_detail(
     )
 
 
-async def list_audit_logs(db: AsyncSession, limit: int, offset: int) -> Page[AuditItem]:
+async def list_audit_logs(
+    db: AsyncSession, scope: AdminScope, limit: int, offset: int
+) -> Page[AuditItem]:
+    statement = select(AuditLog)
+    if scope.role == "business_manager":
+        # Legacy audit entries have no business_id and are intentionally invisible to managers.
+        statement = statement.where(AuditLog.business_id == scope.business_id)
     rows = (
         await db.scalars(
-            select(AuditLog)
+            statement
             .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
             .limit(limit + 1)
             .offset(offset)
@@ -451,8 +458,12 @@ async def list_audit_logs(db: AsyncSession, limit: int, offset: int) -> Page[Aud
         lambda row: AuditItem(
             id=row.id,
             actor=row.actor,
+            admin_user_id=row.admin_user_id,
+            business_id=row.business_id,
             action=row.action,
             entity=row.entity,
+            before_state=sanitize_admin_audit_state(row.before_state),
+            after_state=sanitize_admin_audit_state(row.after_state),
             created_at=as_utc(row.created_at),
         ),
     )

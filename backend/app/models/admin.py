@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, Uuid
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.time import utcnow
@@ -58,3 +67,55 @@ class AdminSession(Base, UUIDPrimaryKey):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentCommand(Base, UUIDPrimaryKey):
+    """Durable Admin request for work an Agent may execute in a later protocol."""
+
+    __tablename__ = "agent_commands"
+    __table_args__ = (
+        CheckConstraint(
+            "command_type IN ('full_resync')", name="ck_agent_commands_command_type"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed')",
+            name="ck_agent_commands_status",
+        ),
+        Index(
+            "uq_agent_commands_active_full_resync_per_agent",
+            "agent_id",
+            unique=True,
+            postgresql_where=text(
+                "command_type = 'full_resync' AND status IN ('pending', 'running')"
+            ),
+            sqlite_where=text(
+                "command_type = 'full_resync' AND status IN ('pending', 'running')"
+            ),
+        ),
+        Index("ix_agent_commands_agent_created_at", "agent_id", "created_at"),
+        Index("ix_agent_commands_business_created_at", "business_id", "created_at"),
+    )
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("agents.id", name="fk_agent_commands_agent_id_agents", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("businesses.id", name="fk_agent_commands_business_id_businesses", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_by_admin_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("admin_users.id", name="fk_agent_commands_admin_id_admin_users", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    command_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", server_default="pending", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(512), nullable=True)
