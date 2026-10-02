@@ -462,8 +462,18 @@ async def list_audit_logs(
             business_id=row.business_id,
             action=row.action,
             entity=row.entity,
-            before_state=safe_audit_snapshot(row.action, row.before_state),
-            after_state=safe_audit_snapshot(row.action, row.after_state),
+            before_state=safe_audit_snapshot(
+                row.action,
+                row.before_state,
+                admin_user_id=row.admin_user_id,
+                business_id=row.business_id,
+            ),
+            after_state=safe_audit_snapshot(
+                row.action,
+                row.after_state,
+                admin_user_id=row.admin_user_id,
+                business_id=row.business_id,
+            ),
             created_at=as_utc(row.created_at),
         ),
     )

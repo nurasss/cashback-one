@@ -35,53 +35,21 @@ _SECRET_VALUE = re.compile(
     re.IGNORECASE,
 )
 
-_ALLOWED_AUDIT_ACTION_FIELDS: dict[str, set[str]] = {
-    "business_created": {
-        "id",
-        "name",
-        "status",
-        "logo_url",
-        "colors",
-        "barcode_prefixes",
-        "colors_changed",
-    },
-    "business_updated": {
-        "id",
-        "name",
-        "status",
-        "logo_url",
-        "colors",
-        "barcode_prefixes",
-        "colors_changed",
-    },
-    "agent_created": {
-        "agent_id",
-        "business_id",
-        "status",
-    },
-    "agent_key_rotated": {
-        "agent_id",
-        "business_id",
-        "key_rotated",
-        "rotated_at",
-    },
-    "agent_revoked": {
-        "agent_id",
-        "business_id",
-        "status",
-    },
-    "agent_full_resync_requested": {
-        "command_id",
-        "agent_id",
-        "business_id",
-        "status",
-    },
-    "card_unbound": {
-        "card_id",
-        "business_id",
-        "user_id",
-        "unbound",
-    },
+_KNOWN_ADMIN_ACTIONS: set[str] = {
+    "business_created",
+    "business_updated",
+    "agent_created",
+    "agent_key_rotated",
+    "agent_revoked",
+    "agent_full_resync_requested",
+    "card_unbound",
+}
+
+_ALLOWED_COLOR_KEYS: set[str] = {
+    "primary",
+    "primary_color",
+    "accent",
+    "accent_color",
 }
 
 
@@ -127,42 +95,233 @@ def _safe_audit_value(value: Any, *, key: str = "") -> Any:
     return str(value)
 
 
-def safe_audit_snapshot(
-    action: str | None,
-    value: Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    """Fail-closed audit state sanitizer and safe projector.
-
-    Legacy and unknown events project to None to prevent accidental disclosure of
-    arbitrary or legacy secrets. Known Admin mutation actions project only explicitly
-    allowlisted safe attributes, with recursive secret redaction defense in depth.
-    """
-    if value is None or not isinstance(value, Mapping):
+def _clean_str(val: Any, *, max_length: int = 255) -> str | None:
+    if not isinstance(val, str):
         return None
-    if not action or action not in _ALLOWED_AUDIT_ACTION_FIELDS:
+    trimmed = val.strip()
+    if not trimmed or len(trimmed) > max_length:
+        return None
+    cleaned = _safe_audit_value(trimmed)
+    if not isinstance(cleaned, str):
+        return None
+    return cleaned
+
+
+def _clean_uuid_str(val: Any) -> str | None:
+    if isinstance(val, uuid.UUID):
+        return str(val)
+    if isinstance(val, str):
+        try:
+            return str(uuid.UUID(val))
+        except (ValueError, TypeError, AttributeError):
+            return None
+    return None
+
+
+def _clean_url(val: Any) -> str | None:
+    if val is None:
+        return None
+    if not isinstance(val, str):
+        return None
+    if len(val) > 1024:
+        return None
+    redacted = _redact_url_query(val)
+    if _CONTAINS_CREDENTIALS.search(redacted):
+        return "[REDACTED]"
+    return redacted
+
+
+def _clean_barcode_prefixes(val: Any) -> list[str] | None:
+    if val is None:
+        return None
+    if not isinstance(val, list):
+        return None
+    if len(val) > 64:
+        return None
+    cleaned_prefixes: list[str] = []
+    for item in val:
+        if not isinstance(item, str):
+            return None
+        trimmed = item.strip()
+        if not trimmed or len(trimmed) > 32:
+            return None
+        cleaned_prefixes.append(trimmed)
+    return cleaned_prefixes
+
+
+def _clean_colors(val: Any) -> dict[str, Any] | None:
+    if val is None:
+        return None
+    if not isinstance(val, dict):
         return None
 
-    allowed_keys = _ALLOWED_AUDIT_ACTION_FIELDS[action]
+    # Safe shape 1: Metadata shape written by _business_state:
+    # {"configured": bool, "keys": list[str]}
+    if "configured" in val and len(val) <= 2:
+        configured = val.get("configured")
+        raw_keys = val.get("keys")
+        if isinstance(configured, bool) and isinstance(raw_keys, list):
+            safe_keys = [
+                k.strip()
+                for k in raw_keys
+                if isinstance(k, str) and 0 < len(k.strip()) <= 64 and not _is_sensitive_audit_key(k)
+            ]
+            return {"configured": configured, "keys": sorted(safe_keys)}
+        return None
+
+    # Safe shape 2: Branding colors shape:
+    # Strictly allow only {"primary", "primary_color", "accent", "accent_color"}
+    # with values of str | None. Any unknown keys, nested objects, or non-string values are dropped.
+    projected_colors: dict[str, str | None] = {}
+    for k, v in val.items():
+        if not isinstance(k, str) or k not in _ALLOWED_COLOR_KEYS:
+            continue
+        if v is None:
+            projected_colors[k] = None
+        elif isinstance(v, str) and len(v) <= 128:
+            cleaned_v = _safe_audit_value(v, key=k)
+            if isinstance(cleaned_v, str):
+                projected_colors[k] = cleaned_v
+
+    if not projected_colors:
+        return None
+    return projected_colors
+
+
+def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str, Any] | None:
     projected: dict[str, Any] = {}
-    for k, v in value.items():
-        str_key = str(k)
-        if str_key in allowed_keys and not _is_sensitive_audit_key(str_key):
-            projected[str_key] = _safe_audit_value(v, key=str_key)
+
+    if action in ("business_created", "business_updated"):
+        for k, v in value.items():
+            if k in ("id", "business_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected[k] = cid
+            elif k == "name":
+                cname = _clean_str(v, max_length=255)
+                if cname:
+                    projected["name"] = cname
+            elif k == "status":
+                cstatus = _clean_str(v, max_length=32)
+                if cstatus:
+                    projected["status"] = cstatus
+            elif k == "logo_url":
+                projected["logo_url"] = _clean_url(v)
+            elif k == "colors":
+                projected["colors"] = _clean_colors(v)
+            elif k == "barcode_prefixes":
+                prefixes = _clean_barcode_prefixes(v)
+                if prefixes is not None:
+                    projected["barcode_prefixes"] = prefixes
+            elif k == "colors_changed":
+                if isinstance(v, bool):
+                    projected["colors_changed"] = v
+
+    elif action == "agent_created":
+        for k, v in value.items():
+            if k in ("agent_id", "business_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected[k] = cid
+            elif k == "status":
+                cstatus = _clean_str(v, max_length=32)
+                if cstatus:
+                    projected["status"] = cstatus
+
+    elif action == "agent_key_rotated":
+        for k, v in value.items():
+            if k in ("agent_id", "business_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected[k] = cid
+            elif k == "key_rotated":
+                if isinstance(v, bool):
+                    projected["key_rotated"] = v
+            elif k == "rotated_at":
+                crot = _clean_str(v, max_length=64)
+                if crot:
+                    projected["rotated_at"] = crot
+
+    elif action == "agent_revoked":
+        for k, v in value.items():
+            if k in ("agent_id", "business_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected[k] = cid
+            elif k == "status":
+                cstatus = _clean_str(v, max_length=32)
+                if cstatus:
+                    projected["status"] = cstatus
+
+    elif action == "agent_full_resync_requested":
+        for k, v in value.items():
+            if k in ("command_id", "agent_id", "business_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected[k] = cid
+            elif k == "status":
+                cstatus = _clean_str(v, max_length=32)
+                if cstatus:
+                    projected["status"] = cstatus
+
+    elif action == "card_unbound":
+        for k, v in value.items():
+            if k in ("card_id", "business_id", "user_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected[k] = cid
+            elif k == "unbound":
+                if isinstance(v, bool):
+                    projected["unbound"] = v
 
     if not projected:
         return None
     return projected
 
 
+def safe_audit_snapshot(
+    action: str | None,
+    value: Mapping[str, Any] | None,
+    *,
+    admin_user_id: uuid.UUID | str | None = None,
+    business_id: uuid.UUID | str | None = None,
+) -> dict[str, Any] | None:
+    """Fail-closed audit state sanitizer and strict safe projector.
+
+    Requires verified Admin structural provenance:
+    - admin_user_id != None
+    - business_id != None (all 7 Admin mutation actions are tenant-scoped)
+
+    Legacy and unknown events project to None to prevent disclosure of arbitrary
+    or historical secrets. Known Admin mutation actions project only explicitly
+    allowlisted safe shapes and scalar types, dropping any malformed or unexpected nested fields.
+    """
+    if value is None or not isinstance(value, Mapping):
+        return None
+    if not action or action not in _KNOWN_ADMIN_ACTIONS:
+        return None
+    if admin_user_id is None or business_id is None:
+        return None
+
+    return _project_action_snapshot(action, value)
+
+
 def sanitize_admin_audit_state(
     value: Mapping[str, Any] | None,
     *,
     action: str | None = None,
+    admin_user_id: uuid.UUID | str | None = None,
+    business_id: uuid.UUID | str | None = None,
 ) -> dict[str, Any] | None:
     if value is None or not isinstance(value, Mapping):
         return None
     if action is not None:
-        return safe_audit_snapshot(action, value)
+        return safe_audit_snapshot(
+            action,
+            value,
+            admin_user_id=admin_user_id,
+            business_id=business_id,
+        )
     return cast(dict[str, Any], _safe_audit_value(value))
 
 
@@ -182,8 +341,18 @@ def _audit(
             business_id=business_id,
             action=action,
             entity=entity,
-            before_state=safe_audit_snapshot(action, before_state),
-            after_state=safe_audit_snapshot(action, after_state),
+            before_state=safe_audit_snapshot(
+                action,
+                before_state,
+                admin_user_id=actor.id,
+                business_id=business_id,
+            ),
+            after_state=safe_audit_snapshot(
+                action,
+                after_state,
+                admin_user_id=actor.id,
+                business_id=business_id,
+            ),
         )
     )
 

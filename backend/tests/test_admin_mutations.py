@@ -61,14 +61,36 @@ def test_audit_snapshot_removes_secret_fields_and_redacts_secret_values() -> Non
                 "DATABASE_URL": "postgresql://fixture:fixture-password@localhost/db",
                 "ONE_CONNECTION_STRING": "Provider=fixture;Password=secret",
             },
+            admin_user_id=uuid.uuid4(),
+            business_id=uuid.uuid4(),
         )
         is None
     )
     assert safe_audit_snapshot(None, {"name": "test"}) is None
 
-    # Known action projects only allowlisted safe keys and redacts secrets
+    # Missing structural provenance (admin_user_id or business_id is None) fails closed to None
     aid = uuid.uuid4()
     bid = uuid.uuid4()
+    assert (
+        safe_audit_snapshot(
+            "agent_created",
+            {"agent_id": aid, "business_id": bid, "status": "active"},
+            admin_user_id=None,
+            business_id=bid,
+        )
+        is None
+    )
+    assert (
+        safe_audit_snapshot(
+            "agent_created",
+            {"agent_id": aid, "business_id": bid, "status": "active"},
+            admin_user_id=aid,
+            business_id=None,
+        )
+        is None
+    )
+
+    # Known action with verified provenance projects only allowlisted safe keys and redacts secrets
     projected_agent = safe_audit_snapshot(
         "agent_created",
         {
@@ -79,6 +101,8 @@ def test_audit_snapshot_removes_secret_fields_and_redacts_secret_values() -> Non
             "api_key": "agk_secret-key",
             "ONE_CONNECTION_STRING": "Provider=fixture;Password=secret",
         },
+        admin_user_id=uuid.uuid4(),
+        business_id=bid,
     )
     assert projected_agent == {
         "agent_id": str(aid),
@@ -655,3 +679,198 @@ async def test_business_colors_contract_with_customer_wallet_end_to_end(
     assert branding["primary_color"] == "#155d4a"
     assert branding["accent_color"] == "#f59e0b"
     assert branding["logo_url"] == "https://cdn.example.test/branding_logo.svg"
+
+
+@pytest.mark.asyncio
+async def test_legacy_audit_snapshot_with_known_action_fails_closed_and_never_discloses_secrets(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.legacyknownaction")
+    root_headers = await auth_headers(db_session, root)
+
+    # Legacy row with known action "business_created" but NULL admin_user_id and NULL business_id
+    legacy_known_action_log = AuditLog(
+        actor="legacy_system",
+        admin_user_id=None,
+        business_id=None,
+        action="business_created",
+        entity="business",
+        before_state={
+            "colors": {
+                "nested": {
+                    "opaque": "fixture-nested-secret",
+                }
+            },
+            "name": {
+                "label": "fixture-token-secret",
+            },
+        },
+        after_state={
+            "colors": {
+                "nested": {
+                    "opaque": "fixture-nested-secret",
+                }
+            },
+            "name": {
+                "label": "fixture-token-secret",
+            },
+        },
+    )
+    db_session.add(legacy_known_action_log)
+    await db_session.commit()
+
+    # Authenticated superadmin GET /admin/audit
+    response = await mutation_client.get("/admin/audit", headers=root_headers)
+    assert response.status_code == 200
+    res_text = response.text
+
+    # Assert response body does NOT contain fixture-nested-secret or fixture-token-secret
+    assert "fixture-nested-secret" not in res_text
+    assert "fixture-token-secret" not in res_text
+
+    items = response.json()["items"]
+    legacy_item = next(
+        (item for item in items if item["id"] == str(legacy_known_action_log.id)), None
+    )
+    assert legacy_item is not None
+    assert legacy_item["before_state"] is None
+    assert legacy_item["after_state"] is None
+
+
+def test_known_action_alone_without_admin_provenance_fails_closed() -> None:
+    # Known action + missing Admin provenance = NO snapshot disclosure
+    valid_payload = {
+        "id": str(uuid.uuid4()),
+        "name": "Trusted Name",
+        "status": "active",
+        "logo_url": "https://cdn.example.test/logo.svg",
+    }
+    # missing admin_user_id
+    assert (
+        safe_audit_snapshot(
+            "business_created",
+            valid_payload,
+            admin_user_id=None,
+            business_id=uuid.uuid4(),
+        )
+        is None
+    )
+    # missing business_id
+    assert (
+        safe_audit_snapshot(
+            "business_created",
+            valid_payload,
+            admin_user_id=uuid.uuid4(),
+            business_id=None,
+        )
+        is None
+    )
+    # both missing
+    assert (
+        safe_audit_snapshot(
+            "business_created",
+            valid_payload,
+            admin_user_id=None,
+            business_id=None,
+        )
+        is None
+    )
+
+    # same for other actions
+    assert (
+        safe_audit_snapshot(
+            "agent_created",
+            {"agent_id": str(uuid.uuid4()), "business_id": str(uuid.uuid4()), "status": "active"},
+            admin_user_id=None,
+            business_id=uuid.uuid4(),
+        )
+        is None
+    )
+    assert (
+        safe_audit_snapshot(
+            "card_unbound",
+            {"card_id": str(uuid.uuid4()), "business_id": str(uuid.uuid4()), "user_id": str(uuid.uuid4())},
+            admin_user_id=None,
+            business_id=uuid.uuid4(),
+        )
+        is None
+    )
+
+
+def test_trusted_admin_event_strict_shape_drops_malformed_and_opaque_structures() -> None:
+    admin_id = uuid.uuid4()
+    b_id = uuid.uuid4()
+
+    malformed_payload = {
+        "name": {"label": "fixture-secret"},  # non-string name
+        "colors": {
+            "primary": "#123456",
+            "nested": {
+                "secret": "fixture-secret",
+            },
+            "opaque": "real-secret-value",
+        },
+        "barcode_prefixes": [
+            "123",
+            {"secret": "fixture-secret"},  # non-string element in list
+        ],
+        "status": {
+            "secret": "fixture-secret",  # non-string status
+        },
+    }
+
+    projected = safe_audit_snapshot(
+        "business_created",
+        malformed_payload,
+        admin_user_id=admin_id,
+        business_id=b_id,
+    )
+
+    assert projected is not None
+    # name dropped because it was a dict
+    assert "name" not in projected
+    # status dropped because it was a dict
+    assert "status" not in projected
+    # barcode_prefixes dropped because it contained a non-string item
+    assert "barcode_prefixes" not in projected
+    # colors kept ONLY known key "primary", dropped "nested" and "opaque"
+    assert projected["colors"] == {"primary": "#123456"}
+    assert "nested" not in str(projected)
+    assert "opaque" not in str(projected)
+    assert "fixture-secret" not in str(projected)
+    assert "real-secret-value" not in str(projected)
+
+
+@pytest.mark.asyncio
+async def test_trusted_new_admin_event_retains_safe_structured_snapshot(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.trustedaudit")
+    headers = await auth_headers(db_session, root)
+
+    resp = await mutation_client.post(
+        "/admin/businesses",
+        headers=headers,
+        json={
+            "name": "Legitimate Trusted Market",
+            "logo_url": "https://cdn.example.test/trusted_logo.svg",
+            "colors": {"primary": "#155d4a", "accent": "#f59e0b"},
+            "barcode_prefixes": ["999"],
+            "status": "active",
+        },
+    )
+    assert resp.status_code == 201
+    business_id = resp.json()["id"]
+
+    audit_resp = await mutation_client.get("/admin/audit", headers=headers)
+    assert audit_resp.status_code == 200
+    items = audit_resp.json()["items"]
+    event = next((ev for ev in items if ev["business_id"] == business_id), None)
+    assert event is not None
+    assert event["action"] == "business_created"
+    assert event["admin_user_id"] == str(root.id)
+    assert event["after_state"] is not None
+    assert event["after_state"]["name"] == "Legitimate Trusted Market"
+    assert event["after_state"]["status"] == "active"
+    assert event["after_state"]["barcode_prefixes"] == ["999"]
+
