@@ -223,12 +223,32 @@ async def test_business_create_update_validation_and_audit_are_atomic(
     assert all(event.admin_user_id == root.id and event.actor == root.login for event in events)
     assert events[0].before_state is None
     assert events[0].after_state is not None
-    assert events[0].after_state["name"] == "Pilot Market"
-    assert events[0].after_state["logo_url"] == "https://cdn.example.test/brand.svg?[REDACTED]"
-    assert events[0].after_state["colors"] == {"configured": True, "keys": ["primary"]}
+    assert events[0].after_state["business_id"] == str(business_id)
+    assert events[0].after_state["status"] == "active"
+    assert events[0].after_state["configured_fields"] == [
+        "barcode_prefixes",
+        "colors",
+        "logo_url",
+        "name",
+        "status",
+    ]
+    assert events[0].after_state["colors"] == {"configured": True}
+    assert "name" not in events[0].after_state
+    assert "logo_url" not in events[0].after_state
+    assert "barcode_prefixes" not in events[0].after_state
+    assert "Pilot Market" not in str(events[0].after_state)
     assert "#155d4a" not in str(events[0].after_state)
     assert "debug_token" not in str(events[0].after_state)
     assert "fixture-secret" not in str(events)
+
+    assert events[1].before_state is not None
+    assert events[1].before_state["status"] == "active"
+    assert events[1].after_state is not None
+    assert events[1].after_state["business_id"] == str(business_id)
+    assert events[1].after_state["status"] == "inactive"
+    assert events[1].after_state["changed_fields"] == ["barcode_prefixes", "name", "status"]
+    assert "name" not in events[1].after_state
+    assert "Pilot Updated" not in str(events[1].after_state)
 
 
 @pytest.mark.asyncio
@@ -833,8 +853,9 @@ def test_trusted_admin_event_strict_shape_drops_malformed_and_opaque_structures(
     assert "status" not in projected
     # barcode_prefixes dropped because it contained a non-string item
     assert "barcode_prefixes" not in projected
-    # colors kept ONLY known key "primary", dropped "nested" and "opaque"
-    assert projected["colors"] == {"primary": "#123456"}
+    # colors kept safe boolean metadata, dropped raw values, nested, and opaque
+    assert projected["colors"] == {"configured": True}
+    assert "#123456" not in str(projected)
     assert "nested" not in str(projected)
     assert "opaque" not in str(projected)
     assert "fixture-secret" not in str(projected)
@@ -870,7 +891,266 @@ async def test_trusted_new_admin_event_retains_safe_structured_snapshot(
     assert event["action"] == "business_created"
     assert event["admin_user_id"] == str(root.id)
     assert event["after_state"] is not None
-    assert event["after_state"]["name"] == "Legitimate Trusted Market"
+    assert event["after_state"]["business_id"] == str(business_id)
     assert event["after_state"]["status"] == "active"
-    assert event["after_state"]["barcode_prefixes"] == ["999"]
+    assert event["after_state"]["configured_fields"] == [
+        "barcode_prefixes",
+        "colors",
+        "logo_url",
+        "name",
+        "status",
+    ]
+    assert event["after_state"]["colors"] == {"configured": True}
+    assert "name" not in event["after_state"]
+    assert "logo_url" not in event["after_state"]
+    assert "barcode_prefixes" not in event["after_state"]
+    assert "Legitimate Trusted Market" not in str(event["after_state"])
+    assert "#155d4a" not in str(event["after_state"])
+    assert "999" not in str(event["after_state"])
+
+
+@pytest.mark.asyncio
+async def test_agent_api_key_cannot_be_exfiltrated_via_business_config_into_audit(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    # 1. Superadmin creates a business and an agent to get active key K
+    root = await make_admin(db_session, "superadmin", None, "root.keyexfil")
+    headers = await auth_headers(db_session, root)
+
+    b_resp = await mutation_client.post(
+        "/admin/businesses",
+        headers=headers,
+        json={"name": "Exfil Target Business", "status": "active"},
+    )
+    assert b_resp.status_code == 201
+    business_id = uuid.UUID(b_resp.json()["id"])
+
+    # Manager for this business
+    manager = await make_admin(db_session, "business_manager", business_id, "manager.keyexfil")
+    manager_headers = await auth_headers(db_session, manager)
+
+    # 2. Superadmin creates Agent and obtains active Agent API key K
+    agent_resp = await mutation_client.post(
+        "/admin/agents",
+        headers=headers,
+        json={"business_id": str(business_id)},
+    )
+    assert agent_resp.status_code == 201
+    raw_key_k = agent_resp.json()["api_key"]
+    assert raw_key_k.startswith("agk_")
+
+    # 3. Verify key K actively works on /agent/heartbeat
+    hb_resp = await mutation_client.post(
+        "/agent/heartbeat",
+        headers={"X-Agent-Key": raw_key_k},
+        json={},
+    )
+    assert hb_resp.status_code == 200
+    assert hb_resp.json()["status"] == "ok"
+
+    # 4. Superadmin performs PATCH Business with user-controlled data injecting K
+    injected_logo_url = f"https://cdn.example.test/{raw_key_k}.svg"
+    injected_name = f"Injected Name {raw_key_k}"
+    injected_colors = {raw_key_k: "#ffffff"}
+    patch_resp = await mutation_client.patch(
+        f"/admin/businesses/{business_id}",
+        headers=headers,
+        json={
+            "name": injected_name,
+            "logo_url": injected_logo_url,
+            "colors": injected_colors,
+        },
+    )
+    assert patch_resp.status_code == 200
+    # Business domain model stores values without breaking business operation
+    assert patch_resp.json()["name"] == injected_name
+    assert patch_resp.json()["logo_url"] == injected_logo_url
+
+    # 5. Direct Database AuditLog assertion: K is NOT stored in the database row
+    audit_rows = (
+        await db_session.scalars(
+            select(AuditLog)
+            .where(AuditLog.business_id == business_id, AuditLog.action == "business_updated")
+        )
+    ).all()
+    assert len(audit_rows) == 1
+    updated_audit = audit_rows[0]
+
+    assert raw_key_k not in str(updated_audit.before_state)
+    assert raw_key_k not in str(updated_audit.after_state)
+    assert raw_key_k not in str(updated_audit.entity)
+    assert raw_key_k not in str(updated_audit.action)
+    assert raw_key_k not in str(updated_audit.actor)
+    assert raw_key_k not in str(updated_audit.__dict__)
+
+    # 6. Superadmin API assertion: GET /admin/audit does NOT disclose K
+    superadmin_audit_resp = await mutation_client.get("/admin/audit", headers=headers)
+    assert superadmin_audit_resp.status_code == 200
+    assert raw_key_k not in superadmin_audit_resp.text
+
+    # 7. Manager API assertion: GET /admin/audit does NOT disclose K
+    manager_audit_resp = await mutation_client.get("/admin/audit", headers=manager_headers)
+    assert manager_audit_resp.status_code == 200
+    assert raw_key_k not in manager_audit_resp.text
+
+    # Manager receives safe semantic metadata instead
+    manager_items = manager_audit_resp.json()["items"]
+    event = next(ev for ev in manager_items if ev["action"] == "business_updated")
+    assert event["after_state"]["business_id"] == str(business_id)
+    assert event["after_state"]["changed_fields"] == ["colors", "logo_url", "name"]
+    assert event["after_state"]["colors"] == {"configured": True}
+    assert "name" not in event["after_state"]
+    assert "logo_url" not in event["after_state"]
+
+
+@pytest.mark.asyncio
+async def test_historical_trusted_business_snapshot_drops_arbitrary_free_form_values(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.historicalsafe")
+    headers = await auth_headers(db_session, root)
+    business = await make_business(db_session, "Historical Business")
+
+    manager = await make_admin(db_session, "business_manager", business.id, "manager.historicalsafe")
+    manager_headers = await auth_headers(db_session, manager)
+
+    # Insert trusted-provenance fixture of old FIX-B shape directly into DB
+    historical_log = AuditLog(
+        actor=root.login,
+        admin_user_id=root.id,
+        business_id=business.id,
+        action="business_updated",
+        entity="business",
+        before_state={"business_id": str(business.id), "status": "active"},
+        after_state={
+            "business_id": str(business.id),
+            "name": "fixture-secret-a",
+            "logo_url": "https://example.test/fixture-secret-b",
+            "colors": {
+                "primary": "fixture-secret-c",
+            },
+        },
+    )
+    db_session.add(historical_log)
+    await db_session.commit()
+
+    # GET /admin/audit as superadmin MUST NOT contain any of the secrets
+    audit_resp = await mutation_client.get("/admin/audit", headers=headers)
+    assert audit_resp.status_code == 200
+    assert "fixture-secret-a" not in audit_resp.text
+    assert "fixture-secret-b" not in audit_resp.text
+    assert "fixture-secret-c" not in audit_resp.text
+
+    item = next(it for it in audit_resp.json()["items"] if it["id"] == str(historical_log.id))
+    assert item["after_state"] is not None
+    assert item["after_state"]["business_id"] == str(business.id)
+    assert item["after_state"]["changed_fields"] == ["colors", "logo_url", "name"]
+    assert item["after_state"]["colors"] == {"configured": True}
+    assert "name" not in item["after_state"]
+    assert "logo_url" not in item["after_state"]
+
+    # GET /admin/audit as manager MUST NOT contain any of the secrets
+    manager_resp = await mutation_client.get("/admin/audit", headers=manager_headers)
+    assert manager_resp.status_code == 200
+    assert "fixture-secret-a" not in manager_resp.text
+    assert "fixture-secret-b" not in manager_resp.text
+    assert "fixture-secret-c" not in manager_resp.text
+
+
+@pytest.mark.asyncio
+async def test_real_business_updated_event_retains_useful_semantic_audit_metadata(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.semanticbiz")
+    headers = await auth_headers(db_session, root)
+
+    resp = await mutation_client.post(
+        "/admin/businesses",
+        headers=headers,
+        json={"name": "Semantic Biz", "status": "active"},
+    )
+    assert resp.status_code == 201
+    business_id = uuid.UUID(resp.json()["id"])
+
+    patch_resp = await mutation_client.patch(
+        f"/admin/businesses/{business_id}",
+        headers=headers,
+        json={"name": "Semantic Biz Renovated", "status": "inactive"},
+    )
+    assert patch_resp.status_code == 200
+
+    audit_resp = await mutation_client.get("/admin/audit", headers=headers)
+    assert audit_resp.status_code == 200
+    items = audit_resp.json()["items"]
+    event = next(ev for ev in items if ev["business_id"] == str(business_id) and ev["action"] == "business_updated")
+
+    # Useful semantic fields retained
+    assert event["actor"] == root.login
+    assert event["action"] == "business_updated"
+    assert event["entity"] == "business"
+    assert event["business_id"] == str(business_id)
+    assert event["admin_user_id"] == str(root.id)
+    assert event["created_at"] is not None
+
+    # Finite domain status and changed categories
+    assert event["before_state"]["status"] == "active"
+    assert event["after_state"]["status"] == "inactive"
+    assert event["after_state"]["changed_fields"] == ["name", "status"]
+    assert event["after_state"]["colors_changed"] is False
+
+    # Raw user text absent
+    assert "name" not in event["after_state"]
+    assert "Semantic Biz Renovated" not in str(event["after_state"])
+
+
+@pytest.mark.asyncio
+async def test_agent_create_and_rotate_audit_contain_no_raw_key_or_hash(
+    db_session: AsyncSession, mutation_client: AsyncClient
+) -> None:
+    root = await make_admin(db_session, "superadmin", None, "root.agentkeyaudit")
+    headers = await auth_headers(db_session, root)
+    business = await make_business(db_session, "Agent Key Audit Biz")
+
+    # Create agent
+    create_resp = await mutation_client.post(
+        "/admin/agents",
+        headers=headers,
+        json={"business_id": str(business.id)},
+    )
+    assert create_resp.status_code == 201
+    agent_id = uuid.UUID(create_resp.json()["agent"]["id"])
+    initial_key = create_resp.json()["api_key"]
+
+    # Rotate key
+    rotate_resp = await mutation_client.post(
+        f"/admin/agents/{agent_id}/rotate-key",
+        headers=headers,
+    )
+    assert rotate_resp.status_code == 200
+    rotated_key = rotate_resp.json()["api_key"]
+
+    # Direct database AuditLog rows
+    audits = (
+        await db_session.scalars(
+            select(AuditLog)
+            .where(AuditLog.business_id == business.id)
+            .order_by(AuditLog.created_at, AuditLog.id)
+        )
+    ).all()
+
+    for row in audits:
+        assert initial_key not in str(row.before_state)
+        assert initial_key not in str(row.after_state)
+        assert rotated_key not in str(row.before_state)
+        assert rotated_key not in str(row.after_state)
+        assert "key_hash" not in str(row.before_state)
+        assert "key_hash" not in str(row.after_state)
+
+    # API audit listing
+    audit_resp = await mutation_client.get("/admin/audit", headers=headers)
+    assert audit_resp.status_code == 200
+    assert initial_key not in audit_resp.text
+    assert rotated_key not in audit_resp.text
+    assert "key_hash" not in audit_resp.text
+
 

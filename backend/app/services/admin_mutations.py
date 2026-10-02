@@ -45,11 +45,15 @@ _KNOWN_ADMIN_ACTIONS: set[str] = {
     "card_unbound",
 }
 
-_ALLOWED_COLOR_KEYS: set[str] = {
-    "primary",
-    "primary_color",
-    "accent",
-    "accent_color",
+_ALLOWED_BUSINESS_STATUSES: set[str] = {"active", "inactive"}
+_ALLOWED_AGENT_STATUSES: set[str] = {"active", "revoked", "suspended", "inactive"}
+_ALLOWED_COMMAND_STATUSES: set[str] = {"pending", "processing", "completed", "failed"}
+_ALLOWED_BUSINESS_FIELDS: set[str] = {
+    "barcode_prefixes",
+    "colors",
+    "logo_url",
+    "name",
+    "status",
 }
 
 
@@ -150,42 +154,16 @@ def _clean_barcode_prefixes(val: Any) -> list[str] | None:
 
 
 def _clean_colors(val: Any) -> dict[str, Any] | None:
-    if val is None:
-        return None
-    if not isinstance(val, dict):
+    if val is None or not isinstance(val, Mapping) or not val:
         return None
 
-    # Safe shape 1: Metadata shape written by _business_state:
-    # {"configured": bool, "keys": list[str]}
-    if "configured" in val and len(val) <= 2:
-        configured = val.get("configured")
-        raw_keys = val.get("keys")
-        if isinstance(configured, bool) and isinstance(raw_keys, list):
-            safe_keys = [
-                k.strip()
-                for k in raw_keys
-                if isinstance(k, str) and 0 < len(k.strip()) <= 64 and not _is_sensitive_audit_key(k)
-            ]
-            return {"configured": configured, "keys": sorted(safe_keys)}
-        return None
+    # Safe metadata shape: {"configured": bool}
+    if "configured" in val and isinstance(val.get("configured"), bool):
+        return {"configured": val["configured"]}
 
-    # Safe shape 2: Branding colors shape:
-    # Strictly allow only {"primary", "primary_color", "accent", "accent_color"}
-    # with values of str | None. Any unknown keys, nested objects, or non-string values are dropped.
-    projected_colors: dict[str, str | None] = {}
-    for k, v in val.items():
-        if not isinstance(k, str) or k not in _ALLOWED_COLOR_KEYS:
-            continue
-        if v is None:
-            projected_colors[k] = None
-        elif isinstance(v, str) and len(v) <= 128:
-            cleaned_v = _safe_audit_value(v, key=k)
-            if isinstance(cleaned_v, str):
-                projected_colors[k] = cleaned_v
-
-    if not projected_colors:
-        return None
-    return projected_colors
+    # Safe conversion from historical or raw colors mapping:
+    # Colors were configured, but free-form keys and values are stripped fail-closed.
+    return {"configured": True}
 
 
 def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -197,25 +175,82 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
                 if cid:
                     projected[k] = cid
-            elif k == "name":
-                cname = _clean_str(v, max_length=255)
-                if cname:
-                    projected["name"] = cname
+                    projected["business_id"] = cid
             elif k == "status":
-                cstatus = _clean_str(v, max_length=32)
-                if cstatus:
-                    projected["status"] = cstatus
-            elif k == "logo_url":
-                projected["logo_url"] = _clean_url(v)
+                if isinstance(v, str) and v in _ALLOWED_BUSINESS_STATUSES:
+                    projected["status"] = v
             elif k == "colors":
-                projected["colors"] = _clean_colors(v)
-            elif k == "barcode_prefixes":
-                prefixes = _clean_barcode_prefixes(v)
-                if prefixes is not None:
-                    projected["barcode_prefixes"] = prefixes
+                colors_meta = _clean_colors(v)
+                if colors_meta is not None:
+                    projected["colors"] = colors_meta
             elif k == "colors_changed":
                 if isinstance(v, bool):
                     projected["colors_changed"] = v
+            elif k == "configured_fields":
+                if isinstance(v, (list, tuple)):
+                    safe_fields = sorted(
+                        f for f in v if isinstance(f, str) and f in _ALLOWED_BUSINESS_FIELDS
+                    )
+                    if safe_fields:
+                        projected["configured_fields"] = safe_fields
+            elif k == "changed_fields":
+                if isinstance(v, (list, tuple)):
+                    safe_fields = sorted(
+                        f for f in v if isinstance(f, str) and f in _ALLOWED_BUSINESS_FIELDS
+                    )
+                    if safe_fields:
+                        projected["changed_fields"] = safe_fields
+
+        # Historical compatibility: If neither configured_fields nor changed_fields was present
+        # in the raw snapshot, safely derive the category list from recognized safe keys present.
+        if action == "business_created" and "configured_fields" not in projected:
+            derived_configured: list[str] = []
+            if "name" in value and isinstance(value["name"], str):
+                derived_configured.append("name")
+            if "logo_url" in value and isinstance(value["logo_url"], str):
+                derived_configured.append("logo_url")
+            if "colors" in value and isinstance(value["colors"], Mapping) and value["colors"]:
+                derived_configured.append("colors")
+            if (
+                "barcode_prefixes" in value
+                and isinstance(value["barcode_prefixes"], list)
+                and all(isinstance(x, str) for x in value["barcode_prefixes"])
+            ):
+                derived_configured.append("barcode_prefixes")
+            if (
+                "status" in value
+                and isinstance(value["status"], str)
+                and value["status"] in _ALLOWED_BUSINESS_STATUSES
+            ):
+                derived_configured.append("status")
+            if derived_configured:
+                projected["configured_fields"] = sorted(derived_configured)
+
+        if action == "business_updated" and "changed_fields" not in projected:
+            derived_changed: list[str] = []
+            if "name" in value and isinstance(value["name"], str):
+                derived_changed.append("name")
+            if "logo_url" in value and isinstance(value["logo_url"], str):
+                derived_changed.append("logo_url")
+            if "colors" in value and (
+                (isinstance(value["colors"], Mapping) and bool(value["colors"]))
+                or bool(value.get("colors_changed"))
+            ):
+                derived_changed.append("colors")
+            if (
+                "barcode_prefixes" in value
+                and isinstance(value["barcode_prefixes"], list)
+                and all(isinstance(x, str) for x in value["barcode_prefixes"])
+            ):
+                derived_changed.append("barcode_prefixes")
+            if (
+                "status" in value
+                and isinstance(value["status"], str)
+                and value["status"] in _ALLOWED_BUSINESS_STATUSES
+            ):
+                derived_changed.append("status")
+            if derived_changed:
+                projected["changed_fields"] = sorted(derived_changed)
 
     elif action == "agent_created":
         for k, v in value.items():
@@ -224,9 +259,8 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 if cid:
                     projected[k] = cid
             elif k == "status":
-                cstatus = _clean_str(v, max_length=32)
-                if cstatus:
-                    projected["status"] = cstatus
+                if isinstance(v, str) and v in _ALLOWED_AGENT_STATUSES:
+                    projected["status"] = v
 
     elif action == "agent_key_rotated":
         for k, v in value.items():
@@ -249,9 +283,8 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 if cid:
                     projected[k] = cid
             elif k == "status":
-                cstatus = _clean_str(v, max_length=32)
-                if cstatus:
-                    projected["status"] = cstatus
+                if isinstance(v, str) and v in _ALLOWED_AGENT_STATUSES:
+                    projected["status"] = v
 
     elif action == "agent_full_resync_requested":
         for k, v in value.items():
@@ -260,9 +293,8 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 if cid:
                     projected[k] = cid
             elif k == "status":
-                cstatus = _clean_str(v, max_length=32)
-                if cstatus:
-                    projected["status"] = cstatus
+                if isinstance(v, str) and v in _ALLOWED_COMMAND_STATUSES:
+                    projected["status"] = v
 
     elif action == "card_unbound":
         for k, v in value.items():
@@ -358,23 +390,30 @@ def _audit(
 
 
 def _business_state(
-    business: Business, *, colors_changed: bool | None = None
+    business: Business,
+    *,
+    changed_fields: list[str] | None = None,
+    colors_changed: bool | None = None,
 ) -> dict[str, Any]:
+    configured = sorted(
+        field
+        for field in ("barcode_prefixes", "colors", "logo_url", "name", "status")
+        if getattr(business, field, None) is not None
+    )
     state: dict[str, Any] = {
-        "id": business.id,
-        "name": business.name,
-        "logo_url": business.logo_url,
-        "colors": None if business.colors is None else {
-            "configured": True,
-            "keys": sorted(
-                key for key in business.colors if not _is_sensitive_audit_key(key)
-            ),
-        },
-        "barcode_prefixes": business.barcode_prefixes,
-        "status": business.status,
+        "business_id": str(business.id),
+        "status": business.status if business.status in _ALLOWED_BUSINESS_STATUSES else None,
     }
+    if changed_fields is not None:
+        state["changed_fields"] = sorted(
+            f for f in changed_fields if f in _ALLOWED_BUSINESS_FIELDS
+        )
+    else:
+        state["configured_fields"] = configured
     if colors_changed is not None:
         state["colors_changed"] = colors_changed
+    if business.colors is not None:
+        state["colors"] = {"configured": True}
     return state
 
 
@@ -393,7 +432,7 @@ async def create_business(
         "business_created",
         "business",
         None,
-        _business_state(business, colors_changed=business.colors is not None),
+        _business_state(business),
     )
     await db.commit()
     await db.refresh(business)
@@ -428,6 +467,7 @@ async def update_business(
         before,
         _business_state(
             business,
+            changed_fields=list(fields.keys()),
             colors_changed="colors" in fields and previous_colors != business.colors,
         ),
     )
