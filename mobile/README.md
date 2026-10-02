@@ -22,7 +22,20 @@ npm start
 
 ## Backend connection setup
 
-Use HTTPS for deployed environments. For local development, bind uvicorn to `0.0.0.0` and permit the port through the firewall. Set the URL only in `.env`:
+HTTPS is required by the API client for every production/release request, including auth, refresh and logout. `EXPO_PUBLIC_ALLOW_INSECURE_HTTP` cannot override this in release: it is considered only when React Native `__DEV__ === true` (not from `NODE_ENV`). There is no origin/protocol fallback.
+
+Never enable insecure HTTP for production/release builds.
+
+For local development only, explicitly set both in `mobile/.env`:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=http://<reachable-dev-host>:8000
+EXPO_PUBLIC_ALLOW_INSECURE_HTTP=1
+```
+
+Unset/`0`/any value other than exactly `1` keeps HTTPS mandatory even in development. Development HTTP sends credentials in cleartext; use only a controlled local test environment with test accounts. Validation rejects empty/invalid/relative URLs, other protocols, userinfo, query and fragment; it normalizes trailing slashes centrally. Errors use safe codes (`CONFIG_MISSING`, `INVALID_API_URL`, `INSECURE_TRANSPORT`) and user-friendly copy without retaining a URL or parser message.
+
+For local development, bind uvicorn to `0.0.0.0` and permit the port through the firewall. Set the URL only in `.env`:
 
 - Android standard emulator: `http://10.0.2.2:8000` reaches the host.
 - iOS simulator: `http://localhost:8000` reaches the Mac.

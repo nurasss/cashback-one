@@ -1,1 +1,30 @@
-{"expo":{"name":"Cashback One","slug":"cashback-one","scheme":"cashbackone","version":"1.0.0","orientation":"portrait","userInterfaceStyle":"light","plugins":["expo-router",["expo-secure-store",{"configureAndroidBackup":true}]],"ios":{"supportsTablet":true,"bundleIdentifier":"kz.cashbackone.mobile","infoPlist":{"ITSAppUsesNonExemptEncryption":false}},"android":{"package":"kz.cashbackone.mobile"}}}
+{
+  "expo": {
+    "name": "Cashback One",
+    "slug": "cashback-one",
+    "scheme": "cashbackone",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ],
+      "expo-font"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "kz.cashbackone.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "kz.cashbackone.mobile"
+    }
+  }
+}

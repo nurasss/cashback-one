@@ -1,4 +1,5 @@
 import { ApiError, normalizeApiError } from './errors';
+import { validateApiBaseUrl } from './transport';
 export interface AuthHooks { access(): string | null; generation(): number; refresh(): Promise<void>; invalidate(): Promise<void> }
 interface RequestOptions { method?: 'GET' | 'POST' | 'DELETE'; body?: object; headers?: Record<string, string>; auth?: boolean; signal?: AbortSignal }
 export class ApiClient {
@@ -21,14 +22,14 @@ export class ApiClient {
   }
   private async send<T>(path: string, options: RequestOptions, access: string | null, generation: number): Promise<T> {
     if (options.auth && generation !== this.hooks.generation()) throw new ApiError('SESSION_CHANGED');
-    if (!/^https?:\/\//.test(this.baseUrl)) throw new ApiError('CONFIG_MISSING');
+    const baseUrl = validateApiBaseUrl(this.baseUrl);
     const controller = new AbortController();
     const abort = () => controller.abort();
     options.signal?.addEventListener('abort', abort);
     if (options.signal?.aborted) controller.abort();
     const timer = setTimeout(abort, this.timeoutMs);
     try {
-      const response = await this.fetcher(`${this.baseUrl.replace(/\/$/, '')}${path}`, {
+      const response = await this.fetcher(`${baseUrl}${path}`, {
         method: options.method ?? 'GET',
         headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers,
           ...(options.auth && access ? { Authorization: `Bearer ${access}` } : {}) },

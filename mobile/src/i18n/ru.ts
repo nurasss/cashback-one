@@ -31,6 +31,8 @@ export const errorMessages: Record<string, string> = {
   NETWORK_UNAVAILABLE: 'Нет соединения. Проверьте интернет и повторите запрос.', REQUEST_TIMEOUT: 'Сервер не ответил вовремя. Повторите запрос.',
   SERVER_UNAVAILABLE: 'Сервис временно недоступен. Попробуйте позже.', UNKNOWN_ERROR: 'Произошла ошибка. Повторите запрос.',
   INVALID_RESPONSE: 'Не удалось прочитать ответ сервера. Попробуйте позже.', CONFIG_MISSING: ru.config,
+  INSECURE_TRANSPORT: 'Безопасное подключение к сервису недоступно. Обратитесь в поддержку.',
+  INVALID_API_URL: 'Подключение к сервису настроено некорректно. Обратитесь в поддержку.',
   SECURE_STORAGE_UNAVAILABLE: 'Не удалось открыть защищённое хранилище. Разблокируйте устройство и повторите действие.',
   SESSION_CHANGED: 'Сессия изменилась. Войдите снова.', UNAUTHORIZED: ru.loginAgain, INVALID_REFRESH_TOKEN: ru.loginAgain,
   REFRESH_TOKEN_EXPIRED: ru.loginAgain, TOKEN_EXPIRED: ru.loginAgain, INVALID_TOKEN: ru.loginAgain,
