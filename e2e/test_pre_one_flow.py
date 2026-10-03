@@ -26,9 +26,15 @@ Comprehensive verification of:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import subprocess
+import sys
+import tempfile
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID
 
 import httpx
@@ -42,7 +48,7 @@ from poscenter_loyalty_agent.state_store import StateStore
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from e2e.harness import E2EHarness
+from e2e.harness import E2EHarness, find_free_port
 from e2e.source import TestLoyaltySource
 
 
@@ -857,7 +863,11 @@ async def test_pre_one_e2e_retry_and_cursor_safety(e2e_harness: E2EHarness) -> N
 
 @pytest.mark.asyncio
 async def test_pre_one_e2e_real_redis_limiter(e2e_harness: E2EHarness) -> None:
-    """Prove canonical auth uses real Redis limiter (keys observed, outage fail-closed)."""
+    """Prove canonical auth uses real Redis limiter without touching shared server.
+
+    - Primary flow proves keys in real Redis.
+    - Outage proof uses isolated secondary backend with unreachable Redis (no PAUSE).
+    """
     base_url = e2e_harness.config.base_url
 
     # Backend must run in development mode for real Redis (FIX-A).
@@ -887,32 +897,115 @@ async def test_pre_one_e2e_real_redis_limiter(e2e_harness: E2EHarness) -> None:
         ready = await client.get("/health/ready")
         assert ready.status_code == 200
 
-        # Temporarily make Redis unavailable via CLIENT PAUSE (real outage, auto-recovers).
-        r = aioredis.from_url(e2e_harness.redis_url, decode_responses=True)
+        # Isolated outage: secondary backend with unreachable Redis (no shared PAUSE).
+        # Find unused localhost port for fake Redis (closed → connection refused).
+        tmp_sock = __import__("socket").socket(__import__("socket").AF_INET, __import__("socket").SOCK_STREAM)
+        tmp_sock.bind(("127.0.0.1", 0))
+        bad_redis_port = tmp_sock.getsockname()[1]
+        tmp_sock.close()
+        # Preserve canonical DB index shape without touching real server.
+        from e2e.harness import validate_redis_url as _validate_redis
+
         try:
-            await r.execute_command("CLIENT", "PAUSE", "3000")
+            canonical_db = _validate_redis(e2e_harness.redis_url)["db"]
+        except Exception:
+            canonical_db = 14
+        bad_redis_url = f"redis://127.0.0.1:{bad_redis_port}/{canonical_db}"
+
+        isolated_port = find_free_port()
+        isolated_base = f"http://127.0.0.1:{isolated_port}"
+        isolated_log = Path(tempfile.mkdtemp(prefix="poscenter_e2e_isolated_")) / "backend.log"
+        isolated_env = {
+            **os.environ,
+            "APP_ENV": "development",
+            "DEBUG": "false",
+            "DATABASE_URL": e2e_harness.db_url,
+            "REDIS_URL": bad_redis_url,
+            "JWT_SIGNING_KEY": e2e_harness.config.jwt_signing_key,
+            "ADMIN_JWT_SIGNING_KEY": e2e_harness.config.admin_jwt_signing_key,
+            "AUTH_CHALLENGE_HASH_KEY": e2e_harness.config.auth_challenge_hash_key,
+            "SMS_OTP_HASH_KEY": e2e_harness.config.sms_otp_hash_key,
+            "WAPPI_WEBHOOK_AUTH_SECRET": e2e_harness.config.wappi_secret,
+            "WAPPI_WEBHOOK_AUTH_HEADER": e2e_harness.config.wappi_auth_header,
+            "WAPPI_LOGIN_PROFILE_ID": e2e_harness.config.wappi_profile_id,
+            "WHATSAPP_LOGIN_NUMBER": e2e_harness.config.whatsapp_login_number,
+            "ADMIN_ALLOWED_ORIGINS": json.dumps([isolated_base]),
+            "ADMIN_ALLOW_INSECURE_HTTP": "true",
+            "SMS_PROVIDER_MODE": "disabled",
+            "FORWARDED_ALLOW_IPS": "127.0.0.1",
+            "PYTHONPATH": f"{e2e_harness.backend_dir}:{os.environ.get('PYTHONPATH', '')}",
+        }
+        log_f = open(isolated_log, "wb")
+        isolated_proc: subprocess.Popen[bytes] | None = None
+        try:
+            isolated_proc = subprocess.Popen(
+                [sys.executable, "-m", "uvicorn", "app.main:app",
+                 "--host", "127.0.0.1", "--port", str(isolated_port),
+                 "--log-level", "warning"],
+                cwd=str(e2e_harness.backend_dir),
+                env=isolated_env,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+            )
+            # Wait for liveness (no Redis needed) bounded 10s.
+            live_url = f"{isolated_base}/health/live"
+            start = time.monotonic()
+            alive = False
+            async with httpx.AsyncClient() as probe:
+                while time.monotonic() - start < 10.0:
+                    if isolated_proc.poll() is not None:
+                        break
+                    try:
+                        r = await probe.get(live_url, timeout=1.0)
+                        if r.status_code == 200:
+                            alive = True
+                            break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.2)
+            assert alive, "Isolated backend did not become live"
+            # Real auth on isolated backend must fail-closed (Redis unreachable).
+            async with httpx.AsyncClient(base_url=isolated_base) as iso_client:
+                iso_chal = await iso_client.post(
+                    "/auth/challenge", json={"device_id": "device-redis-proof-isolated"}
+                )
+                assert iso_chal.status_code in (429, 503)
+                # Readiness on isolated must be 503 (Redis down).
+                iso_ready = await iso_client.get("/health/ready")
+                assert iso_ready.status_code == 503
         finally:
             try:
-                await r.aclose()
+                if isolated_proc is not None and isolated_proc.poll() is None:
+                    isolated_proc.terminate()
+                    try:
+                        isolated_proc.wait(timeout=5)
+                    except Exception:
+                        try:
+                            isolated_proc.kill()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            try:
+                log_f.close()
+            except Exception:
+                pass
+            try:
+                import shutil as _shutil
+
+                _shutil.rmtree(isolated_log.parent, ignore_errors=True)
             except Exception:
                 pass
 
-        # Real auth requiring limiter must NOT continue as memory-backed.
-        # During pause it must fail-closed (503 AUTH_RATE_LIMIT_UNAVAILABLE or 429/503).
-        paused_resp = await client.post(
-            "/auth/challenge", json={"device_id": "device-redis-proof-paused"}
-        )
-        # Exact contract follows backend: Redis failure -> 503 fail-closed.
-        # Accept 503 (fail-closed) or 429 only if limiter somehow passed; but it must not be 200
-        # with memory fallback silently succeeding repeatedly. We assert non-200 during outage
-        # OR if 200, then keys must still require Redis (already proven above) — but strict:
-        # during CLIENT PAUSE with 2s socket timeout, Redis eval must timeout -> 503.
-        assert paused_resp.status_code in (429, 503), (
-            f"Expected fail-closed during Redis outage, got {paused_resp.status_code}"
-        )
-
-        # After pause expires, readiness recovers to 200.
-        await asyncio.sleep(3.5)
+        # Primary Redis must remain healthy (no shared disturbance).
+        primary = aioredis.from_url(e2e_harness.redis_url, decode_responses=True)
+        try:
+            await primary.ping()
+        finally:
+            try:
+                await primary.aclose()
+            except Exception:
+                pass
         ready2 = await client.get("/health/ready")
         assert ready2.status_code == 200
 

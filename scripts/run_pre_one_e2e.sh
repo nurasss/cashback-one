@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# POSCENTER Loyalty — Pre-ONE End-to-End Integration Suite Runner (TASK-013 FIX-A)
+# POSCENTER Loyalty — Pre-ONE End-to-End Integration Suite Runner (TASK-013 FIX-B)
 # ==============================================================================
 # Executes hermetic end-to-end integration scenario verifying the full chain:
 # TestLoyaltySource -> Real Agent Runtime -> Real HTTP Cloud API -> Real DB/Redis
 #
-# FIX-A safety:
+# FIX-B safety:
+# - Canonical preflight BEFORE pytest via same Python code (e2e.preflight).
 # - Never prints full DB/Redis URLs, passwords, tokens or keys.
 # - Prints only safe components (host/port/name, redis host/port/db).
 # - Single Redis source of truth: REDIS_URL.
@@ -23,13 +24,10 @@ echo " POSCENTER Loyalty — Pre-ONE End-to-End Integration Runner"
 echo " Repo root: ${REPO_ROOT}"
 echo "========================================================================"
 
-# 1. Locate Python environment
+# 1. Locate Python environment (no hardcoded developer paths).
 if [[ -x "${REPO_ROOT}/.venv/bin/python" ]]; then
     PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
     PYTEST_BIN="${REPO_ROOT}/.venv/bin/pytest"
-elif [[ -x "/Users/nuras/Desktop/cashback-one/.venv/bin/python" ]]; then
-    PYTHON_BIN="/Users/nuras/Desktop/cashback-one/.venv/bin/python"
-    PYTEST_BIN="/Users/nuras/Desktop/cashback-one/.venv/bin/pytest"
 elif command -v python3 &>/dev/null; then
     PYTHON_BIN="$(command -v python3)"
     PYTEST_BIN="$(command -v pytest || echo "${PYTHON_BIN} -m pytest")"
@@ -40,11 +38,12 @@ fi
 
 # 2. Canonical E2E targets (single source of truth).
 #    DB default uses strict canonical prefix cashback_e2e_.
-export POSTGRES_E2E_URL="${POSTGRES_E2E_URL:-${POSTGRES_TEST_URL:-postgresql+asyncpg://nuras@localhost:5432/cashback_e2e_local}}"
+export POSTGRES_E2E_URL="${POSTGRES_E2E_URL:-${POSTGRES_TEST_URL:-postgresql+asyncpg://localhost:5432/cashback_e2e_local}}"
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379/14}"
 export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/backend:${REPO_ROOT}/agent/src:${PYTHONPATH:-}"
 
 # 2a. Conflicting Redis declarations must fail fast (no DB14 vs DB15 ambiguity).
+#     Safe message only (no URLs).
 if [[ -n "${REDIS_E2E_URL:-}" && "${REDIS_E2E_URL}" != "${REDIS_URL}" ]]; then
     echo "REDIS SAFETY ABORT: Conflicting REDIS_URL and REDIS_E2E_URL. Use single REDIS_URL." >&2
     exit 1
@@ -61,34 +60,13 @@ if command -v redis-cli &>/dev/null; then
     fi
 fi
 
-# 2c. Validate targets structurally and print SAFE components only.
-#     Raw URLs, usernames and passwords are never emitted.
-"${PYTHON_BIN}" - <<'PY'
-import os, sys
-sys.path.insert(0, os.environ.get("REPO_ROOT", "."))
-# Repo root is cwd (runner cd'd there).
-sys.path.insert(0, ".")
-try:
-    from e2e.harness import safe_db_info, safe_redis_info
-except Exception as exc:
-    print(f"TARGET VALIDATION FAILED: cannot import safety helpers: {exc}", file=sys.stderr)
-    sys.exit(1)
-
-db_url = os.environ.get("POSTGRES_E2E_URL", "")
-redis_url = os.environ.get("REDIS_URL", "")
-try:
-    db = safe_db_info(db_url)
-    print(f"E2E DB target: host={db['host']} port={db['port']} database={db['database']}")
-except Exception as exc:
-    print(f"DATABASE SAFETY ABORT: {exc}", file=sys.stderr)
-    sys.exit(1)
-try:
-    rd = safe_redis_info(redis_url)
-    print(f"E2E Redis target: host={rd['host']} port={rd['port']} db={rd['db']}")
-except Exception as exc:
-    print(f"REDIS SAFETY ABORT: {exc}", file=sys.stderr)
-    sys.exit(1)
-PY
+# 2c. Canonical preflight BEFORE pytest (same Python code, safe output only).
+#     Reads URLs from environment (never CLI args). On failure pytest never starts.
+echo "Running E2E preflight..."
+if ! "${PYTHON_BIN}" -m e2e.preflight; then
+    echo "E2E preflight refused unsafe target. pytest not started." >&2
+    exit 1
+fi
 
 echo "Running Pre-ONE E2E test suite..."
 echo "------------------------------------------------------------------------"

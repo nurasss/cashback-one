@@ -56,18 +56,23 @@ ALLOWED_REDIS_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "redis", "post
 # Canonical E2E runtime mode: real Redis limiter, explicit local HTTP behaviour.
 E2E_APP_ENV = "development"
 
-DEFAULT_E2E_DB_URL = "postgresql+asyncpg://nuras@localhost:5432/cashback_e2e_local"
+DEFAULT_E2E_DB_URL = "postgresql+asyncpg://localhost:5432/cashback_e2e_local"
 DEFAULT_E2E_REDIS_URL = "redis://127.0.0.1:6379/14"
 
 
-def _abort(prefix: str, msg: str) -> RuntimeError:
-    return RuntimeError(f"{prefix}: {msg}")
+class E2ESafetyError(RuntimeError):
+    """Credential-safe safety abort. Messages never contain raw URLs, passwords, queries."""
+
+
+def _abort(prefix: str, msg: str) -> E2ESafetyError:
+    return E2ESafetyError(f"{prefix}: {msg}")
 
 
 def validate_e2e_db_url(url: str) -> Any:
     """Structurally validate canonical E2E PostgreSQL URL.
 
-    Returns SQLAlchemy URL object on success, raises RuntimeError on reject.
+    Returns SQLAlchemy URL object on success, raises E2ESafetyError on reject.
+    All failure messages are credential-safe (no raw URL, password, query, username).
     """
     if not url or not url.strip():
         raise _abort("DATABASE SAFETY ABORT", "Empty database URL.")
@@ -75,35 +80,35 @@ def validate_e2e_db_url(url: str) -> Any:
     try:
         parsed = make_url(raw)
     except Exception as exc:
-        raise _abort("DATABASE SAFETY ABORT", f"Unparsable database URL: {exc}") from exc
+        raise _abort(
+            "DATABASE SAFETY ABORT", "PostgreSQL connection URL is not an E2E target."
+        ) from exc
 
     driver = (parsed.drivername or "").lower()
     if driver != "postgresql+asyncpg":
         raise _abort(
             "DATABASE SAFETY ABORT",
-            f"Unsupported driver '{parsed.drivername}'. Expected 'postgresql+asyncpg'.",
+            "PostgreSQL driver is not an E2E target.",
         )
 
     db_name = parsed.database or ""
     if not db_name:
         raise _abort("DATABASE SAFETY ABORT", "Missing explicit database name.")
-    # Strict prefix policy — never substring.
+    # Strict prefix policy — never substring. DB name itself is safe but keep generic.
     if not E2E_DB_PATTERN.match(db_name):
         raise _abort(
             "DATABASE SAFETY ABORT",
-            f"Database name '{db_name}' does not match strict E2E policy "
-            f"'{E2E_DB_PREFIX}<run-id>' ([a-z0-9_], max 32 suffix). Refusing.",
+            "PostgreSQL database name is not an E2E target.",
         )
     if len(db_name) > E2E_DB_MAX_LEN:
-        raise _abort("DATABASE SAFETY ABORT", f"Database name too long: '{db_name}'.")
+        raise _abort("DATABASE SAFETY ABORT", "PostgreSQL database name is not an E2E target.")
 
-    # Disallow any query overrides — safest: must be empty.
+    # Disallow any query overrides — safest: must be empty. Never echo query.
     query = dict(parsed.query) if parsed.query else {}
     if query:
         raise _abort(
             "DATABASE SAFETY ABORT",
-            f"Query parameters forbidden in E2E DB URL (got {sorted(query)}). "
-            "Refusing to run with ambiguous target overrides.",
+            "PostgreSQL URL must not contain query parameters.",
         )
 
     host = (parsed.host or "").strip()
@@ -113,7 +118,7 @@ def validate_e2e_db_url(url: str) -> Any:
     if host.lower() not in ALLOWED_DB_HOSTS:
         raise _abort(
             "DATABASE SAFETY ABORT",
-            f"Database host '{host}' not in E2E allowlist {sorted(ALLOWED_DB_HOSTS)}.",
+            "PostgreSQL host is not an allowed E2E target.",
         )
 
     # Environment must never be production.
@@ -121,14 +126,19 @@ def validate_e2e_db_url(url: str) -> Any:
     if app_env == "production":
         raise _abort(
             "ENVIRONMENT SAFETY ABORT",
-            "APP_ENV is 'production'. Refusing E2E harness in production mode.",
+            "APP_ENV is production. Refusing E2E harness.",
         )
     return parsed
 
 
 def safe_db_info(url: str) -> dict[str, Any]:
     """Return safe display components (host/port/name) without credentials."""
-    parsed = make_url(url)
+    try:
+        parsed = make_url(url.strip())
+    except Exception as exc:
+        raise _abort(
+            "DATABASE SAFETY ABORT", "PostgreSQL connection URL is not an E2E target."
+        ) from exc
     return {
         "host": parsed.host,
         "port": parsed.port or 5432,
@@ -138,43 +148,49 @@ def safe_db_info(url: str) -> dict[str, Any]:
 
 
 def validate_redis_url(url: str) -> dict[str, Any]:
-    """Validate canonical E2E Redis URL. Returns {host, port, db}. Raises on reject."""
+    """Validate canonical E2E Redis URL. Returns {host, port, db}. Raises safe error."""
     if not url or not url.strip():
         raise _abort("REDIS SAFETY ABORT", "Empty Redis URL.")
     raw = url.strip()
-    parsed = urlparse(raw)
+    try:
+        parsed = urlparse(raw)
+    except Exception as exc:
+        raise _abort("REDIS SAFETY ABORT", "Redis URL is not an E2E target.") from exc
     if parsed.scheme.lower() != "redis":
         raise _abort(
             "REDIS SAFETY ABORT",
-            f"Unsupported Redis scheme '{parsed.scheme}'. Expected 'redis://'.",
+            "Redis scheme is not an E2E target.",
         )
     host = (parsed.hostname or "").strip()
     if not host or host.lower() not in ALLOWED_REDIS_HOSTS:
         raise _abort(
             "REDIS SAFETY ABORT",
-            f"Redis host '{host or '<empty>'}' not in allowlist {sorted(ALLOWED_REDIS_HOSTS)}.",
+            "Redis host is not an allowed E2E target.",
         )
-    port = parsed.port or 6379
+    try:
+        port = parsed.port or 6379
+    except Exception as exc:
+        raise _abort("REDIS SAFETY ABORT", "Redis URL is not an E2E target.") from exc
     # Path must be /<db>
     path = (parsed.path or "").strip()
     if not path or path == "/":
-        raise _abort("REDIS SAFETY ABORT", "Missing Redis DB index (e.g. redis://host:6379/14).")
+        raise _abort("REDIS SAFETY ABORT", "Missing Redis DB index for E2E target.")
     db_part = path.lstrip("/")
     # Reject extra path segments like /14/extra
     if "/" in db_part:
-        raise _abort("REDIS SAFETY ABORT", f"Invalid Redis path '{path}'. Expected '/<db>'.")
+        raise _abort("REDIS SAFETY ABORT", "Redis path is not an E2E target.")
     try:
         db_index = int(db_part)
     except ValueError as exc:
-        raise _abort("REDIS SAFETY ABORT", f"Invalid Redis DB index '{db_part}'.") from exc
+        raise _abort("REDIS SAFETY ABORT", "Redis DB index is not an E2E target.") from exc
     if db_index == 0:
-        raise _abort("REDIS SAFETY ABORT", "Redis DB0 is unsafe for destructive E2E cleanup. Use dedicated non-zero DB (e.g. 14).")
+        raise _abort("REDIS SAFETY ABORT", "Redis DB 0 is not allowed for E2E.")
     if not (1 <= db_index <= 15):
-        raise _abort("REDIS SAFETY ABORT", f"Redis DB index {db_index} out of allowed 1..15.")
+        raise _abort("REDIS SAFETY ABORT", "Redis DB index is not an E2E target.")
     if parsed.query:
         raise _abort(
             "REDIS SAFETY ABORT",
-            f"Query parameters forbidden in E2E Redis URL (got '{parsed.query}').",
+            "Redis URL must not contain query parameters.",
         )
     return {"host": host, "port": port, "db": db_index}
 
@@ -218,12 +234,12 @@ class E2EConfig:
         if not self.base_url:
             self.base_url = f"http://127.0.0.1:{self.port}"
         # Single source of truth: REDIS_URL. Detect conflicting declarations.
+        # Never echo raw URLs (may contain credentials).
         env_redis = os.environ.get("REDIS_URL", "").strip()
         env_e2e_redis = os.environ.get("REDIS_E2E_URL", "").strip()
         if env_redis and env_e2e_redis and env_redis != env_e2e_redis:
-            raise RuntimeError(
-                "REDIS SAFETY ABORT: Conflicting REDIS_URL and REDIS_E2E_URL "
-                f"('{env_redis}' vs '{env_e2e_redis}'). Use single REDIS_URL."
+            raise E2ESafetyError(
+                "REDIS SAFETY ABORT: Conflicting REDIS_URL and REDIS_E2E_URL. Use single REDIS_URL."
             )
         resolved = env_e2e_redis or env_redis or self.redis_url
         # Validate eagerly so misconfiguration fails fast.
@@ -281,6 +297,7 @@ class E2EHarness:
         self._verified_redis_host: str | None = None
         self._verified_redis_port: int | None = None
         self._verified_redis_db: int | None = None
+        self._redis_owner_token: str | None = None
 
     def _resolve_and_validate_db_url(self) -> str:
         """Resolve database URL and enforce strict structural safety."""
@@ -293,9 +310,8 @@ class E2EHarness:
         # Environment safety check (also inside validator, kept for clarity).
         app_env = os.environ.get("APP_ENV", "").strip().lower()
         if app_env == "production":
-            raise RuntimeError(
-                "ENVIRONMENT SAFETY ABORT: APP_ENV is set to 'production'. "
-                "Refusing to execute E2E harness in production mode."
+            raise E2ESafetyError(
+                "ENVIRONMENT SAFETY ABORT: APP_ENV is production. Refusing E2E harness."
             )
         return url
 
@@ -303,30 +319,42 @@ class E2EHarness:
         """Connect read-only and verify SELECT current_database() matches parsed URL.
 
         Must run BEFORE migrations/TRUNCATE. Sets immutable verified state.
+        Failure messages are credential-safe (no URL, password, query).
         """
         parsed = validate_e2e_db_url(self.db_url)
         expected_db: str = parsed.database or ""
-        # Use a short-lived engine for verification if main engine not yet ready.
-        engine = create_async_engine(self.db_url, echo=False)
         try:
-            async with engine.connect() as conn:
-                res = await conn.execute(text("SELECT current_database()"))
-                actual = res.scalar()
+            engine = create_async_engine(self.db_url, echo=False)
+        except Exception as exc:
+            raise E2ESafetyError(
+                "DATABASE SAFETY ABORT: PostgreSQL connection target is not an E2E target."
+            ) from exc
+        try:
+            try:
+                async with engine.connect() as conn:
+                    res = await conn.execute(text("SELECT current_database()"))
+                    actual = res.scalar()
+            except Exception as exc:
+                raise E2ESafetyError(
+                    "DATABASE SAFETY ABORT: PostgreSQL connection target is not reachable as E2E target."
+                ) from exc
             if actual != expected_db:
-                raise RuntimeError(
-                    "DATABASE SAFETY ABORT: "
-                    f"SELECT current_database()='{actual}' != parsed URL.database='{expected_db}'. Refusing."
+                raise E2ESafetyError(
+                    "DATABASE SAFETY ABORT: PostgreSQL connection target does not match configured database."
                 )
             if not E2E_DB_PATTERN.match(str(actual)):
-                raise RuntimeError(
-                    f"DATABASE SAFETY ABORT: actual database '{actual}' fails strict E2E prefix policy."
+                raise E2ESafetyError(
+                    "DATABASE SAFETY ABORT: PostgreSQL database name is not an E2E target."
                 )
             self._database_verified = True
             self._verified_db_name = str(actual)
             self._verified_db_host = parsed.host
             self._verified_db_port = parsed.port or 5432
         finally:
-            await engine.dispose()
+            try:
+                await engine.dispose()
+            except Exception:
+                pass
 
     async def setup(self) -> None:
         """Prepare database, redis, backend process, and bootstrap superadmin."""
@@ -357,7 +385,11 @@ class E2EHarness:
         await self._start_backend()
 
     async def _verify_redis_dedicated_empty(self) -> None:
-        """Ensure Redis target is allowed, exact DB, and EMPTY. Refuse otherwise."""
+        """Ensure Redis target is allowed, exact DB, and EMPTY. Refuse otherwise.
+
+        Credential-safe: never echoes URL, password, or query. Includes ownership
+        token creation for stronger cleanup ownership (no credentials/PII in token).
+        """
         info = validate_redis_url(self.redis_url)
         host, port, db = info["host"], info["port"], info["db"]
         try:
@@ -370,21 +402,36 @@ class E2EHarness:
                     await r.aclose()
                 except Exception:
                     pass
+        except E2ESafetyError:
+            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"REDIS CONNECTIVITY FAILED for host={host} port={port} db={db}: {exc}. "
-                "Ensure Redis is running."
+            raise E2ESafetyError(
+                "REDIS SAFETY ABORT: Redis E2E target is not reachable."
             ) from exc
         if size != 0:
-            raise RuntimeError(
-                f"REDIS SAFETY ABORT: Redis DB host={host} port={port} db={db} "
-                f"is not empty (DBSIZE={size}). Refusing to run on non-dedicated DB."
+            raise E2ESafetyError(
+                "REDIS SAFETY ABORT: Redis E2E database is not empty."
             )
         self._redis_verified = True
         self._redis_dedicated = True
         self._verified_redis_host = host
         self._verified_redis_port = port
         self._verified_redis_db = db
+        # Ownership token (no credentials/PII): proves this run owns the namespace.
+        # Created only after empty verification; verified again before FLUSHDB.
+        try:
+            self._redis_owner_token = f"cashback:e2e:owner:{secrets.token_hex(8)}"
+            rc = aioredis.from_url(self.redis_url, decode_responses=True)
+            try:
+                await rc.set(self._redis_owner_token, "1", nx=True, ex=3600)
+            finally:
+                try:
+                    await rc.aclose()
+                except Exception:
+                    pass
+        except Exception:
+            # If marker creation fails, keep dedicated flag but no token (cleanup refuses flush).
+            self._redis_owner_token = None
 
     async def _verify_and_flush_redis(self) -> None:
         """Backward-compat entry: now verifies dedicated-empty (no arbitrary flush)."""
@@ -393,7 +440,7 @@ class E2EHarness:
     def _run_alembic_migrations(self) -> None:
         """Apply all Alembic migrations up to head."""
         if not self._database_verified:
-            raise RuntimeError("DATABASE SAFETY ABORT: migrations require verified database target.")
+            raise E2ESafetyError("DATABASE SAFETY ABORT: migrations require verified database target.")
         info = safe_db_info(self.db_url)
         logger.info(
             "Applying Alembic migrations to host=%s port=%s db=%s...",
@@ -429,18 +476,19 @@ class E2EHarness:
             check=False,
         )
         if res.returncode != 0:
-            raise RuntimeError(
-                f"Alembic upgrade failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+            # Credential-safe: alembic output may echo connection targets; do not propagate raw.
+            raise E2ESafetyError(
+                "DATABASE SAFETY ABORT: Alembic upgrade failed for E2E target."
             )
 
     async def clean_database_tables(self) -> None:
         """Truncate all application data tables to ensure hermetic state."""
         if not self._database_verified:
-            raise RuntimeError(
-                "DATABASE SAFETY ABORT: clean_database_tables requires verified database target. Refusing."
+            raise E2ESafetyError(
+                "DATABASE SAFETY ABORT: clean_database_tables requires verified database target."
             )
         if self._engine is None:
-            raise RuntimeError("DATABASE SAFETY ABORT: DB engine not initialized.")
+            raise E2ESafetyError("DATABASE SAFETY ABORT: DB engine not initialized.")
         async with self._engine.begin() as conn:
             await conn.execute(
                 text(
@@ -647,23 +695,28 @@ class E2EHarness:
                 self._engine = None
         self._sessionmaker = None
 
-        # 3. Clean Redis test db ONLY if dedicated verified same target.
+        # 3. Clean Redis test db ONLY if dedicated verified same target + ownership token.
+        # Refuses FLUSHDB if marker missing/different (stronger than boolean alone).
         try:
             if self._redis_dedicated and self._redis_verified:
                 try:
                     current = validate_redis_url(self.redis_url)
                 except Exception:
                     current = None
-                if (
+                same_target = (
                     current
                     and current["host"] == self._verified_redis_host
                     and current["port"] == self._verified_redis_port
                     and current["db"] == self._verified_redis_db
-                ):
+                )
+                token = getattr(self, "_redis_owner_token", None)
+                if same_target and token:
                     try:
-                        r = aioredis.from_url(self.redis_url)
+                        r = aioredis.from_url(self.redis_url, decode_responses=True)
                         try:
-                            await r.flushdb()
+                            marker = await r.get(token)
+                            if marker == "1":
+                                await r.flushdb()
                         finally:
                             try:
                                 await r.aclose()
@@ -676,6 +729,10 @@ class E2EHarness:
         finally:
             self._redis_dedicated = False
             self._redis_verified = False
+            try:
+                self._redis_owner_token = None
+            except Exception:
+                pass
 
         # 4. Remove temp directory
         try:
