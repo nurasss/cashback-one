@@ -68,21 +68,27 @@ def _abort(prefix: str, msg: str) -> E2ESafetyError:
     return E2ESafetyError(f"{prefix}: {msg}")
 
 
-def validate_e2e_db_url(url: str) -> Any:
+def validate_e2e_db_url(url: Any) -> Any:
     """Structurally validate canonical E2E PostgreSQL URL.
 
+    Accepts string DSN or SQLAlchemy URL object (preferred, avoids masked-str round-trip).
     Returns SQLAlchemy URL object on success, raises E2ESafetyError on reject.
     All failure messages are credential-safe (no raw URL, password, query, username).
     """
-    if not url or not url.strip():
-        raise _abort("DATABASE SAFETY ABORT", "Empty database URL.")
-    raw = url.strip()
-    try:
-        parsed = make_url(raw)
-    except Exception as exc:
-        raise _abort(
-            "DATABASE SAFETY ABORT", "PostgreSQL connection URL is not an E2E target."
-        ) from exc
+    from sqlalchemy.engine.url import URL as _SAURL
+
+    if isinstance(url, _SAURL):
+        parsed = url
+    else:
+        if not url or not str(url).strip():
+            raise _abort("DATABASE SAFETY ABORT", "Empty database URL.")
+        raw = str(url).strip()
+        try:
+            parsed = make_url(raw)
+        except Exception as exc:
+            raise _abort(
+                "DATABASE SAFETY ABORT", "PostgreSQL connection URL is not an E2E target."
+            ) from exc
 
     driver = (parsed.drivername or "").lower()
     if driver != "postgresql+asyncpg":
@@ -131,10 +137,12 @@ def validate_e2e_db_url(url: str) -> Any:
     return parsed
 
 
-def safe_db_info(url: str) -> dict[str, Any]:
+def safe_db_info(url: Any) -> dict[str, Any]:
     """Return safe display components (host/port/name) without credentials."""
+    from sqlalchemy.engine.url import URL as _SAURL
+
     try:
-        parsed = make_url(url.strip())
+        parsed = url if isinstance(url, _SAURL) else make_url(str(url).strip())
     except Exception as exc:
         raise _abort(
             "DATABASE SAFETY ABORT", "PostgreSQL connection URL is not an E2E target."

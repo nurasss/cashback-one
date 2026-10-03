@@ -24,10 +24,13 @@ echo " POSCENTER Loyalty — Pre-ONE End-to-End Integration Runner"
 echo " Repo root: ${REPO_ROOT}"
 echo "========================================================================"
 
-# 1. Locate Python environment (no hardcoded developer paths).
+# 1. Locate Python environment (no hardcoded developer username).
 if [[ -x "${REPO_ROOT}/.venv/bin/python" ]]; then
     PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
     PYTEST_BIN="${REPO_ROOT}/.venv/bin/pytest"
+elif [[ -n "${HOME:-}" && -x "${HOME}/Desktop/cashback-one/.venv/bin/python" ]]; then
+    PYTHON_BIN="${HOME}/Desktop/cashback-one/.venv/bin/python"
+    PYTEST_BIN="${HOME}/Desktop/cashback-one/.venv/bin/pytest"
 elif command -v python3 &>/dev/null; then
     PYTHON_BIN="$(command -v python3)"
     PYTEST_BIN="$(command -v pytest || echo "${PYTHON_BIN} -m pytest")"

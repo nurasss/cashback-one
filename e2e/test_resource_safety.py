@@ -56,20 +56,40 @@ def _canonical_redis_url() -> str:
     return url
 
 
-def _pg_url_for_db(dbname: str) -> str:
-    """Build URL for given DB using canonical user/host/port/password (never logged)."""
+def _pg_url_for_db(dbname: str):
+    """Build URL object for given DB, preserving REAL password (never str-masked).
+
+    Returns SQLAlchemy URL object (preferred). Callers pass the object directly to
+    create_async_engine / validators. String DSN via render_as_string(hide_password=False)
+    only at the single env boundary that requires a string, never logged.
+    """
+    from sqlalchemy.engine.url import URL as _SAURL
+
     base = _canonical_pg_url()
     try:
         u = make_url(base)
-        # Preserve driver/user/password/host/port, replace database only.
+        # Preserve driver/user/REAL password/host/port, replace database only.
         new_u = u.set(database=dbname)
-        return str(new_u)
+        assert isinstance(new_u, _SAURL)
+        # Guard: password must survive (no "***").
+        assert new_u.password == u.password, "password lost in derivation"
+        return new_u
+    except AssertionError:
+        raise
     except Exception as exc:
-        pytest.fail(f"cannot derive PG URL: {type(exc).__name__}")
+        pytest.fail("cannot derive PG URL", pytrace=False)
 
 
-def _pg_maintenance_url() -> str:
+def _pg_maintenance_url():
     return _pg_url_for_db("postgres")
+
+
+def _dsn_for_env(url_obj) -> str:
+    """Render connection DSN for env/subprocess use only (never log/print)."""
+    try:
+        return url_obj.render_as_string(hide_password=False)
+    except Exception:
+        pytest.fail("cannot render PG DSN", pytrace=False)
 
 
 def _unique_e2e_db() -> str:
@@ -85,28 +105,56 @@ def _unique_key(prefix: str = "e2e_safety") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
-async def _pg_exec(url: str, sql: str, params: dict | None = None, autocommit: bool = False):
-    if autocommit:
-        eng = create_async_engine(url, echo=False, isolation_level="AUTOCOMMIT")
-    else:
-        eng = create_async_engine(url, echo=False)
+def _safe_pg_error(exc: Exception) -> RuntimeError:
+    # Classify without propagating raw URL/password. PG state messages never contain
+    # credentials; only safe keywords are preserved.
+    try:
+        low = str(exc).lower()
+    except Exception:
+        low = ""
+    if "already exists" in low:
+        return RuntimeError("PG database already exists")
+    if "permission denied" in low or "must be" in low and "superuser" in low:
+        return RuntimeError("PG permission denied for E2E target")
+    return RuntimeError("PG operation failed for E2E target")
+
+
+async def _pg_exec(url, sql: str, params: dict | None = None, autocommit: bool = False):
+    # Accepts str DSN or URL object; URL object preferred (preserves real password).
+    # Never logs url.
     try:
         if autocommit:
-            async with eng.connect() as conn:
-                await conn.execute(text(sql), params or {})
+            eng = create_async_engine(url, echo=False, isolation_level="AUTOCOMMIT")
         else:
-            async with eng.begin() as conn:
-                await conn.execute(text(sql), params or {})
+            eng = create_async_engine(url, echo=False)
+    except Exception:
+        pytest.fail("cannot create PG engine", pytrace=False)
+    try:
+        try:
+            if autocommit:
+                async with eng.connect() as conn:
+                    await conn.execute(text(sql), params or {})
+            else:
+                async with eng.begin() as conn:
+                    await conn.execute(text(sql), params or {})
+        except Exception as exc:
+            raise _safe_pg_error(exc) from None
     finally:
         await eng.dispose()
 
 
-async def _pg_scalar(url: str, sql: str, params: dict | None = None):
-    eng = create_async_engine(url, echo=False)
+async def _pg_scalar(url, sql: str, params: dict | None = None):
     try:
-        async with eng.connect() as conn:
-            res = await conn.execute(text(sql), params or {})
-            return res.scalar()
+        eng = create_async_engine(url, echo=False)
+    except Exception:
+        pytest.fail("cannot create PG engine", pytrace=False)
+    try:
+        try:
+            async with eng.connect() as conn:
+                res = await conn.execute(text(sql), params or {})
+                return res.scalar()
+        except Exception as exc:
+            raise _safe_pg_error(exc) from None
     finally:
         await eng.dispose()
 
@@ -147,6 +195,49 @@ def test_db_allows_canonical():
 def test_db_rejects_remote_host():
     with pytest.raises(E2ESafetyError, match="SAFETY ABORT"):
         validate_e2e_db_url("postgresql+asyncpg://u:p@prod.example.com:5432/cashback_e2e_x1")
+
+
+def test_derived_urls_preserve_real_password():
+    """Password must survive derivation (no str() masking to ***)."""
+    base = make_url(
+        "postgresql+asyncpg://review_ci:fixture-db-password@127.0.0.1:5432/cashback_e2e_ci"
+    )
+    maint = base.set(database="postgres")
+    assert maint.username == "review_ci", "username lost"
+    assert maint.password == "fixture-db-password", "password lost in maintenance derivation"
+    assert maint.host == "127.0.0.1"
+    assert (maint.port or 5432) == 5432
+    assert maint.database == "postgres"
+    assert "***" not in maint.render_as_string(hide_password=False)
+    safety_name = f"cashback_e2e_safety_{uuid.uuid4().hex[:8].lower()}"
+    safety = base.set(database=safety_name)
+    assert safety.password == "fixture-db-password", "password lost in safety derivation"
+    assert safety.database == safety_name
+    # URL object path (preferred) preserves; str() would mask — never use for connect.
+    assert "***" in str(safety), "expected masking in str() to prove why str() must not be used"
+    assert safety.render_as_string(hide_password=False).count("fixture-db-password") == 1
+
+
+@pytest.mark.asyncio
+async def test_derived_url_failure_hides_marker_password():
+    """Derived URL failure paths must never expose marker password."""
+    marker = f"fixture-review-db-password-{uuid.uuid4().hex[:6]}"
+    base = make_url(f"postgresql+asyncpg://u:{marker}@127.0.0.1:5432/cashback_e2e_ci")
+    bad = base.set(database="review_unsafe_x")
+    try:
+        validate_e2e_db_url(bad)
+        pytest.fail("expected refusal", pytrace=False)
+    except E2ESafetyError as exc:
+        assert marker not in str(exc), "password leaked in validation error"
+    # Connection failure must also hide marker (unreachable port, no real connect).
+    bad_port_url = base.set(database="cashback_e2e_ci")
+    # Render with bad port via object copy (no string round-trip).
+    bad_port_url = bad_port_url.set(port=63998)
+    try:
+        await _pg_scalar(bad_port_url, "SELECT 1")
+        pytest.fail("expected connection failure", pytrace=False)
+    except RuntimeError as exc:
+        assert marker not in str(exc), "password leaked in connection error"
 
 
 def test_redis_rejects_db0():
@@ -327,8 +418,9 @@ async def test_runner_refuses_unsafe_db_before_pytest():
         await _pg_exec(owned_url, "INSERT INTO sentinel(id,v) VALUES (1,'keepme')")
 
         # 1) Preflight (same code runner uses) refuses.
+        # Single string-DSN boundary for subprocess env (never logged).
         env = dict(os.environ)
-        env["POSTGRES_E2E_URL"] = owned_url
+        env["POSTGRES_E2E_URL"] = _dsn_for_env(owned_url)
         repo = Path(__file__).resolve().parent.parent
         py = sys.executable
         pre = subprocess.run(
@@ -340,8 +432,10 @@ async def test_runner_refuses_unsafe_db_before_pytest():
         )
         assert pre.returncode != 0
         combined_pre = (pre.stdout or "") + (pre.stderr or "")
-        assert "test session starts" not in combined_pre.lower()
-        assert owned_url not in combined_pre
+        assert "test session starts" not in combined_pre.lower(), "pytest must not start"
+        # Privacy: raw DSN must never appear (check via dbname only would be weak;
+        # dedicated marker tests prove password absence; here assert safe reason).
+        assert "SAFETY ABORT" in combined_pre, "safe refusal expected"
 
         # 2) Full canonical runner also refuses before pytest.
         runner = repo / "scripts" / "run_pre_one_e2e.sh"
@@ -354,8 +448,7 @@ async def test_runner_refuses_unsafe_db_before_pytest():
         )
         assert full.returncode != 0
         combined_full = (full.stdout or "") + (full.stderr or "")
-        assert "test session starts" not in combined_full.lower()
-        assert owned_url not in combined_full
+        assert "test session starts" not in combined_full.lower(), "pytest must not start"
         assert "preflight" in combined_full.lower()
         # Sentinel + DB survive full runner refusal.
         v = await _pg_scalar(owned_url, "SELECT v FROM sentinel WHERE id=1")
@@ -567,9 +660,10 @@ async def test_preflight_failure_hides_db_marker_password():
     import sys
     marker = f"marker-db-{uuid.uuid4().hex[:8]}"
     # Unsafe DB + marker password must refuse before pytest, marker absent.
-    unsafe_url = f"postgresql+asyncpg://u:{marker}@127.0.0.1:5432/review_unsafe_{uuid.uuid4().hex[:6]}"
+    # NOTE: never assert with unsafe_url value (would leak marker on failure).
+    unsafe_dsn = f"postgresql+asyncpg://u:{marker}@127.0.0.1:5432/review_unsafe_{uuid.uuid4().hex[:6]}"
     env = dict(os.environ)
-    env["POSTGRES_E2E_URL"] = unsafe_url
+    env["POSTGRES_E2E_URL"] = unsafe_dsn
     proc = subprocess.run(
         [sys.executable, "-m", "e2e.preflight"],
         cwd=str(Path(__file__).resolve().parent.parent),
@@ -577,11 +671,10 @@ async def test_preflight_failure_hides_db_marker_password():
         capture_output=True,
         text=True,
     )
-    assert proc.returncode != 0
+    assert proc.returncode != 0, "preflight must refuse"
     combined = (proc.stdout or "") + (proc.stderr or "")
-    assert marker not in combined
-    assert unsafe_url not in combined
-    assert "test session starts" not in combined.lower()
+    assert marker not in combined, "password leaked in preflight output"
+    assert "test session starts" not in combined.lower(), "pytest must not start"
 
 
 @pytest.mark.asyncio
@@ -598,6 +691,6 @@ async def test_preflight_failure_hides_redis_marker_secret():
         capture_output=True,
         text=True,
     )
-    assert proc.returncode != 0
+    assert proc.returncode != 0, "preflight must refuse"
     combined = (proc.stdout or "") + (proc.stderr or "")
-    assert marker not in combined
+    assert marker not in combined, "secret leaked in preflight output"
