@@ -397,6 +397,12 @@ def test_nginx_access_log_no_raw_paths_and_authoritative_tls() -> None:
     assert "$query_string" not in nginx_conf
     assert "$http_referer" not in nginx_conf
 
+    # Nginx error log must strictly use safe severity threshold (alert, crit, emerg) on stderr
+    assert "error_log stderr alert;" in nginx_conf or "error_log stderr crit;" in nginx_conf or "error_log stderr emerg;" in nginx_conf
+    for forbidden_level in ("warn", "error", "notice", "info", "debug"):
+        assert f"error_log  /var/log/nginx/error.log {forbidden_level};" not in nginx_conf
+        assert f"error_log stderr {forbidden_level};" not in nginx_conf
+
     # Authoritative TLS Model A: Nginx sets X-Forwarded-Proto to $scheme
     assert "proxy_set_header X-Forwarded-Proto $scheme;" in default_conf
     assert "map $http_x_forwarded_proto" not in default_conf
@@ -492,5 +498,23 @@ def test_https_spoof_rejected_by_admin_transport() -> None:
     with pytest.raises(AppError) as exc_info:
         require_admin_transport(req_proxy_http)
     assert exc_info.value.code == "ADMIN_HTTPS_REQUIRED"
+
+
+def test_nginx_runtime_log_privacy_zero_leakage() -> None:
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    if not shutil.which("nginx"):
+        pytest.skip("nginx binary not installed; runtime privacy probe skipped.")
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    script_path = repo_root / "scripts" / "test_nginx_log_privacy.sh"
+    assert script_path.exists(), f"Missing {script_path}"
+
+    res = subprocess.run([str(script_path)], capture_output=True, text=True, check=False)
+    assert res.returncode == 0, f"Nginx privacy test failed:\nStdout: {res.stdout}\nStderr: {res.stderr}"
+    assert "SUCCESS: All Nginx log sinks verified clean" in res.stdout
+
 
 

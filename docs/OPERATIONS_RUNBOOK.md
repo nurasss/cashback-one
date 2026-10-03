@@ -56,6 +56,7 @@ The application provides two standard HTTP endpoints:
 - **Framework Route Templates**: Backend logs include normalized route templates (`route`, e.g. `/admin/cards/{card_id}`), never raw request paths containing customer IDs or query strings. Unmatched/404 requests log `"<unmatched>"`.
 - **Exception Hygiene**: In production, unhandled 500 exceptions emit `event="unhandled_request_exception"` with `exc_info=False`. Tracebacks, exception arguments, SQL queries, and potential secrets are completely suppressed from production logs.
 - **Proxy Access Logs**: Nginx access logs omit `$uri`, `$request_uri`, `$args`, `$query_string`, and `$http_referer` to prevent query string and credential leaks.
+- **Proxy Error Log Policy**: Production Nginx error logging intentionally uses a severity threshold (`error_log stderr alert;`) that suppresses request-dependent proxy errors (upstream unavailable, 502, 504, connection refused, proxy timeout, unknown paths). Nginx's C-level standard error formatter automatically writes raw request lines, URIs, and query strings on `error` level proxy events and cannot be customized with a redaction format. Operational detection of backend and upstream failures is handled via `/health/live`, `/health/ready`, safe access logs, container health status, and monitoring.
 - **Inspecting logs**:
   ```bash
   # View backend logs
