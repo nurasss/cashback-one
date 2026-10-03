@@ -179,7 +179,7 @@ def get_effective_scheme(request: Request) -> str:
 def is_explicit_dev_http(request: Request) -> bool:
     return (
         get_effective_scheme(request) == "http"
-        and settings.app_env.lower() == "development"
+        and settings.app_env.lower() in {"development", "test"}
         and settings.admin_allow_insecure_http
     )
 

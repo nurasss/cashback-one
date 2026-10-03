@@ -203,3 +203,55 @@ jobs:
       - name: Validate Compose File Syntax
         run: |
           docker compose -f deploy/compose.prod-smoke.yml config --quiet
+
+  pre-one-e2e:
+    name: Pre-ONE End-to-End Integration Harness
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: poscenter_loyalty_test
+          POSTGRES_USER: loyalty
+          POSTGRES_PASSWORD: fixture-ci-postgres-password-12345
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./backend[dev]"
+          pip install -e "./agent"
+
+      - name: Run Pre-ONE E2E Suite
+        env:
+          POSTGRES_E2E_URL: postgresql+asyncpg://loyalty:fixture-ci-postgres-password-12345@127.0.0.1:5432/poscenter_loyalty_test
+          REDIS_URL: redis://127.0.0.1:6379/14
+        run: |
+          chmod +x scripts/run_pre_one_e2e.sh
+          ./scripts/run_pre_one_e2e.sh
+
