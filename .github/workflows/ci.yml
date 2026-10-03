@@ -211,7 +211,7 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: poscenter_loyalty_test
+          POSTGRES_DB: cashback_e2e_ci
           POSTGRES_USER: loyalty
           POSTGRES_PASSWORD: fixture-ci-postgres-password-12345
         ports:
@@ -249,7 +249,7 @@ jobs:
 
       - name: Run Pre-ONE E2E Suite
         env:
-          POSTGRES_E2E_URL: postgresql+asyncpg://loyalty:fixture-ci-postgres-password-12345@127.0.0.1:5432/poscenter_loyalty_test
+          POSTGRES_E2E_URL: postgresql+asyncpg://loyalty:fixture-ci-postgres-password-12345@127.0.0.1:5432/cashback_e2e_ci
           REDIS_URL: redis://127.0.0.1:6379/14
         run: |
           chmod +x scripts/run_pre_one_e2e.sh

@@ -94,6 +94,7 @@ To execute the test suite:
 ```
 
 Prerequisites:
-- PostgreSQL 16 running on port 5432 (default db: `poscenter_loyalty_e2e_test`)
-- Redis 7 running on port 6379 (db: 14)
+- PostgreSQL 16 running on port 5432 (canonical db: `cashback_e2e_local` locally, `cashback_e2e_ci` in CI; strict `cashback_e2e_` prefix required, no query overrides, `SELECT current_database()` verified before migrations)
+- Redis 7 running on port 6379 (dedicated non-zero db: 14 via single `REDIS_URL`; DB must be empty, DB0 rejected, no arbitrary FLUSHDB)
 - Python environment with requirements installed
+- Backend runs in `development` mode with ephemeral secrets so real RedisRateLimiter is exercised

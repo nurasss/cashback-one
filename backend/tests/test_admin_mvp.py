@@ -45,7 +45,7 @@ from app.services.admin_security import (
     sanitize_agent_error,
     verify_admin_password,
 )
-from app.services.rate_limiter import _test_limiter
+from app.services.rate_limiter import _test_limiter, get_rate_limiter
 
 ORIGIN_HEADERS = {"Origin": "https://admin.test", "X-Admin-Request": "1"}
 TEST_PASSWORD = "test-fixture-passphrase-123"
@@ -61,6 +61,8 @@ async def admin_client(db_session: AsyncSession):
     async def override_session():
         yield db_session
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_rate_limiter] = lambda: _test_limiter  # type: ignore[return-value]
+    _test_limiter.reset()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://admin.test") as client:
         yield client
     app.dependency_overrides.clear()

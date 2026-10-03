@@ -19,8 +19,9 @@ from e2e.harness import E2EHarness
 async def e2e_harness() -> AsyncGenerator[E2EHarness, None]:
     """Provide a running real backend HTTP, PostgreSQL and Redis test harness."""
     harness = E2EHarness()
-    await harness.setup()
     try:
+        await harness.setup()
         yield harness
     finally:
-        await harness.teardown()
+        # Executes even if setup() raises after partial resource allocation.
+        await harness.cleanup()

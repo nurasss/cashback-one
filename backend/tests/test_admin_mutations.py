@@ -22,6 +22,7 @@ from app.services.admin_security import (
     hash_admin_password,
 )
 from app.services.agent_auth import hash_agent_key
+from app.services.rate_limiter import _test_limiter, get_rate_limiter
 
 ORIGIN_HEADERS = {"Origin": "https://admin.test", "X-Admin-Request": "1"}
 TEST_PASSWORD = "fixture-admin-mutations-password"
@@ -119,6 +120,8 @@ async def mutation_client(db_session: AsyncSession):
         yield db_session
 
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_rate_limiter] = lambda: _test_limiter  # type: ignore[return-value]
+    _test_limiter.reset()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://admin.test") as client:
         yield client
     app.dependency_overrides.clear()

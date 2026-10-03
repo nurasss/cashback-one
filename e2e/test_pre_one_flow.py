@@ -1,4 +1,4 @@
-"""Pre-ONE End-to-End Integration Flow Tests (TASK-013).
+"""Pre-ONE End-to-End Integration Flow Tests (TASK-013 FIX-A).
 
 Comprehensive verification of:
 1. Superadmin real HTTP login, Business A creation, Agent A creation.
@@ -7,18 +7,20 @@ Comprehensive verification of:
 4. Real Customer WhatsApp reverse login flow (challenge, simulated inbound Wappi webhook, token exchange).
 5. Customer Wallet auto-binding, 13-digit barcode integrity, balance, and transaction history.
 6. Second sync updating balance and appending Transaction T2.
-7. Idempotency: duplicate sync produces no duplicate cards or transactions.
-8. Multi-tenant Business B & Agent B isolation.
-9. Agent tenant isolation (tenant derived from authenticated agent key).
-10. Customer tenant isolation (customer only sees bound cards).
-11. Manager tenant isolation over HTTP (agents, cards, businesses 403).
-12. Superadmin aggregate dashboard & cross-tenant visibility.
-13. Durable full-resync command pending status.
-14. Agent revocation (rejected with 401).
-15. Agent key rotation (old rejected, new accepted).
-16. Fault & Retry: failed sync preserves cursor; retry succeeds cleanly.
-17. Agent restart: reloads cursors from SQLite without re-sync.
-18. Log privacy scan: zero raw secrets/credentials in backend logs.
+7. Idempotency via REAL redelivery of same non-empty batch (fresh Agent state, same stable IDs).
+8. T3 failure/retry/replay with real HTTP failure and exact PostgreSQL counts.
+9. Multi-tenant Business B & Agent B isolation.
+10. Agent tenant isolation (tenant derived from authenticated agent key).
+11. Customer tenant isolation (customer only sees bound cards).
+12. Manager tenant isolation over HTTP (agents, cards, businesses 403).
+13. Superadmin aggregate dashboard & cross-tenant visibility.
+14. Durable full-resync command pending status.
+15. Agent revocation (rejected with 401).
+16. Agent key rotation (old rejected, new accepted).
+17. Fault & Retry: failed sync preserves cursor; retry succeeds cleanly.
+18. Agent restart: reloads cursors from SQLite without re-sync.
+19. Real Redis rate limiter proof (keys observed, outage fail-closed).
+20. Log privacy scan: zero raw secrets/credentials in backend logs (full-flow).
 """
 
 from __future__ import annotations
@@ -31,11 +33,14 @@ from uuid import UUID
 
 import httpx
 import pytest
+import redis.asyncio as aioredis
 from poscenter_loyalty_agent.cloud_client import CloudAuthError, HttpCloudClient
 from poscenter_loyalty_agent.config import AgentSettings
 from poscenter_loyalty_agent.models import CardSyncItem, HeartbeatPayload, TransactionSyncItem
 from poscenter_loyalty_agent.runtime import AgentRuntime
 from poscenter_loyalty_agent.state_store import StateStore
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
 from e2e.harness import E2EHarness
 from e2e.source import TestLoyaltySource
@@ -43,6 +48,50 @@ from e2e.source import TestLoyaltySource
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# Direct PostgreSQL helpers (exact counts, no >=)
+# ---------------------------------------------------------------------------
+
+async def _pg_scalar(harness: E2EHarness, sql: str, params: dict | None = None):
+    async with harness._sessionmaker() as session:
+        res = await session.execute(text(sql), params or {})
+        return res.scalar()
+
+
+async def pg_card_count(harness: E2EHarness, barcode: str) -> int:
+    v = await _pg_scalar(harness, "SELECT COUNT(*) FROM cards WHERE barcode = :b", {"b": barcode})
+    return int(v or 0)
+
+
+async def pg_tx_count(harness: E2EHarness, external_id: str) -> int:
+    v = await _pg_scalar(
+        harness, "SELECT COUNT(*) FROM transactions WHERE external_id = :e", {"e": external_id}
+    )
+    return int(v or 0)
+
+
+async def pg_tx_count_for_barcode(harness: E2EHarness, barcode: str) -> int:
+    v = await _pg_scalar(
+        harness,
+        "SELECT COUNT(*) FROM transactions t JOIN cards c ON c.id = t.card_id WHERE c.barcode = :b",
+        {"b": barcode},
+    )
+    return int(v or 0)
+
+
+async def redis_rate_limit_key_count(harness: E2EHarness) -> int:
+    r = aioredis.from_url(harness.redis_url, decode_responses=True)
+    try:
+        # Dedicated DB started empty; any rate_limit:* keys prove real Redis path.
+        keys = await r.keys("rate_limit:*")
+        return len(keys)
+    finally:
+        try:
+            await r.aclose()
+        except Exception:
+            pass
 
 
 @pytest.mark.asyncio
@@ -174,6 +223,10 @@ async def test_pre_one_e2e_full_chain(e2e_harness: E2EHarness) -> None:
         # Run first sync cycle
         await runtime_a.sync_cycle()
 
+        # Exact DB proof after T1.
+        assert await pg_card_count(e2e_harness, barcode_a) == 1
+        assert await pg_tx_count(e2e_harness, "tx-001") == 1
+
         # Check card in Admin API
         cards_search_resp = await client.post(
             "/admin/cards/search",
@@ -289,6 +342,12 @@ async def test_pre_one_e2e_full_chain(e2e_harness: E2EHarness) -> None:
         # Run second sync cycle
         await runtime_a.sync_cycle()
 
+        # Exact DB proof after T2.
+        assert await pg_card_count(e2e_harness, barcode_a) == 1
+        assert await pg_tx_count(e2e_harness, "tx-001") == 1
+        assert await pg_tx_count(e2e_harness, "tx-002") == 1
+        assert await pg_tx_count_for_barcode(e2e_harness, barcode_a) == 2
+
         # Customer wallet must reflect updated balance and both transactions
         wallet_v2_resp = await client.get("/me/cards", headers=customer_headers)
         assert wallet_v2_resp.status_code == 200
@@ -305,9 +364,43 @@ async def test_pre_one_e2e_full_chain(e2e_harness: E2EHarness) -> None:
         assert tx_ids == {"tx-001", "tx-002"}
 
         # =========================================================================
-        # 9. IDEMPOTENCY: DUPLICATE SYNC PRODUCES NO DUPLICATES
+        # 9. IDEMPOTENCY VIA REAL REDELIVERY OF SAME NON-EMPTY BATCH (FIX-A)
+        # Fresh Agent state + same stable IDs through production Runtime/HTTP.
         # =========================================================================
+        # First prove empty redelivery via same runtime still exact (legacy check).
         await runtime_a.sync_cycle()
+        assert await pg_card_count(e2e_harness, barcode_a) == 1
+        assert await pg_tx_count_for_barcode(e2e_harness, barcode_a) == 2
+
+        # Real non-empty redelivery: new temp state, same Cloud agent/key,
+        # same deterministic source records (stable barcode/external_id).
+        redeliver_state_db = e2e_harness.temp_dir / "agent_a_redeliver.sqlite3"
+        redeliver_source = TestLoyaltySource(
+            cards=[card_a, card_a_v2],
+            transactions=[tx_1, tx_2],
+        )
+        redeliver_store = StateStore(redeliver_state_db)
+        redeliver_settings = AgentSettings(
+            agent_api_key=agent_a_key,
+            agent_cloud_base_url=base_url,
+            agent_state_db_path=redeliver_state_db,
+            agent_version="0.1.0-e2e",
+        )
+        redeliver_client = HttpCloudClient(base_url=base_url, api_key=agent_a_key)
+        redeliver_runtime = AgentRuntime(
+            settings=redeliver_settings,
+            state_store=redeliver_store,
+            cloud_client=redeliver_client,
+            source=redeliver_source,
+        )
+        await redeliver_runtime.sync_cycle()
+        await redeliver_client.close()
+
+        # Exact equality — no duplicates.
+        assert await pg_card_count(e2e_harness, barcode_a) == 1
+        assert await pg_tx_count(e2e_harness, "tx-001") == 1
+        assert await pg_tx_count(e2e_harness, "tx-002") == 1
+        assert await pg_tx_count_for_barcode(e2e_harness, barcode_a) == 2
 
         wallet_idem_resp = await client.get("/me/cards", headers=customer_headers)
         assert len(wallet_idem_resp.json()) == 1
@@ -317,6 +410,74 @@ async def test_pre_one_e2e_full_chain(e2e_harness: E2EHarness) -> None:
             headers=customer_headers,
         )
         assert len(txs_idem_resp.json()["items"]) == 2
+
+        # =========================================================================
+        # 9b. T3 FAILURE / RETRY / REPLAY (FIX-A, real HTTP failure)
+        # =========================================================================
+        tx_3 = TransactionSyncItem(
+            external_id="tx-003",
+            barcode=barcode_a,
+            type="accrual",
+            amount=Decimal("100.0000"),
+            balance_after=Decimal("1450.0000"),
+            occurred_at=card_a_t1_time + timedelta(minutes=10),
+            receipt_ref="rec-003",
+            store="Branch 1",
+        )
+        source_a.add_transaction(tx_3)
+
+        cursor_cards_before = state_store_a.get_cursor("cards")
+        cursor_tx_before = state_store_a.get_cursor("transactions")
+
+        # Genuine HTTP failure AFTER entering real HttpCloudClient path (connection refused).
+        dead_client = HttpCloudClient(base_url="http://127.0.0.1:18999", api_key=agent_a_key)
+        faulty_runtime = AgentRuntime(
+            settings=agent_settings_a,
+            state_store=state_store_a,
+            cloud_client=dead_client,
+            source=source_a,
+        )
+        with pytest.raises(Exception):
+            await faulty_runtime.sync_cycle()
+        await dead_client.close()
+
+        # Failed delivery: T3 absent, cursors unchanged.
+        assert await pg_tx_count(e2e_harness, "tx-003") == 0
+        assert state_store_a.get_cursor("cards") == cursor_cards_before
+        assert state_store_a.get_cursor("transactions") == cursor_tx_before
+
+        # Restore Cloud and retry — T3 created exactly once.
+        await runtime_a.sync_cycle()
+        assert await pg_tx_count(e2e_harness, "tx-003") == 1
+        assert await pg_card_count(e2e_harness, barcode_a) == 1
+        assert await pg_tx_count_for_barcode(e2e_harness, barcode_a) == 3
+        cursor_tx_after_retry = state_store_a.get_cursor("transactions")
+        assert cursor_tx_after_retry != cursor_tx_before
+
+        # Replay same T3 batch via fresh state — still exactly once.
+        replay_state_db = e2e_harness.temp_dir / "agent_a_t3_replay.sqlite3"
+        replay_source = TestLoyaltySource(
+            cards=[card_a, card_a_v2],
+            transactions=[tx_1, tx_2, tx_3],
+        )
+        replay_store = StateStore(replay_state_db)
+        replay_settings = AgentSettings(
+            agent_api_key=agent_a_key,
+            agent_cloud_base_url=base_url,
+            agent_state_db_path=replay_state_db,
+            agent_version="0.1.0-e2e",
+        )
+        replay_client = HttpCloudClient(base_url=base_url, api_key=agent_a_key)
+        replay_runtime = AgentRuntime(
+            settings=replay_settings,
+            state_store=replay_store,
+            cloud_client=replay_client,
+            source=replay_source,
+        )
+        await replay_runtime.sync_cycle()
+        await replay_client.close()
+        assert await pg_tx_count(e2e_harness, "tx-003") == 1
+        assert await pg_tx_count_for_barcode(e2e_harness, barcode_a) == 3
 
         # =========================================================================
         # 10. MULTI-TENANT: BUSINESS B, AGENT B & TENANT ISOLATION
@@ -374,8 +535,12 @@ async def test_pre_one_e2e_full_chain(e2e_harness: E2EHarness) -> None:
             state_store=state_store_b,
             cloud_client=agent_b_client,
             source=source_b,
-        )
+            )
         await runtime_b.sync_cycle()
+
+        # Exact Business B counts.
+        assert await pg_card_count(e2e_harness, barcode_b) == 1
+        assert await pg_tx_count(e2e_harness, "tx-b-001") == 1
 
         # Customer Tenant Isolation: Customer A never receives Card B
         cust_a_wallet = (await client.get("/me/cards", headers=customer_headers)).json()
@@ -487,6 +652,43 @@ async def test_pre_one_e2e_full_chain(e2e_harness: E2EHarness) -> None:
         new_hb = await new_client_a.send_heartbeat(HeartbeatPayload(version="0.1.0-e2e"))
         assert new_hb.status == "ok"
 
+        # =========================================================================
+        # FINAL EXACT POSTGRESQL COUNTS (FIX-A §26)
+        # =========================================================================
+        assert await pg_card_count(e2e_harness, barcode_a) == 1
+        assert await pg_tx_count(e2e_harness, "tx-001") == 1
+        assert await pg_tx_count(e2e_harness, "tx-002") == 1
+        assert await pg_tx_count(e2e_harness, "tx-003") == 1
+        assert await pg_tx_count_for_barcode(e2e_harness, barcode_a) == 3
+        assert await pg_card_count(e2e_harness, barcode_b) == 1
+        assert await pg_tx_count(e2e_harness, "tx-b-001") == 1
+
+        # =========================================================================
+        # FULL-FLOW PRIVACY SCAN (FIX-A §30) — no secrets/PII in backend logs.
+        # =========================================================================
+        try:
+            _db_pwd = make_url(e2e_harness.db_url).password or ""
+        except Exception:
+            _db_pwd = ""
+        _markers = [
+            e2e_harness.config.superadmin_password,
+            e2e_harness.config.jwt_signing_key,
+            e2e_harness.config.admin_jwt_signing_key,
+            e2e_harness.config.auth_challenge_hash_key,
+            e2e_harness.config.sms_otp_hash_key,
+            e2e_harness.config.wappi_secret,
+            _db_pwd,
+            agent_a_key,
+            new_agent_a_key,
+            agent_b_key,
+            phone_a,
+            barcode_a,
+            phone_b,
+            barcode_b,
+        ]
+        _leaks = e2e_harness.scan_logs_for_secrets([m for m in _markers if m])
+        assert not _leaks, "SECURITY LEAK: sensitive markers found in backend log"
+
         # Close agent clients
         await agent_a_client.close()
         await agent_b_client.close()
@@ -495,7 +697,7 @@ async def test_pre_one_e2e_full_chain(e2e_harness: E2EHarness) -> None:
 
 @pytest.mark.asyncio
 async def test_pre_one_e2e_retry_and_cursor_safety(e2e_harness: E2EHarness) -> None:
-    """Verify that transient sync failures do not advance cursor, and retry succeeds cleanly."""
+    """T3 failure/retry/replay with exact PostgreSQL counts and real HTTP failure."""
     base_url = e2e_harness.config.base_url
 
     async with httpx.AsyncClient(base_url=base_url) as client:
@@ -528,7 +730,7 @@ async def test_pre_one_e2e_retry_and_cursor_safety(e2e_harness: E2EHarness) -> N
         )
         agent_key = agent_resp.json()["api_key"]
 
-        # 2. Setup source with initial card
+        # 2. Setup source with T1 + card (stable IDs).
         barcode = "0555555555555"
         now = utcnow()
         card = CardSyncItem(
@@ -547,7 +749,15 @@ async def test_pre_one_e2e_retry_and_cursor_safety(e2e_harness: E2EHarness) -> N
             balance_after=Decimal("100.0000"),
             occurred_at=now - timedelta(minutes=10),
         )
-        source = TestLoyaltySource(cards=[card], transactions=[tx_1])
+        tx_2 = TransactionSyncItem(
+            external_id="retry-tx-2",
+            barcode=barcode,
+            type="accrual",
+            amount=Decimal("50.0000"),
+            balance_after=Decimal("150.0000"),
+            occurred_at=now - timedelta(minutes=5),
+        )
+        source = TestLoyaltySource(cards=[card], transactions=[tx_1, tx_2])
 
         state_db = e2e_harness.temp_dir / "retry_agent.sqlite3"
         agent_settings = AgentSettings(
@@ -565,23 +775,30 @@ async def test_pre_one_e2e_retry_and_cursor_safety(e2e_harness: E2EHarness) -> N
             source=source,
         )
 
-        # First sync succeeds
+        # Existing successful state with T1/T2.
         await runtime.sync_cycle()
+        assert await pg_card_count(e2e_harness, barcode) == 1
+        assert await pg_tx_count(e2e_harness, "retry-tx-1") == 1
+        assert await pg_tx_count(e2e_harness, "retry-tx-2") == 1
         cursor_after_first = state_store.get_cursor("transactions")
         assert cursor_after_first is not None
 
-        # 3. Add second transaction T2
-        tx_2 = TransactionSyncItem(
-            external_id="retry-tx-2",
+        # 3. Add T3, persist cursor before attempt.
+        tx_3 = TransactionSyncItem(
+            external_id="retry-tx-3",
             barcode=barcode,
             type="accrual",
-            amount=Decimal("50.0000"),
-            balance_after=Decimal("150.0000"),
-            occurred_at=now - timedelta(minutes=5),
+            amount=Decimal("25.0000"),
+            balance_after=Decimal("175.0000"),
+            occurred_at=now,
+            receipt_ref="rec-retry-3",
+            store="Retry Main",
         )
-        source.add_transaction(tx_2)
+        source.add_transaction(tx_3)
+        cursor_cards_before = state_store.get_cursor("cards")
+        cursor_tx_before = state_store.get_cursor("transactions")
 
-        # 4. Inject transport failure (point to non-existent port)
+        # 4-5. Real HTTP failure (connection refused via production HttpCloudClient).
         dead_client = HttpCloudClient(base_url="http://127.0.0.1:18999", api_key=agent_key)
         faulty_runtime = AgentRuntime(
             settings=agent_settings,
@@ -589,15 +806,15 @@ async def test_pre_one_e2e_retry_and_cursor_safety(e2e_harness: E2EHarness) -> N
             cloud_client=dead_client,
             source=source,
         )
-
         with pytest.raises(Exception):
             await faulty_runtime.sync_cycle()
 
-        # Cursor MUST NOT advance on failure!
-        cursor_after_fail = state_store.get_cursor("transactions")
-        assert cursor_after_fail == cursor_after_first
+        # 6-7. T3 absent, cursor unchanged.
+        assert await pg_tx_count(e2e_harness, "retry-tx-3") == 0
+        assert state_store.get_cursor("transactions") == cursor_tx_before
+        assert state_store.get_cursor("cards") == cursor_cards_before
 
-        # 5. Restore connection and retry sync
+        # 8-10. Restore Cloud, retry succeeds, T3 exactly once.
         runtime_recovered = AgentRuntime(
             settings=agent_settings,
             state_store=state_store,
@@ -605,17 +822,99 @@ async def test_pre_one_e2e_retry_and_cursor_safety(e2e_harness: E2EHarness) -> N
             source=source,
         )
         await runtime_recovered.sync_cycle()
-
-        # Cursor advanced after successful recovery
+        assert await pg_tx_count(e2e_harness, "retry-tx-3") == 1
+        assert await pg_card_count(e2e_harness, barcode) == 1
         cursor_after_retry = state_store.get_cursor("transactions")
-        assert cursor_after_retry != cursor_after_first
+        assert cursor_after_retry != cursor_tx_before
 
-        # Check in Admin API: T2 was recorded exactly once
-        dash = (await client.get("/admin/dashboard", headers=admin_headers)).json()
-        assert dash["transactions"] >= 2
+        # 11-12. Full logical redelivery of T3 via fresh state — still exactly once.
+        replay_db = e2e_harness.temp_dir / "retry_t3_replay.sqlite3"
+        replay_source = TestLoyaltySource(cards=[card], transactions=[tx_1, tx_2, tx_3])
+        replay_store = StateStore(replay_db)
+        replay_settings = AgentSettings(
+            agent_api_key=agent_key,
+            agent_cloud_base_url=base_url,
+            agent_state_db_path=replay_db,
+            agent_version="0.1.0-e2e",
+        )
+        replay_client = HttpCloudClient(base_url=base_url, api_key=agent_key)
+        replay_runtime = AgentRuntime(
+            settings=replay_settings,
+            state_store=replay_store,
+            cloud_client=replay_client,
+            source=replay_source,
+        )
+        await replay_runtime.sync_cycle()
+        await replay_client.close()
+        assert await pg_tx_count(e2e_harness, "retry-tx-3") == 1
+        assert await pg_tx_count(e2e_harness, "retry-tx-1") == 1
+        assert await pg_tx_count(e2e_harness, "retry-tx-2") == 1
+        assert await pg_card_count(e2e_harness, barcode) == 1
 
         await cloud_client.close()
         await dead_client.close()
+
+
+@pytest.mark.asyncio
+async def test_pre_one_e2e_real_redis_limiter(e2e_harness: E2EHarness) -> None:
+    """Prove canonical auth uses real Redis limiter (keys observed, outage fail-closed)."""
+    base_url = e2e_harness.config.base_url
+
+    # Backend must run in development mode for real Redis (FIX-A).
+    # Harness sets APP_ENV=development; assert to catch regression.
+    assert os.environ.get("APP_ENV", "").lower() == "development"
+
+    async with httpx.AsyncClient(base_url=base_url) as client:
+        # Perform Admin + customer auth requiring rate limiter.
+        login_resp = await client.post(
+            "/admin/auth/login",
+            json={
+                "login": e2e_harness.config.superadmin_login,
+                "password": e2e_harness.config.superadmin_password,
+            },
+            headers={"Origin": base_url, "X-Admin-Request": "1"},
+        )
+        assert login_resp.status_code == 200
+
+        chal = await client.post("/auth/challenge", json={"device_id": "device-redis-proof-1"})
+        assert chal.status_code == 200
+
+        # Observe expected rate-limit keys in dedicated E2E Redis DB.
+        n_keys = await redis_rate_limit_key_count(e2e_harness)
+        assert n_keys >= 1, "Expected rate_limit:* keys in dedicated Redis DB after auth"
+
+        # Readiness is 200 when Redis healthy.
+        ready = await client.get("/health/ready")
+        assert ready.status_code == 200
+
+        # Temporarily make Redis unavailable via CLIENT PAUSE (real outage, auto-recovers).
+        r = aioredis.from_url(e2e_harness.redis_url, decode_responses=True)
+        try:
+            await r.execute_command("CLIENT", "PAUSE", "3000")
+        finally:
+            try:
+                await r.aclose()
+            except Exception:
+                pass
+
+        # Real auth requiring limiter must NOT continue as memory-backed.
+        # During pause it must fail-closed (503 AUTH_RATE_LIMIT_UNAVAILABLE or 429/503).
+        paused_resp = await client.post(
+            "/auth/challenge", json={"device_id": "device-redis-proof-paused"}
+        )
+        # Exact contract follows backend: Redis failure -> 503 fail-closed.
+        # Accept 503 (fail-closed) or 429 only if limiter somehow passed; but it must not be 200
+        # with memory fallback silently succeeding repeatedly. We assert non-200 during outage
+        # OR if 200, then keys must still require Redis (already proven above) — but strict:
+        # during CLIENT PAUSE with 2s socket timeout, Redis eval must timeout -> 503.
+        assert paused_resp.status_code in (429, 503), (
+            f"Expected fail-closed during Redis outage, got {paused_resp.status_code}"
+        )
+
+        # After pause expires, readiness recovers to 200.
+        await asyncio.sleep(3.5)
+        ready2 = await client.get("/health/ready")
+        assert ready2.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -705,12 +1004,19 @@ async def test_pre_one_e2e_agent_restart(e2e_harness: E2EHarness) -> None:
 @pytest.mark.asyncio
 async def test_pre_one_e2e_log_privacy(e2e_harness: E2EHarness) -> None:
     """Scan backend process log to confirm no sensitive credentials or tokens were logged."""
+    try:
+        _db_pwd = make_url(e2e_harness.db_url).password or ""
+    except Exception:
+        _db_pwd = ""
     sensitive_markers = [
         e2e_harness.config.superadmin_password,
         e2e_harness.config.jwt_signing_key,
         e2e_harness.config.admin_jwt_signing_key,
+        e2e_harness.config.auth_challenge_hash_key,
+        e2e_harness.config.sms_otp_hash_key,
         e2e_harness.config.wappi_secret,
+        _db_pwd,
     ]
 
-    leaks = e2e_harness.scan_logs_for_secrets(sensitive_markers)
-    assert not leaks, f"SECURITY LEAK: Sensitive secrets found in backend log: {leaks}"
+    leaks = e2e_harness.scan_logs_for_secrets([m for m in sensitive_markers if m])
+    assert not leaks, "SECURITY LEAK: sensitive secrets found in backend log"

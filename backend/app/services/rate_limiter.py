@@ -20,7 +20,12 @@ class RateLimiter(Protocol):
 
 
 class InMemoryRateLimiter:
-    """Deterministic in-memory rate limiter for tests and development without Redis."""
+    """Deterministic in-memory rate limiter for explicit unit-test injection only.
+
+    Production and E2E runtimes must use RedisRateLimiter. This class is never
+    auto-selected by application runtime; unit tests inject it via
+    FastAPI dependency_overrides.
+    """
 
     def __init__(self) -> None:
         self._records: dict[str, list[float]] = {}
@@ -104,10 +109,12 @@ async def close_redis_client() -> None:
 
 
 def get_rate_limiter(request: Request) -> RateLimiter:
-    """FastAPI dependency to resolve the active rate limiter."""
-    if settings.app_env.lower() == "test":
-        return _test_limiter
+    """FastAPI dependency to resolve the active rate limiter.
 
+    Always Redis-backed in application runtime (including E2E development mode).
+    InMemoryRateLimiter is used only when explicitly injected by unit tests via
+    dependency_overrides. No environment flag selects the memory limiter.
+    """
     if hasattr(request.app.state, "redis") and request.app.state.redis is not None:
         return RedisRateLimiter(request.app.state.redis)
 
