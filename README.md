@@ -37,7 +37,7 @@ POSCENTER ONE (1С) ──COM, только чтение──▶ Агент (Wi
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r backend/requirements.txt -r agent/requirements.txt
+pip install -r backend/requirements.lock -r agent/requirements.lock   # зафиксированные версии (Python 3.11+)
 cp .env.example backend/.env        # заполнить секреты (минимум 32 символа)
 cd backend && alembic upgrade head && uvicorn app.main:app --reload
 ```
@@ -82,5 +82,5 @@ CI (`.github/workflows/ci.yml`) выполняет те же проверки.
 ## Известные ограничения
 
 - Фишинг в WhatsApp-входе (злоумышленник просит жертву «отправить код») закрывается только предупреждением в ответном сообщении, оно зависит от настройки Wappi.
-- Смена телефона карты в 1С не отвязывает карту от прежнего владельца (решение по продукту не принято).
-- Зависимости Python не зафиксированы lock-файлом; у мобильного приложения `npm audit` показывает уязвимости только в инструментах сборки и тестов.
+- Если в 1С у карты меняется телефон, облако при следующей синхронизации отвязывает её от прежнего владельца, чтобы новый мог привязать карту.
+- Lock-файлы Python пересобираются командой `uv pip compile <pyproject> --extra dev --universal --python-version 3.11 -o <файл>.lock`; у мобильного приложения `npm audit` показывает уязвимости только в инструментах сборки и тестов.

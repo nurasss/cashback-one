@@ -6,7 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.entities import Business, Card
+from app.models.entities import Business, Card, User, UserCard
 from app.services.agent_auth import issue_agent_key
 
 
@@ -275,3 +275,88 @@ async def test_cards_sync_batch_size_limit(
     )
     assert res.status_code == 422
     assert res.json()["error"]["code"] == "SYNC_BATCH_TOO_LARGE"
+
+
+async def _push_card(client: AsyncClient, key: str, phone: str | None, hour: int) -> None:
+    res = await client.post(
+        "/agent/sync/cards",
+        headers={"X-Agent-Key": key},
+        json={
+            "cards": [
+                {
+                    "barcode": "0123456789012",
+                    "phone": phone,
+                    "full_name": "Owner",
+                    "balance": "10.0000",
+                    "is_blocked": False,
+                    "updated_at": datetime(2026, 9, 29, hour, 0, 0, tzinfo=UTC).isoformat(),
+                }
+            ]
+        },
+    )
+    assert res.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_cards_sync_phone_change_releases_stale_binding(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """When ONE reassigns a card to another phone, the previous owner's binding is released."""
+    biz = Business(name="Reassign Biz")
+    db_session.add(biz)
+    await db_session.commit()
+    _agent, key = await issue_agent_key(db_session, biz.id)
+    old_owner = User(phone="+77001111111", language="ru")
+    new_owner = User(phone="+77002222222", language="ru")
+    db_session.add_all([old_owner, new_owner])
+    await db_session.commit()
+    new_owner_id = new_owner.id
+
+    await _push_card(client, key, "87001111111", 10)
+    card = await db_session.scalar(select(Card).where(Card.business_id == biz.id))
+    assert card is not None
+    card_id = card.id
+    db_session.add(UserCard(user_id=old_owner.id, card_id=card_id, bind_method="phone_auto"))
+    await db_session.commit()
+
+    # Unchanged phone keeps the binding
+    await _push_card(client, key, "87001111111", 11)
+    assert await db_session.scalar(select(UserCard).where(UserCard.card_id == card_id))
+
+    # Phone reassigned in ONE: old binding released, new owner can bind
+    await _push_card(client, key, "87002222222", 12)
+    db_session.expire_all()
+    assert await db_session.scalar(select(UserCard).where(UserCard.card_id == card_id)) is None
+
+    from app.services.wallet_service import auto_bind_cards_by_phone
+
+    new_owner = await db_session.get_one(User, new_owner_id)
+    bound = await auto_bind_cards_by_phone(db_session, new_owner)
+    assert bound == [card_id]
+
+
+@pytest.mark.asyncio
+async def test_cards_sync_phone_cleared_releases_binding(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Clearing the card phone in ONE releases the existing binding."""
+    biz = Business(name="Clear Biz")
+    db_session.add(biz)
+    await db_session.commit()
+    _agent, key = await issue_agent_key(db_session, biz.id)
+    owner = User(phone="+77003333333", language="ru")
+    db_session.add(owner)
+    await db_session.commit()
+
+    await _push_card(client, key, "87003333333", 10)
+    card = await db_session.scalar(select(Card).where(Card.business_id == biz.id))
+    assert card is not None
+    card_id = card.id
+    db_session.add(UserCard(user_id=owner.id, card_id=card_id, bind_method="phone_auto"))
+    await db_session.commit()
+
+    await _push_card(client, key, None, 11)
+    db_session.expire_all()
+    assert await db_session.scalar(select(UserCard).where(UserCard.card_id == card_id)) is None

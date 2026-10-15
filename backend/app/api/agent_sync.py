@@ -1,7 +1,8 @@
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -9,7 +10,7 @@ from app.core.errors import AppError
 from app.core.phone import normalize_phone
 from app.core.time import as_utc, utcnow
 from app.db.session import get_session
-from app.models.entities import Agent, Business, Card, Transaction
+from app.models.entities import Agent, Business, Card, Transaction, User, UserCard
 from app.schemas.agent_sync import (
     CardsSyncRequest,
     CardsSyncResponse,
@@ -21,6 +22,18 @@ from app.schemas.agent_sync import (
 from app.services.agent_auth import authenticate_agent
 
 router = APIRouter(prefix="/agent", tags=["Agent Sync"])
+
+
+async def _release_stale_bindings(
+    session: AsyncSession,
+    card_id: uuid.UUID,
+    new_phone: str | None,
+) -> None:
+    """Delete UserCard bindings whose owner phone differs from the card's new phone."""
+    owner_ids = select(User.id).where(User.phone.is_distinct_from(new_phone))
+    await session.execute(
+        delete(UserCard).where(UserCard.card_id == card_id, UserCard.user_id.in_(owner_ids))
+    )
 
 
 @router.post("/sync/cards", response_model=CardsSyncResponse)
@@ -83,6 +96,11 @@ async def sync_cards(
             if as_utc(item.updated_at) <= as_utc(existing.updated_at):
                 ignored_stale += 1
             else:
+                if existing.phone != norm_phone:
+                    # Card changed hands in ONE: release bindings of customers whose verified
+                    # phone no longer matches, so the new owner can bind it and the old one
+                    # stops seeing someone else's balance and history.
+                    await _release_stale_bindings(session, existing.id, norm_phone)
                 existing.phone = norm_phone
                 existing.full_name = item.full_name
                 existing.balance = item.balance
