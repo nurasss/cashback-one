@@ -36,7 +36,8 @@ export default function HistoryScreen() {
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={local.title}>{transactionLabel(item.type, language)}</Text>
-            <Text style={styles.muted} numberOfLines={1}>{[item.store, dateText(item.occurred_at, language)].filter(Boolean).join(' · ')}</Text>
+            {item.store && <Text style={styles.muted} numberOfLines={1}>{item.store}</Text>}
+            <Text style={styles.muted}>{dateText(item.occurred_at, language)}</Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 2 }}>
             <Text style={[local.amount, { color: incoming ? theme.colors.primary : theme.colors.text }]}>{incoming ? '+' : '−'}{pointsText(item.amount.replace('-', ''))}</Text>

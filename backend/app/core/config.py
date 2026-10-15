@@ -137,7 +137,8 @@ class Settings(BaseSettings):
     auth_challenge_rate_window_seconds: int = 300
 
     # Outbound WhatsApp messages (login OTP, redemption codes) via Wappi send API.
-    # 'disabled' rejects sends, 'fake' records them in memory (APP_ENV=test only), 'wappi' sends.
+    # 'disabled' rejects sends, 'fake' records them in memory (APP_ENV=test only),
+    # 'log' prints them to the server log (local development only), 'wappi' sends.
     whatsapp_provider_mode: str = Field(default="disabled")
     wappi_api_base_url: str = Field(default="https://wappi.pro")
     wappi_api_token: str = Field(default="")
@@ -221,11 +222,13 @@ class Settings(BaseSettings):
         self.sms_provider_mode = clean_provider_mode
 
         clean_whatsapp_mode = (self.whatsapp_provider_mode or "").strip().lower()
-        if clean_whatsapp_mode not in ("disabled", "fake", "wappi"):
+        if clean_whatsapp_mode not in ("disabled", "fake", "log", "wappi"):
             raise ValueError(
                 f"Invalid WHATSAPP_PROVIDER_MODE '{self.whatsapp_provider_mode}'. "
-                "Supported modes: 'disabled', 'fake', 'wappi'."
+                "Supported modes: 'disabled', 'fake', 'log', 'wappi'."
             )
+        if clean_whatsapp_mode == "log" and self.app_env == "production":
+            raise ValueError("WHATSAPP_PROVIDER_MODE 'log' prints one-time codes and is forbidden in production.")
         self.whatsapp_provider_mode = clean_whatsapp_mode
         if clean_whatsapp_mode == "fake" and self.app_env != "test":
             raise ValueError("WHATSAPP_PROVIDER_MODE 'fake' is strictly forbidden outside APP_ENV=test.")

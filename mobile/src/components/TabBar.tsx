@@ -39,7 +39,7 @@ export function TabBar({ active, onSelect, badges }: {
           <Icon name={tab.icon} size={28} color={color} strokeWidth={1.8} />
           {hasNew && <NewDot style={styles.dot} />}
         </View>
-        <Text numberOfLines={1} style={[styles.label, { color: selected ? t.colors.primary : t.colors.muted }]}>{label}</Text>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.label, { color: selected ? t.colors.primary : t.colors.muted }]}>{label}</Text>
       </Pressable>;
     })}
   </View>;
@@ -51,8 +51,8 @@ const styles = StyleSheet.create({
     backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28,
     shadowColor: t.colors.shadow, shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12,
   },
-  item: { flex: 1, alignItems: 'center', gap: 6, minHeight: 56, justifyContent: 'flex-end' },
-  label: { fontFamily: fonts.medium, fontSize: 12 },
+  item: { flex: 1, alignItems: 'center', gap: 6, minHeight: 56, justifyContent: 'flex-end', paddingHorizontal: 2 },
+  label: { fontFamily: fonts.medium, fontSize: 10, letterSpacing: -0.2 },
   centerSlot: { flex: 1, alignItems: 'center' },
   qrButton: {
     width: 68, height: 68, borderRadius: 34, marginTop: -34, marginBottom: 8, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center',

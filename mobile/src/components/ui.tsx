@@ -30,7 +30,7 @@ export function ScreenHeader({ title, back = false, onBack, right }: { title: st
       onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/')))}>
       <Icon name="arrowLeft" size={30} strokeWidth={1.8} />
     </Pressable>}
-    <Text accessibilityRole="header" style={[styles.headerTitle, { flex: 1 }]} numberOfLines={1}>{title}</Text>
+    <Text accessibilityRole="header" style={[styles.headerTitle, { flex: 1 }, right ? { fontSize: 19 } : null]} numberOfLines={1}>{title}</Text>
     {right}
   </View>;
 }
@@ -73,9 +73,9 @@ export const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 140 },
   gap: { gap: t.spacing.sm }, row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: t.spacing.md },
-  header: { flexDirection: 'row', alignItems: 'center', gap: t.spacing.md, paddingHorizontal: t.spacing.lg, paddingTop: t.spacing.md, paddingBottom: t.spacing.md, minHeight: 64 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: t.spacing.lg, paddingTop: t.spacing.md, paddingBottom: t.spacing.md, minHeight: 64 },
   backButton: { width: 40, height: 40, justifyContent: 'center' },
-  headerTitle: { fontFamily: fonts.bold, fontSize: 26, color: t.colors.text },
+  headerTitle: { fontFamily: fonts.bold, fontSize: 24, color: t.colors.text },
   title: { fontFamily: fonts.bold, fontSize: 22, color: t.colors.text }, hero: { fontFamily: fonts.bold, fontSize: t.font.hero, color: t.colors.text },
   body: { fontFamily: fonts.regular, fontSize: t.font.body, color: t.colors.text, lineHeight: 24 },
   muted: { fontFamily: fonts.regular, fontSize: t.font.small, color: t.colors.muted, lineHeight: 20 },
@@ -86,7 +86,7 @@ export const styles = StyleSheet.create({
   errorSmall: { fontFamily: fonts.medium, fontSize: t.font.small, color: t.colors.error },
   button: { minHeight: 56, paddingHorizontal: t.spacing.lg, borderRadius: 14, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center' },
   pressed: { backgroundColor: t.colors.primaryPressed },
-  buttonText: { fontFamily: fonts.medium, fontSize: 20, color: t.colors.onPrimary, textAlign: 'center' },
+  buttonText: { fontFamily: fonts.medium, fontSize: 18, color: t.colors.onPrimary, textAlign: 'center' },
   secondary: { backgroundColor: t.colors.tint }, secondaryText: { color: t.colors.primary },
   destructive: { backgroundColor: t.colors.error }, dim: { opacity: 0.6 },
   panel: { padding: t.spacing.lg, borderRadius: t.radius.md, backgroundColor: t.colors.surface, gap: t.spacing.md },

@@ -73,7 +73,7 @@ export function OfferCard({ offer, index, onPress, wide = false }: { offer: Prom
       </View> : <View />}
       <Icon name="chevronRight" size={22} />
     </View>
-    <Text style={styles.offerTitle} numberOfLines={3}>{offer.title}</Text>
+    <Text style={[styles.offerTitle, offer.image_url ? styles.offerTitleWithImage : null]} numberOfLines={3}>{offer.title}</Text>
     {offer.image_url && <Image source={{ uri: offer.image_url }} style={styles.offerImage} resizeMode="contain" accessibilityIgnoresInvertColors />}
     {offer.is_new && <NewDot style={styles.offerNew} />}
   </Pressable>;
@@ -99,11 +99,12 @@ const styles = StyleSheet.create({
   statusCaption: { fontFamily: fonts.medium, fontSize: 17, color: t.colors.text },
   statusValue: { fontFamily: fonts.bold, fontSize: 36, color: t.colors.text },
   offer: { flexBasis: '47%', flexGrow: 1, minHeight: 200, borderRadius: 24, padding: 16, backgroundColor: t.colors.tint, overflow: 'hidden', gap: 18 },
-  offerWide: { flexBasis: '100%', minHeight: 170 },
+  offerWide: { flexBasis: 'auto', flexGrow: 0, minHeight: 150 },
   offerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
   offerBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: t.colors.primary, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6, maxWidth: '82%' },
   offerBadgeText: { fontFamily: fonts.semibold, fontSize: 12, lineHeight: 15, color: t.colors.onPrimary, flexShrink: 1 },
-  offerTitle: { fontFamily: fonts.bold, fontSize: 18, lineHeight: 23, color: t.colors.text, maxWidth: '70%' },
+  offerTitle: { fontFamily: fonts.bold, fontSize: 17, lineHeight: 22, color: t.colors.text },
+  offerTitleWithImage: { maxWidth: '72%' },
   offerImage: { position: 'absolute', right: -6, bottom: -6, width: '62%', height: '58%' },
   offerNew: { position: 'absolute', top: 10, left: 10 },
 });

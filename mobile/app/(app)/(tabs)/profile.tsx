@@ -71,7 +71,7 @@ export default function ProfileScreen() {
     company: { title: t('company'), maxLength: 255 },
   };
 
-  return <SafeAreaView edges={['top']} style={styles.screen}>
+  return <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.colors.surface }]}>
     <ScreenHeader title={t('myProfile')} back onBack={() => router.navigate('/')}
       right={<LanguageSwitch value={language} onChange={changeLanguage} disabled={!profile.data} />} />
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -120,5 +120,5 @@ const local = StyleSheet.create({
   fieldLabel: { fontFamily: fonts.medium, fontSize: 18, color: theme.colors.text },
   divider: { height: 1, backgroundColor: theme.colors.border },
   saved: { fontFamily: fonts.medium, fontSize: 15, color: theme.colors.success, textAlign: 'center' },
-  links: { backgroundColor: theme.colors.surface, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 4 },
+  links: { backgroundColor: theme.colors.background, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 4 },
 });

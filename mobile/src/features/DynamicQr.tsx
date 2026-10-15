@@ -40,6 +40,6 @@ const styles = StyleSheet.create({
   qrBox: { alignItems: 'center', justifyContent: 'center' },
   message: { fontFamily: fonts.medium, fontSize: 16, color: t.colors.muted, textAlign: 'center' },
   hintRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  hint: { fontFamily: fonts.semibold, fontSize: 22, color: t.colors.primary },
+  hint: { fontFamily: fonts.semibold, fontSize: 19, color: t.colors.primary },
   timer: { fontFamily: fonts.regular, fontSize: 13, color: t.colors.muted, marginTop: -18 },
 });

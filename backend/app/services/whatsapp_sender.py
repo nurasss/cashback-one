@@ -96,6 +96,15 @@ class WappiWhatsAppSender:
             raise _delivery_failed()
 
 
+class LogWhatsAppSender:
+    """Local development only: prints the message (including one-time codes) to the server log."""
+
+    disabled = False
+
+    async def send_text(self, phone: str, text: str) -> None:
+        logger.warning("DEV WhatsApp message to %s: %s", phone, text.replace("\n", " "))
+
+
 _fake_sender: FakeWhatsAppSender | None = None
 
 
@@ -113,6 +122,8 @@ def get_whatsapp_sender() -> WhatsAppSender:
     mode = settings.whatsapp_provider_mode
     if mode == "wappi":
         return WappiWhatsAppSender()
+    if mode == "log" and settings.app_env != "production":
+        return LogWhatsAppSender()
     if mode == "fake" and settings.app_env == "test":
         return get_fake_whatsapp_sender()
     return DisabledWhatsAppSender()

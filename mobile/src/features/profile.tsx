@@ -71,9 +71,9 @@ export function FieldSheet({ title, initial, options, keyboardType = 'default', 
 
 const styles = StyleSheet.create({
   switch: { flexDirection: 'row', backgroundColor: t.colors.input, borderRadius: 14, padding: 3 },
-  switchItem: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: 12 },
+  switchItem: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12 },
   switchSelected: { backgroundColor: t.colors.primary },
-  switchText: { fontFamily: fonts.medium, fontSize: 17, color: t.colors.subtle },
+  switchText: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.subtle },
   switchTextSelected: { color: t.colors.onPrimary },
   avatar: { width: 170, height: 170, borderRadius: 85, backgroundColor: t.colors.input, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontFamily: fonts.bold, fontSize: 52, color: t.colors.muted },

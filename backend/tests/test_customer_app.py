@@ -419,3 +419,23 @@ async def test_redemption_requires_phone_and_configured_whatsapp(
     monkeypatch.setattr(settings, "whatsapp_provider_mode", "disabled")
     res = await client.post("/agent/redemptions", headers=agent, json={"barcode": card.barcode, "amount": "5"})
     assert res.status_code == 503 and res.json()["error"]["code"] == "WHATSAPP_NOT_CONFIGURED"
+
+
+def test_log_whatsapp_mode_is_forbidden_in_production() -> None:
+    from pydantic import ValidationError
+
+    from app.core.config import Settings
+
+    with pytest.raises(ValidationError, match="forbidden in production"):
+        Settings(app_env="production", database_url="postgresql+asyncpg://x/y", whatsapp_provider_mode="log")
+    with pytest.raises(ValidationError, match="WAPPI_API_TOKEN"):
+        Settings(app_env="test", database_url="sqlite+aiosqlite:///:memory:", whatsapp_provider_mode="wappi")
+
+
+@pytest.mark.asyncio
+async def test_log_whatsapp_sender_prints_message(caplog: pytest.LogCaptureFixture) -> None:
+    from app.services.whatsapp_sender import LogWhatsAppSender
+
+    with caplog.at_level("WARNING"):
+        await LogWhatsAppSender().send_text("+77010000000", "Код: 123456\nтест")
+    assert "123456" in caplog.text and "+77010000000" in caplog.text
