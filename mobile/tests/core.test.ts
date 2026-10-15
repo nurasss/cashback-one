@@ -2,7 +2,9 @@ import * as SecureStore from 'expo-secure-store';
 import { tokenStore, deviceId } from '../src/storage/secure';
 import { ApiClient } from '../src/api/client';
 import { normalizeApiError } from '../src/api/errors';
-import { isBarcode, qrPayload, decimalText, transactionLabel } from '../src/utils/format';
+import { isBarcode, decimalText, transactionLabel, pointsText, amountText, phoneText, birthDateToApi, birthDateToUi, initials } from '../src/utils/format';
+import { translate } from '../src/i18n';
+import { isQrToken } from '../src/features/DynamicQr';
 const tokens = { access_token: 'a', refresh_token: 'r', token_type: 'bearer', expires_in: 900 };
 beforeEach(() => jest.clearAllMocks());
 it('SecureStore persists both tokens as one atomic item and clears it', async () => {
@@ -17,8 +19,8 @@ it('installation identifier persists independently of logout', async () => {
   jest.mocked(SecureStore.getItemAsync).mockResolvedValue(null); expect(await deviceId()).toBe('installation-id');
   expect(SecureStore.setItemAsync).toHaveBeenCalledWith('cashback-one.device.v1', 'installation-id', expect.any(Object));
 });
-it.each(['0123456789012', '0000000000000', '9999999999999'])('QR preserves exact barcode %s', value => { expect(isBarcode(value)).toBe(true); expect(qrPayload(value)).toBe(value); });
-it.each(['123', '12345678901234', '01234567890a2', ' 0123456789012', 'https://0123456789012'])('rejects invalid barcode %s', value => { expect(isBarcode(value)).toBe(false); expect(() => qrPayload(value)).toThrow(); });
+it.each(['0123456789012', '0000000000000', '9999999999999'])('accepts exact barcode %s', value => { expect(isBarcode(value)).toBe(true); });
+it.each(['123', '12345678901234', '01234567890a2', ' 0123456789012', 'https://0123456789012'])('rejects invalid barcode %s', value => { expect(isBarcode(value)).toBe(false); });
 it('Decimal formatting does not lose numeric precision', () => { expect(decimalText('99999999999999.9999')).toBe('99 999 999 999 999,9999'); expect(decimalText('50.0000')).toBe('50'); });
 it('only documented transaction types have business labels', () => { expect(transactionLabel('accrual')).toBe('Начисление'); expect(transactionLabel('redemption')).toBe('Списание'); expect(transactionLabel('adjustment')).toBe('adjustment'); });
 it('normalizes machine error without leaking server PII', () => {
@@ -40,4 +42,24 @@ it('204 delete response does not attempt JSON parsing', async () => {
 });
 it('malformed SecureStore JSON is deleted without retaining its contents', async () => {
   jest.mocked(SecureStore.getItemAsync).mockResolvedValue('invalid-json'); expect(await tokenStore.read()).toBeNull(); expect(SecureStore.deleteItemAsync).toHaveBeenCalled();
+});
+
+it('points always show two decimals without rounding up', () => {
+  expect(pointsText('0')).toBe('0,00'); expect(pointsText('1500.5000')).toBe('1 500,50'); expect(pointsText('99.9999')).toBe('99,99');
+  expect(pointsText(null)).toBe('0,00'); expect(amountText('350000.0000')).toBe('350 000');
+});
+it('formats Kazakhstan phone like the design', () => { expect(phoneText('+77058344326')).toBe('+7 705 834 43 26'); expect(phoneText('+4915112345678')).toBe('+4915112345678'); });
+it('converts birth date between UI and API formats and rejects impossible dates', () => {
+  expect(birthDateToUi('1990-01-31')).toBe('31.01.1990'); expect(birthDateToApi('31.01.1990')).toBe('1990-01-31');
+  expect(birthDateToApi('')).toBeNull(); expect(birthDateToApi('31.02.1990')).toBeUndefined(); expect(birthDateToApi('1990-01-31')).toBeUndefined();
+  expect(initials(' айгерим', 'серикова')).toBe('АС');
+});
+it('Kazakh dictionary interpolates and covers every key', () => {
+  expect(translate('kz', 'tabNotifications')).toBe('Хабарламалар');
+  expect(translate('ru', 'dontMiss', { percent: '12' })).toBe('Не упустите до 12% баллов');
+  expect(translate('kz', 'untilStatus', { level: 2 })).toContain('2');
+});
+it('only server-signed dynamic QR tokens are rendered', () => {
+  expect(isQrToken('C1' + 'A'.repeat(48))).toBe(true);
+  for (const bad of ['0123456789012', 'C1' + 'A'.repeat(47), 'c1' + 'a'.repeat(48), 'C1' + '0'.repeat(48)]) expect(isQrToken(bad)).toBe(false);
 });

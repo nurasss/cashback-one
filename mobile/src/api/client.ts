@@ -1,7 +1,7 @@
 import { ApiError, normalizeApiError } from './errors';
 import { validateApiBaseUrl } from './transport';
 export interface AuthHooks { access(): string | null; generation(): number; refresh(): Promise<void>; invalidate(): Promise<void> }
-interface RequestOptions { method?: 'GET' | 'POST' | 'DELETE'; body?: object; headers?: Record<string, string>; auth?: boolean; signal?: AbortSignal }
+interface RequestOptions { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: object; headers?: Record<string, string>; auth?: boolean; signal?: AbortSignal }
 export class ApiClient {
   constructor(private readonly baseUrl: string, private readonly hooks: AuthHooks, private readonly fetcher: typeof fetch = fetch, private readonly timeoutMs = 15000) {}
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
