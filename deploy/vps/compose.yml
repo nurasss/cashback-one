@@ -1,0 +1,88 @@
+# Lightweight production stack for a shared VPS behind an existing Caddy TLS edge.
+# Project name "cashback"; every container/volume/network is prefixed to avoid clashes.
+name: cashback
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cashback-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cashback
+      POSTGRES_USER: cashback
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be provided}
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=40", "-c", "work_mem=4MB", "-c", "effective_cache_size=192MB"]
+    volumes:
+      - cashback_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashback -d cashback"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    mem_limit: 256m
+    networks: [cashback_net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: cashback-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "48mb", "--maxmemory-policy", "volatile-lru"]
+    volumes:
+      - cashback_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    mem_limit: 96m
+    networks: [cashback_net]
+
+  migration:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: cashback-backend:local
+    container_name: cashback-migration
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 256m
+    restart: "no"
+    networks: [cashback_net]
+
+  backend:
+    image: cashback-backend:local
+    container_name: cashback-backend
+    restart: unless-stopped
+    command: ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips \"$$FORWARDED_ALLOW_IPS\""]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8000/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 384m
+    # cashback_net: private link to postgres/redis; edge: the existing Caddy network, reachable by name "cashback-backend".
+    networks: [cashback_net, edge]
+
+networks:
+  cashback_net:
+    name: cashback_net
+  edge:
+    external: true
+    name: timetrack_timetrack
+
+volumes:
+  cashback_pgdata:
+  cashback_redis:

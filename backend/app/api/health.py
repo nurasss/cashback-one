@@ -1,3 +1,8 @@
+from functools import lru_cache
+from pathlib import Path
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi import APIRouter, Response
 from sqlalchemy import text
 
@@ -7,7 +12,18 @@ from app.services.rate_limiter import get_redis_client
 
 router = APIRouter(tags=["Health"])
 
-EXPECTED_ALEMBIC_HEAD = "0009_admin_mutations"
+APP_ROOT = Path(__file__).resolve().parents[2]
+
+
+@lru_cache(maxsize=1)
+def expected_alembic_head() -> str:
+    """Latest migration revision, read from the shipped migration scripts (never hard-coded)."""
+    config = Config(str(APP_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(APP_ROOT / "migrations"))
+    head = ScriptDirectory.from_config(config).get_current_head()
+    if head is None:
+        raise RuntimeError("No Alembic head revision found")
+    return head
 
 
 async def check_database_readiness() -> tuple[bool, str]:
@@ -22,7 +38,7 @@ async def check_database_readiness() -> tuple[bool, str]:
             try:
                 ver_res = await session.execute(text("SELECT version_num FROM alembic_version"))
                 version = ver_res.scalar()
-                if version != EXPECTED_ALEMBIC_HEAD:
+                if version != expected_alembic_head():
                     return False, "migration_pending"
             except Exception:  # noqa: BLE001 - probe must fail-closed on schema error
                 # In test environment with direct model tables (e.g. SQLite test fixtures)

@@ -518,3 +518,12 @@ def test_nginx_runtime_log_privacy_zero_leakage() -> None:
 
 
 
+
+
+def test_expected_alembic_head_is_derived_from_migration_scripts() -> None:
+    from pathlib import Path
+
+    from app.api.health import expected_alembic_head
+
+    versions = sorted(p.stem for p in (Path(__file__).resolve().parent.parent / "migrations" / "versions").glob("0*.py"))
+    assert expected_alembic_head() == versions[-1]
