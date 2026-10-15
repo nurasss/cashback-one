@@ -104,6 +104,31 @@ async def test_wappi_webhook_payload_too_large_body_bytes_returns_413(
 
 
 @pytest.mark.asyncio
+async def test_wappi_webhook_chunked_body_over_limit_stops_early_with_413(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Chunked upload (no Content-Length) is cut off at the limit instead of being buffered fully."""
+    monkeypatch.setattr(settings, "wappi_webhook_max_body_bytes", 100)
+    chunks_sent = 0
+
+    async def body_stream():  # type: ignore[no-untyped-def]
+        nonlocal chunks_sent
+        for _ in range(1000):
+            chunks_sent += 1
+            yield b"x" * 50
+
+    resp = await client.post(
+        "/webhooks/wappi",
+        headers={settings.wappi_webhook_auth_header: settings.wappi_webhook_auth_secret},
+        content=body_stream(),
+    )
+    assert resp.status_code == 413
+    assert resp.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
+    assert "content-length" not in resp.request.headers
+    assert chunks_sent < 1000
+
+
+@pytest.mark.asyncio
 async def test_wappi_webhook_invalid_json_returns_400(client: AsyncClient) -> None:
     """Non-JSON payload returns 400 Bad Request."""
     resp = await client.post(

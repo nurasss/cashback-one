@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import settings
+from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.entities import User
 from app.schemas.wallet import (
@@ -13,6 +15,7 @@ from app.schemas.wallet import (
     CustomerCardResponse,
     CustomerTransactionHistoryResponse,
 )
+from app.services.rate_limiter import RateLimiter, get_rate_limiter
 from app.services.wallet_service import (
     auto_bind_cards_by_phone,
     bind_customer_card,
@@ -48,12 +51,24 @@ async def bind_card(
     body: BindCardRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
 ) -> CustomerCardResponse:
     """Manually bind an existing loyalty card via barcode or scanned QR.
 
     Requires phone ownership match. Idempotent for existing visible bindings,
     and explicitly unhides previously soft-hidden bindings owned by the customer.
+    Rate limited per customer to prevent barcode enumeration.
     """
+    if await limiter.is_rate_limited(
+        f"bind:{current_user.id}",
+        settings.card_bind_user_limit,
+        settings.card_bind_rate_window_seconds,
+    ):
+        raise AppError(
+            code="RATE_LIMIT_EXCEEDED",
+            message="Too many card link attempts. Please try again later.",
+            status_code=429,
+        )
     return await bind_customer_card(
         session=session,
         user=current_user,
