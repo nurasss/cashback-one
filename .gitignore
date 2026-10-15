@@ -74,3 +74,6 @@ stage0_output/
 # Binary app builds (too large for git)
 *.apk
 *.ipa
+
+# Local service dumps
+dump.rdb

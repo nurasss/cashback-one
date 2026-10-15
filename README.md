@@ -1,280 +1,86 @@
 # POSCENTER Loyalty (cashback-one)
 
-Мобильное приложение и облачная платформа лояльности (кешбэк, бонусный баланс, QR-карта для кассы и история операций) с интеграцией в **POSCENTER ONE** (1С:Предприятие 8.3).
+Платформа лояльности для магазинов на **POSCENTER ONE (1С:Предприятие 8.3)**: покупатель видит бонусные карты, баланс, QR/штрихкод для кассы и историю операций в мобильном приложении.
 
----
+> **Главный принцип:** POSCENTER ONE — источник истины по балансам и операциям. Облако хранит зеркало данных и ничего не начисляет и не списывает сам.
 
-## 📌 Главный архитектурный принцип (Core Invariant)
+## Статус
 
-> **POSCENTER ONE is the source of truth for loyalty balances and transactions.**
->
-> Облачный бэкенд хранит зеркало данных. Мобильное приложение только отображает актуальное состояние карт, балансы и историю операций. Начисление, списание и корректировка бонусов производятся на кассе в POSCENTER ONE. Бэкенд не является автономным бонусным движком.
+| Компонент | Папка | Состояние |
+|---|---|---|
+| Облачный API (FastAPI, PostgreSQL, Redis) | `backend/` | Готов. Тесты: 312 |
+| Админ-панель (React, Vite) | `admin/` | Готова. Тесты: 44 |
+| Мобильное приложение (Expo / React Native) | `mobile/` | Готово. Тесты: 81 |
+| Агент синхронизации (Windows-служба) | `agent/` | Готов, кроме чтения 1С. Тесты: 76 |
+| Деплой (Docker, nginx), CI, e2e | `deploy/`, `.github/`, `e2e/` | Готовы. e2e: 32 |
 
----
+**Единственный блокер до реального запуска — Stage 0.** Имена объектов 1С (справочник карт, поля штрихкода, телефона, ФИО, регистр бонусов, идентификатор операции) неизвестны, пока их не выяснят на копии базы клиента под Windows. До этого агент отвечает `OneMappingNotConfiguredError` и не читает реальные данные. Инструкция: [docs/STAGE0_WINDOWS_RUNBOOK.md](docs/STAGE0_WINDOWS_RUNBOOK.md), чек-лист: [docs/STAGE0_PENDING.md](docs/STAGE0_PENDING.md).
 
-## ⚠️ Статус интеграции Stage 0
+Также не подтверждено на живых сервисах: имя заголовка авторизации вебхука Wappi (`WAPPI_WEBHOOK_AUTH_HEADER`), SMS-провайдер не подключён (`SMS_PROVIDER_MODE=disabled`).
 
-> **Stage 0 metadata mapping for POSCENTER ONE is not yet finalized.**
->
-> Точные имена объектов 1С (справочник карт, поля штрихкода/телефона/ФИО, регистр накопления бонусов, реквизиты движений) будут зафиксированы после проведения discovery на реальной копии информационной базы клиента (см. [`docs/STAGE0_PENDING.md`](docs/STAGE0_PENDING.md)).
-
----
-
-## 🏗 Архитектурные компоненты
+## Как это работает
 
 ```text
-       POSCENTER ONE (1C 8.3)
-                 │
-                 ▼ (COM V83.COMConnector, read-only)
-             ONE Agent (Windows Service) [agent/]
-                 │
-                 ▼ (Outbound HTTPS push: /agent/sync/*, /agent/heartbeat)
-           Cloud Backend (FastAPI, PostgreSQL, Redis) [backend/]
-                 │
-        ┌────────┴────────┐
-        ▼                 ▼
-   Mobile App        Admin Panel
-(React Native/Expo)   (Web UI)
-    [mobile/]         [admin/]
+POSCENTER ONE (1С) ──COM, только чтение──▶ Агент (Windows) ──HTTPS push──▶ Облако (FastAPI + PostgreSQL + Redis)
+                                                                              │
+                                                       ┌──────────────────────┴──────┐
+                                                  Мобильное приложение          Админ-панель
 ```
 
-### Структура монорепозитория
+- **Вход покупателя:** приложение получает 8-значный код и ссылку `wa.me`; покупатель отправляет код в WhatsApp, вебхук Wappi подтверждает номер, приложение меняет подтверждённый challenge на токены. Запасной вариант — SMS OTP.
+- **Карты:** при открытии кошелька карты с телефоном покупателя привязываются автоматически (во всех подключённых бизнесах); можно привязать вручную по штрихкоду.
+- **Многотенантность:** каждый агент привязан к одному бизнесу и видит только его данные.
 
-* `backend/` — Cloud API на Python / FastAPI / SQLAlchemy / Alembic / PostgreSQL.
-* `agent/` — Windows-агент COM-синхронизации (реализация запланирована на последующие этапы).
-* `mobile/` — клиентское мобильное приложение на React Native / Expo (реализация запланирована на последующие этапы).
-* `admin/` — административная веб-панель (реализация запланирована на последующие этапы).
-* `docs/` — архитектурная документация и чек-листы Stage 0.
+## Быстрый старт (разработка)
 
----
-
-## 🚀 Текущее состояние (TASK-001 + TASK-002 + TASK-003 + TASK-004 + TASK-005 + TASK-006 + TASK-007 + TASK-008)
-
-### Реализовано в рамках TASK-001 (Фундамент и модель данных):
-* Базовый монорепозиторий и `.gitignore`.
-* FastAPI бэкенд с эндпоинтом `GET /health` (`{"status": "ok"}`).
-* Схема данных Stage 1 в SQLAlchemy 2.0 (asyncio):
-  * `businesses`, `agents`, `cards`, `users`, `user_cards`, `transactions`, `login_challenges`, `otp_codes`, `consents`, `devices`, `audit_log`.
-* Поддержка точных типов `Numeric(18, 4)` / `Decimal` (полное отсутствие `float` в балансах и суммах).
-* Асинхронные миграции Alembic (`0001_initial_schema.py`) с проверенным циклом отката и наката.
-
-### Реализовано в рамках TASK-002 (Agent Authentication + Cloud Sync API):
-* **Отказоустойчивая конфигурация (Fail-Fast):**
-  * `DATABASE_URL` обязателен через окружение / `.env`. Отсутствуют неявные fallback-значения на localhost или SQLite в dev/prod.
-* **Аутентификация агентов:**
-  * Строго фиксированный заголовок `X-Agent-Key: <key>` (Bearer заголовок исключен).
-  * Безопасное хранение ключей в БД в виде SHA-256 хэшей (открытый ключ никогда не сохраняется).
-  * Сервисы выпуска, ротации и отзыва ключей (`backend/app/services/agent_auth.py`).
-  * Строгая изоляция тенантов: `business_id` определяется исключительно по аутентифицированному агенту.
-* **Конкурентность и атомарность на уровне БД:**
-  * Захват транзакционной блокировки уровня тенанта (`SELECT id FROM businesses WHERE id = :business_id FOR UPDATE`) при пакетной синхронизации.
-  * Гарантия защиты от дублирования карт и транзакций при параллельных HTTP-запросах.
-  * Конкурентная защита от устаревших данных (`stale data protection`): старый снимок карты никогда не перезаписывает новый.
-  * Атомарность пакета транзакций: при наличии неизвестной карты запрос отклоняется (`422 UNKNOWN_CARD_FOR_TRANSACTION`), ни одна запись из пакета не сохраняется.
-* **Агентские эндпоинты Cloud Sync API (`backend/app/api/agent_sync.py`):**
-  * `POST /agent/sync/cards`: батчевый upsert карт (лимит 500).
-  * `POST /agent/sync/transactions`: батчевая выгрузка транзакций (лимит 1000) с идемпотентностью `(card_id, external_id)`.
-  * `POST /agent/heartbeat`: фиксация активности агента, серверное время `last_seen_at = utcnow()`.
-* **Миграции Alembic:**
-  * `0002_agent_heartbeat_fields.py`: добавление полей `last_sync_at` и `last_error` в таблицу `agents`.
-
-### Реализовано в рамках TASK-003 + TASK-003-FIX (Customer Authentication Core):
-* **Обратная WhatsApp-аутентификация (Reverse Flow):**
-  * `POST /auth/challenge`: генерация криптостойкого 8-значного кода (алфавит без неоднозначных символов), формирование ссылки `wa.me`, фиксация TTL 3 минуты.
-  * Хранение кодов только в виде HMAC-SHA256 digests (`login_challenges.code_hash`).
-  * Уникальное ограничение `uq_login_challenges_code_hash` и автоматический retry-механизм генерации (до 5 попыток) с откатом savepoint при коллизиях.
-  * Нормализация `device_id` (strip whitespace, валидация длины 1-128, отклонение пробельных строк с кодом 422).
-  * Привязка к устройству (`device_id`) и проверка через заголовок `X-Device-Id`.
-* **Atomic Rate Limiting:**
-  * Ограничение запросов на устройство и IP-адрес через Redis (`RedisRateLimiter`) с использованием атомарного Lua-скрипта (INCR + EXPIRE на 1-м запросе без сброса TTL).
-  * Fail-closed безопасность: при отказе Redis возвращается контролируемый `503 Service Unavailable` (`AUTH_RATE_LIMIT_UNAVAILABLE`).
-  * Управление соединениями Redis через FastAPI lifespan (`main.py`) с корректным закрытием (`aclose()`).
-* **Доменный сервис подтверждения:**
-  * Provider-independent сервис `confirm_login_challenge(session, code, sender_phone)` возвращает структурированный `ConfirmationResult` со статусами (`CONFIRMED`, `ALREADY_CONFIRMED_SAME_PHONE`, `ALREADY_CONFIRMED_OTHER_PHONE`, `EXPIRED`, `NOT_FOUND`, `CONSUMED`).
-  * Строгая изоляция: номер первого пользователя никогда не раскрывается стороннему вызывающему.
-* **Идентификация покупателей и модель сессий:**
-  * Инвариант `one normalized phone -> one User` с уникальным ограничением `uq_users_phone`.
-  * Сохранение настроек профиля (включая язык `kz`) при повторных входах через `ON CONFLICT (phone) DO NOTHING`.
-  * Валидация номера бизнес-аккаунта WhatsApp по строгому стандарту E.164 (`^\+[1-9]\d{7,14}$`).
-  * Таблица `auth_sessions` с безопасным хранением refresh-токенов в виде SHA-256 хэшей.
-  * Access JWT (HS256, 15 минут TTL) со стандартными клеймами `sub`, `sid`, `typ=access`.
-* **Эндпоинты работы с токенами:**
-  * `GET /auth/challenge/{id}`: однократный обмен подтвержденного challenge на сессию и токены.
-  * `POST /auth/refresh`: ротация refresh-токенов с защитой от одновременных повторных запросов.
-  * `POST /auth/logout`: отзыв текущей сессии (`revoked_at != null`).
-* **Миграции Alembic:**
-  * `0003_customer_auth_core.py`: создание таблицы `auth_sessions`, добавление `uq_users_phone`, расширение `login_challenges`.
-  * `0004_auth_hardening.py`: добавление уникального ограничения `uq_login_challenges_code_hash`.
-
-### Реализовано в рамках TASK-004 + TASK-004-FIX (Wappi Webhook Adapter & Confirmation):
-* **Входящий вебхук Wappi (`POST /webhooks/wappi`):**
-  * Спецификация контракта зафиксирована в [`docs/WAPPI_WEBHOOK_CONTRACT.md`](docs/WAPPI_WEBHOOK_CONTRACT.md).
-  * Статус имени заголовка: `WAPPI_AUTH_HEADER_NAME = NOT VERIFIED` (нет дефолта в production коде, имя задается через deployment configuration `WAPPI_WEBHOOK_AUTH_HEADER`).
-  * Аутентификация секрета через constant-time `hmac.compare_digest` (`WAPPI_WEBHOOK_AUTH_SECRET`).
-  * Ограничение размера тела запроса (`WAPPI_WEBHOOK_MAX_BODY_BYTES`, по умолчанию 64 КБ) с защитой от DoS (`413 Payload Too Large`).
-  * Поддержка как пакетных событий Wappi (`messages: [...]`), так и одиночных объектов.
-* **Изоляция профиля и безопасность:**
-  * Обработка сообщений исключительно для инстанса `WAPPI_LOGIN_PROFILE_ID`. Запросы сторонних профилей отклоняются.
-  * Валидация типов: обрабатываются только `wh_type = "incoming_message"` и `type = "chat"`.
-  * Фильтрация групповых чатов (`@g.us`, `chat_type != dialog`).
-  * Прямой JID отправителя `^(\d{10,15})@c\.us$` с нормализацией в E.164.
-  * Защита от подбора: валидация 8-значного кода по алфавиту до обращения к СУБД.
-* **Идемпотентность, транзакционная атомарность и Retry-семантика:**
-  * Таблица `wappi_webhook_events` с уникальным ограничением `uq_wappi_webhook_events_profile_message` на `(profile_id, message_id)`.
-  * Concurrency-safe speculative insert (`ON CONFLICT (profile_id, message_id) DO NOTHING`): при параллельной доставке идентичных сообщений подтверждение выполняется ровно один раз, дубликаты возвращают `result: "duplicate"` (200 OK) без ошибок целостности и HTTP 500.
-  * Атомарная фиксация состояния: подтверждение challenge и запись аудита коммитятся в одной транзакции.
-  * Безопасность при сбоях (Crash/Retry Safety): при возникновении сбоя БД или инфраструктурной ошибки транзакция откатывается (`ROLLBACK`), возвращается контролируемый `503 Service Unavailable` (`WEBHOOK_PROCESSING_UNAVAILABLE`) без раскрытия внутренних деталей, а uncommitted резервация отменяется, что обеспечивает успешный retry провайдером.
-  * Защита от перехвата (Second-Phone Attack): при попытке подтвердить чужой код другим номером возвращается `already_confirmed_other_phone` без раскрытия данных владельца.
-* **Миграции Alembic:**
-  * `0005_wappi_webhook_events.py`: создание таблицы `wappi_webhook_events` с индексом по `received_at` и уникальным составным ограничением.
-* **Тестирование:**
-  * Автоматические тесты (100% passing), включая интеграционные конкурентные тесты на реальном PostgreSQL 16 (PG-WAPPI-01..04).
-
-### Реализовано в рамках TASK-005 + TASK-005-FIX (Customer JWT Authentication + Wallet Read API):
-* **Спецификация API:** Подробный контракт зафиксирован в [`docs/CUSTOMER_API.md`](docs/CUSTOMER_API.md).
-* **Аутентификация покупателей (Customer Access JWT Dependency):**
-  * Зависимости `get_current_user` и `get_current_customer` (`backend/app/api/deps.py`).
-  * Валидация заголовка `Authorization: Bearer <access_token>`.
-  * Проверка сигнатуры и срока жизни токена (HS256, клеймы `sub`, `sid`, `typ=access`).
-  * Контроль отозванности сессии: проверка `auth_sessions.revoked_at` (например, после `/auth/logout` или админского отзыва) с немедленным отклонением (401 `SESSION_REVOKED`).
-  * Проверка активности учетной записи покупателя (`users.deleted_at IS NULL`).
-* **Автопривязка карт по номеру телефона (`auto_bind_cards_by_phone`):**
-  * Запускается прозрачно при каждом запросе `GET /me/cards`.
-  * Находит все непривязанные карты во всех организациях (бизнесах), у которых `cards.phone == user.phone` (с нормализацией по стандарту E.164).
-  * Инвариант единственного владельца (`uq_user_cards_card_id`): карта не может принадлежать двум пользователям, автопривязка исключает перехват чужих карт.
-  * Защита скрытых карт: если покупатель скрыл карту (`hidden_at IS NOT NULL`), автопривязка **никогда** не восстанавливает её автоматически.
-  * Безопасность при конкурентных вызовах: использование `ON CONFLICT (card_id) DO NOTHING` на уровне PostgreSQL исключает сбои и дубликаты.
-  * Очистка логов от PII: номера телефонов, ФИО, user ID и токены исключены из логов автопривязки.
-* **Эндпоинты кошелька покупателя (`/me/*`):**
-  * `GET /me/cards`: список активных карт покупателя с брендингом организации (`logo_url`, `primary_color`, `accent_color`), зеркальным балансом (`Numeric(18, 4)` в виде строки) и меткой `updated_at` (снимок из 1С/ONE). Контракт штрихкода: 13-значная строка с сохранением ведущего нуля.
-  * `GET /me/cards/{card_id}`: получение детальной информации по карте (включая `updated_at`). Полная защита от IDOR: при запросе чужой или скрытой карты возвращается единообразный 404 `CARD_NOT_FOUND` без утечки данных.
-  * `DELETE /me/cards/{card_id}`: конкурентно-безопасное атомарное мягкое скрытие карты (`UPDATE user_cards SET hidden_at = now() WHERE ... RETURNING id`). При параллельных запросах ровно один возвращает 204 No Content, остальные — 404. Физическая запись в `cards` и зеркальный `cards.updated_at` не изменяются.
-  * `GET /me/cards/{card_id}/transactions`: детерминированная пагинация по курсору (`occurred_at DESC, id DESC`) с поддержкой точной фильтрации по каноническому типу (`type`). Опирается на составной индекс `ix_transactions_card_id_occurred_at`.
-* **Миграции Alembic:**
-  * `0006_user_card_visibility.py`: добавление колонки `hidden_at` и составного индекса `ix_user_cards_user_id_hidden_at` в `user_cards`, а также составного индекса `ix_transactions_card_id_occurred_at` в `transactions`.
-
-### Реализовано в рамках TASK-006 (Manual QR / Barcode Card Binding):
-* **Спецификация API:** Подробный контракт зафиксирован в [`docs/CUSTOMER_API.md`](docs/CUSTOMER_API.md).
-* **Эндпоинт ручной привязки карт (`POST /me/cards/bind`):**
-  * Принимает 13-значный EAN-13 штрихкод (`barcode`) и опциональный `business_id`.
-  * Валидация штрихкода: строго 13 цифр (`^\d{13}$`), ведущий ноль сохраняется как строка, пробелы внутри запрещены, внешние пробелы обрезаются.
-* **Разрешение бизнеса и префиксов штрихкодов:**
-  * Если `business_id` передан: поиск карты строго по `(business_id, barcode)` в активных бизнесах (`status == "active"`).
-  * Если `business_id` опущен: поиск карты во всех активных бизнесах; при наличии нескольких совпадений применяется фильтрация по `business.barcode_prefixes`.
-  * При неоднозначности или отсутствии подходящих префиксов возвращается контролируемый `409 BUSINESS_SELECTION_REQUIRED` со списком кандидатов без раскрытия персональных данных (только `id`, `name`, `logo_url`, `colors`).
-* **Верификация владения по номеру телефона (Phone Ownership):**
-  * При `card.phone IS NULL` возвращается `409 CARD_ACTIVATION_REQUIRED` (активация через кассира/код отложена до утверждения механизма).
-  * При невалидном телефоне или несоответствии `normalize(card.phone) != current_user.phone` возвращается безопасный `409 CARD_BIND_NOT_ALLOWED`.
-* **Идемпотентность и явное восстановление скрытых карт (Explicit Unhide):**
-  * Повторная привязка активной собственной карты идемпотентна (возвращает 200 OK без дублирования).
-  * Явный ввод/сканирование ранее скрытой собственной карты восстанавливает ее (`hidden_at = NULL`) с сохранением исходного `bound_at` и `bind_method`.
-  * Чужие карты не могут быть украдены или перепривязаны (возвращается `409 CARD_BIND_NOT_ALLOWED`).
-* **Безопасность параллелизма (Concurrency):**
-  * Использование `pg_insert ... ON CONFLICT (card_id) DO NOTHING` гарантирует 0 IntegrityError и 0 HTTP 500 при одновременных запросах.
-* **Тестирование:**
-  * 175+ тестов (100% passing), включая специализированный набор PG-BIND-01..04 на PostgreSQL 16 с `asyncio.Barrier`.
-
-### Реализовано в рамках TASK-007 (SMS Fallback Authentication Core):
-* **Спецификация контракта провайдера:** Подробный контракт зафиксирован в [`docs/SMS_PROVIDER_CONTRACT.md`](docs/SMS_PROVIDER_CONTRACT.md).
-* **Архитектура аутентификации:** Обновлена в [`docs/AUTH.md`](docs/AUTH.md).
-* **Эндпоинты SMS-аутентификации:**
-  * `POST /auth/sms/request`: запрос 6-значного SMS OTP с валидацией E.164 телефона, `device_id` и многоуровневым rate limiting (телефон, устройство, IP).
-  * `POST /auth/sms/verify`: верификация OTP-кода с row-level locking (`with_for_update()`), лимитом 5 попыток, TTL 5 минут, одноразовым потреблением и выдачей `TokenResponse` (access JWT + refresh token).
-* **Криптографическая безопасность:**
-  * OTP генерируется через `secrets.choice` строго из 6 десятичных цифр.
-  * Открытый OTP **никогда не сохраняется в БД и не логируется**.
-  * В таблице `otp_codes` хранится HMAC-SHA256 digest (`SMS_OTP_HASH_KEY`).
-  * Для Redis rate limiter ключи телефонов хэшируются в SHA-256 fingerprint.
-* **Атомарность и отказоустойчивость:**
-  * При ошибке доставки SMS или в режиме `SMS_PROVIDER_MODE=disabled` сессия БД откатывается (`rollback`), повисших кодов в БД не создается, клиенту возвращается 503.
-  * На PostgreSQL одновременные запросы сериализуются через `pg_advisory_xact_lock`, гарантируя, что для пары `(phone, device_id)` активен ровно один OTP.
-* **Миграции Alembic:**
-  * `0007_sms_auth_core.py`: добавление `device_id`, `status`, `verified_at` в `otp_codes`, сужение `code_hash` до `VARCHAR(64)` и составной индекс `ix_otp_codes_phone_device_id`.
-* **Тестирование:**
-  * 195+ тестов (100% passing), включая полный набор PostgreSQL concurrency тестов PG-SMS-01..04.
-
-### Реализовано в рамках TASK-008 (Windows Agent Runtime + Reliable Cloud Sync Foundation):
-* **Архитектурная спецификация:** Подробная документация зафиксирована в [`docs/AGENT_ARCHITECTURE.md`](docs/AGENT_ARCHITECTURE.md).
-* **Требование Stage 0 Discovery:** Подробный регламент обнаружения метаданных 1С зафиксирован в [`docs/ONE_STAGE0_REQUIRED.md`](docs/ONE_STAGE0_REQUIRED.md).
-* **Модуль Windows Agent (`agent/`):**
-  * Полноценный CLI-инструмент и сервис `poscenter-loyalty-agent` на базе `pydantic-settings` и `httpx`.
-  * Режимы запуска: интерактивный console run (`poscenter-loyalty-agent run`), валидация окружения (`poscenter-loyalty-agent check-config`), просмотр состояния (`poscenter-loyalty-agent status`), управление Windows Service (`poscenter-loyalty-agent service ...`).
-* **Надежная синхронизация и At-Least-Once Delivery:**
-  * Чекпоинты хранятся в локальной SQLite БД (`agent_state.db`) в режиме WAL.
-  * Продвижение курсора (`cards_committed_cursor`, `transactions_committed_cursor`) происходит **только** после получения HTTP 2xx ACK от Cloud API.
-  * При аварийном завершении в окне между ACK и коммитом чекпоинта пакет безопасно переотправляется при следующем старте (идемпотентность на бэкенде исключает дубли).
-  * Защита от зависших курсоров (`SOURCE_CURSOR_STALLED`): предотвращает бесконечные циклы при `has_more=True` без смещения курсора.
-* **Безопасность и Zero PII:**
-  * В локальном хранилище состояния сохраняются исключительно непрозрачные курсоры, таймстемпы и санитизированные ошибки.
-  * Полное отсутствие PII (номеров телефонов, ФИО, штрихкодов карт) и секретов (паролей 1С `Pwd=...`, API-ключей) в SQLite и логах.
-* **Процессный замок (Process Singleton):**
-  * Защита от параллельного запуска нескольких инстансов через `ProcessLock` (`fcntl.flock` на POSIX, `msvcrt.locking` на Windows) с ошибкой `AGENT_ALREADY_RUNNING`.
-* **Независимый Heartbeat:**
-  * Фоновый поток отправки статуса и ошибок в `POST /agent/sync/heartbeat` продолжает функционировать даже при ошибках синхронизации данных.
-* **Cross-Platform Safety:**
-  * Агент и все 32 теста работают на macOS/Linux без `pywin32`. Модули `win32com` и `win32serviceutil` изолированы за платформенными гардами (`sys.platform == 'win32'`).
-* **Безопасный дефолт:**
-  * По умолчанию агент работает в режиме `ONE_ADAPTER_MODE=stub`, требующем явного прохождения Stage 0 Discovery на пилотной базе 1С.
-
-### Отложено до следующих задач:
-* Подключение конкретного вендорного SMS-шлюза (Twilio, SMSC, Mobizon и др.) через адаптер к `SmsProvider` Protocol.
-* Кассирская активация карт без телефона / активационный код в 1С.
-* Stage 0 Discovery реальных метаданных 1С и реализация COM-экстрактора (`ONE_ADAPTER_MODE=com`).
-* Мобильное приложение Expo/React Native (камера сканера QR/штрихкода).
-* Административная панель.
-* Google Wallet / Apple Wallet / Push-уведомления (Stage 2).
-
-
-
----
-
-## 🛠 Локальный запуск и разработка
-
-### 1. Настройка окружения
+Нужны Python 3.11+, PostgreSQL 16, Redis 7, Node 20+.
 
 ```bash
-cd backend
-cp ../.env.example .env
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt -r agent/requirements.txt
+cp .env.example backend/.env        # заполнить секреты (минимум 32 символа)
+cd backend && alembic upgrade head && uvicorn app.main:app --reload
 ```
 
-### 2. Применение миграций
+Первого администратора создаёт `python -m app.cli.create_admin` (см. [admin/README.md](admin/README.md)). Админка: `cd admin && npm ci && npm run dev`. Приложение: [mobile/README.md](mobile/README.md).
+
+## Проверки
 
 ```bash
-alembic upgrade head
+# Сервер (с PostgreSQL тесты на конкурентность включаются через POSTGRES_TEST_URL)
+cd backend && POSTGRES_TEST_URL=postgresql+asyncpg://localhost:5432/poscenter_loyalty_test \
+  REDIS_URL=redis://127.0.0.1:6379/15 APP_ENV=test pytest && ruff check . && mypy app
+# Агент
+cd agent && pytest
+# Сквозной сценарий агент → сервер → кошелёк (БД cashback_e2e_*, Redis db 14)
+bash scripts/run_pre_one_e2e.sh
+# Админка и мобильное приложение
+cd admin && npm test && npm run build
+cd mobile && npm test
 ```
 
-Проверка отката и наката:
-```bash
-alembic downgrade base
-alembic upgrade head
-```
+CI (`.github/workflows/ci.yml`) выполняет те же проверки.
 
-### 3. Запуск сервера разработки
+## Деплой и эксплуатация
 
-```bash
-uvicorn app.main:app --reload --port 8000
-```
+- [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md) — Docker Compose, nginx, переменные окружения
+- [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md), [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md)
+- [docs/PRE_ONE_E2E.md](docs/PRE_ONE_E2E.md) — как устроен e2e
 
-Проверка эндпоинта:
-```bash
-curl http://localhost:8000/health
-# {"status":"ok"}
-```
+## Документация
 
-Документация Swagger UI доступна по адресу: `http://localhost:8000/docs`.
+| Тема | Файл |
+|---|---|
+| Архитектура | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) |
+| Вход покупателей | [docs/AUTH.md](docs/AUTH.md), [docs/WAPPI_WEBHOOK_CONTRACT.md](docs/WAPPI_WEBHOOK_CONTRACT.md), [docs/SMS_PROVIDER_CONTRACT.md](docs/SMS_PROVIDER_CONTRACT.md) |
+| API | [docs/CUSTOMER_API.md](docs/CUSTOMER_API.md), [docs/AGENT_API.md](docs/AGENT_API.md), [docs/ADMIN_API.md](docs/ADMIN_API.md) |
+| Stage 0 (1С) | [docs/ONE_STAGE0_REQUIRED.md](docs/ONE_STAGE0_REQUIRED.md), [docs/STAGE0_PENDING.md](docs/STAGE0_PENDING.md), [docs/STAGE0_WINDOWS_RUNBOOK.md](docs/STAGE0_WINDOWS_RUNBOOK.md) |
+| Аудит проекта (2026-10-15) | [docs/AUDIT_2026-10-15.md](docs/AUDIT_2026-10-15.md) |
+| Техническое задание | [docs/TZ_loyalty_app_v1.1.docx](docs/TZ_loyalty_app_v1.1.docx) |
+| История задач (отчёты TASK-001…013) | [docs/history/](docs/history/) |
 
-### 4. Запуск автоматических тестов
+## Известные ограничения
 
-```bash
-pytest -v
-```
-
-Запуск линтера:
-```bash
-ruff check app tests
-```
-
-Запуск проверки типов:
-```bash
-mypy app
-```
+- Фишинг в WhatsApp-входе (злоумышленник просит жертву «отправить код») закрывается только предупреждением в ответном сообщении, оно зависит от настройки Wappi.
+- Смена телефона карты в 1С не отвязывает карту от прежнего владельца (решение по продукту не принято).
+- Зависимости Python не зафиксированы lock-файлом; у мобильного приложения `npm audit` показывает уязвимости только в инструментах сборки и тестов.
