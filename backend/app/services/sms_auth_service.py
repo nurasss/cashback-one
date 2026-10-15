@@ -4,7 +4,7 @@ import logging
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +23,7 @@ from app.models.entities import AuthSession, OtpCode
 from app.schemas.auth import SmsOtpRequestResponse, TokenResponse
 from app.services.rate_limiter import RateLimiter
 from app.services.sms_provider import DisabledSmsProvider, SmsProvider
-from app.services.user_service import get_or_create_user_by_phone
+from app.services.user_service import ensure_user_active, get_or_create_user_by_phone
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +178,23 @@ async def verify_sms_otp(
     clean_code = code.strip()
     now = utcnow()
 
+    # Per-phone cap on wrong attempts across all codes in the window (anti brute-force)
+    window_start = now - timedelta(seconds=settings.sms_otp_phone_failed_attempts_window_seconds)
+    failed_attempts = (
+        await session.execute(
+            select(func.coalesce(func.sum(OtpCode.attempts), 0)).where(
+                OtpCode.phone == clean_phone,
+                OtpCode.created_at >= window_start,
+            )
+        )
+    ).scalar_one()
+    if int(failed_attempts) >= settings.sms_otp_phone_failed_attempts_limit:
+        raise AppError(
+            code="SMS_VERIFY_LOCKED",
+            message="Too many incorrect attempts for this phone number. Please try again later.",
+            status_code=429,
+        )
+
     # Query with row lock
     stmt = (
         select(OtpCode)
@@ -237,11 +254,12 @@ async def verify_sms_otp(
             status_code=400,
         )
 
+    user = await get_or_create_user_by_phone(session, clean_phone)
+    ensure_user_active(user)
+
     # Code is valid: mark consumed
     otp_record.status = "consumed"
     otp_record.verified_at = now
-
-    user = await get_or_create_user_by_phone(session, clean_phone)
 
     raw_refresh = generate_refresh_token()
     refresh_hash = hash_refresh_token(raw_refresh)

@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     )
     sms_otp_ttl_seconds: int = 300  # 5 minutes
     sms_otp_max_attempts: int = 5
+    # Cap on wrong verification attempts per phone across ALL codes in the window,
+    # so re-requesting fresh codes cannot be used to brute-force the 6-digit space.
+    sms_otp_phone_failed_attempts_limit: int = 15
+    sms_otp_phone_failed_attempts_window_seconds: int = 86400  # 24 hours
     sms_otp_request_phone_limit: int = 3
     sms_otp_request_device_limit: int = 5
     sms_otp_request_ip_limit: int = 20
@@ -131,6 +135,10 @@ class Settings(BaseSettings):
     auth_challenge_device_limit: int = 5
     auth_challenge_ip_limit: int = 20
     auth_challenge_rate_window_seconds: int = 300
+
+    # Manual card bind attempts per customer (anti barcode enumeration)
+    card_bind_user_limit: int = 20
+    card_bind_rate_window_seconds: int = 300
 
     # Agent sync limits
     sync_max_cards_batch: int = 500
