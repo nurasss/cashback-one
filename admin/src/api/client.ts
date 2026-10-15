@@ -20,7 +20,7 @@ export class AdminApiClient {
   constructor(
     private readonly hooks: SessionHooks,
     private readonly baseUrl: () => string | undefined = () => import.meta.env.VITE_API_BASE_URL,
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = (input, init) => fetch(input, init),
     private readonly timeoutMs = 15_000,
   ) {}
 
