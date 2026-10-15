@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
 from app.core.phone import normalize_phone
 from app.models.entities import User
 
@@ -47,3 +48,13 @@ async def get_or_create_user_by_phone(
 
     return await session.get_one(User, resolved_id)
 
+
+
+def ensure_user_active(user: User) -> None:
+    """Reject token issuance for soft-deleted customer accounts."""
+    if user.deleted_at is not None:
+        raise AppError(
+            code="ACCOUNT_DEACTIVATED",
+            message="Customer account is deactivated",
+            status_code=403,
+        )

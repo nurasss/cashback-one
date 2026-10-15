@@ -19,7 +19,7 @@ from app.core.security import (
 )
 from app.core.time import as_utc, utcnow
 from app.db.session import get_session
-from app.models.entities import AuthSession, LoginChallenge
+from app.models.entities import AuthSession, LoginChallenge, User
 from app.schemas.auth import (
     ChallengeStatusResponse,
     CreateChallengeRequest,
@@ -35,7 +35,7 @@ from app.schemas.auth import (
 from app.services.rate_limiter import RateLimiter, get_rate_limiter
 from app.services.sms_auth_service import request_sms_otp, verify_sms_otp
 from app.services.sms_provider import SmsProvider, get_sms_provider
-from app.services.user_service import get_or_create_user_by_phone
+from app.services.user_service import ensure_user_active, get_or_create_user_by_phone
 
 router = APIRouter(prefix="/auth", tags=["Customer Auth"])
 
@@ -207,6 +207,7 @@ async def get_challenge_status(
 
         # Resolve or create customer User atomically
         user = await get_or_create_user_by_phone(session, challenge.phone)
+        ensure_user_active(user)
 
         # Create new customer auth session
         raw_refresh = generate_refresh_token()
@@ -269,6 +270,14 @@ async def refresh_tokens(
         raise AppError(
             code="REFRESH_TOKEN_EXPIRED",
             message="Refresh token has expired",
+            status_code=401,
+        )
+
+    user = await session.get(User, auth_session.user_id)
+    if user is None or user.deleted_at is not None:
+        raise AppError(
+            code="USER_NOT_FOUND",
+            message="Customer account not found or deactivated",
             status_code=401,
         )
 
