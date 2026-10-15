@@ -741,3 +741,82 @@ async def test_bind_card_mirror_attributes_strictly_read_only(
     assert refreshed_card.full_name == "Ivan Ivanov"
     assert refreshed_card.is_blocked is False
     assert refreshed_card.updated_at == ts
+
+
+@pytest.mark.asyncio
+async def test_inactive_business_cards_hidden_from_wallet(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Cards of a deactivated business are not auto-bound, listed, opened or queried for history."""
+    user, token = await create_test_customer(db_session, phone="+77019990055")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    active_biz = Business(name="Active Shop", status="active")
+    inactive_biz = Business(name="Closed Shop", status="inactive")
+    db_session.add_all([active_biz, inactive_biz])
+    await db_session.flush()
+
+    active_card = Card(
+        business_id=active_biz.id, barcode="0123456789101", phone=user.phone, balance=Decimal(10)
+    )
+    inactive_card = Card(
+        business_id=inactive_biz.id, barcode="0123456789102", phone=user.phone, balance=Decimal(20)
+    )
+    db_session.add_all([active_card, inactive_card])
+    await db_session.commit()
+
+    # Auto-bind skips the inactive business card entirely
+    listed = await client.get("/me/cards", headers=headers)
+    assert listed.status_code == 200
+    assert [c["barcode"] for c in listed.json()] == ["0123456789101"]
+    bindings = (
+        await db_session.execute(select(UserCard).where(UserCard.user_id == user.id))
+    ).scalars().all()
+    assert len(bindings) == 1
+
+    # A card bound before the business was deactivated disappears from list/detail/history
+    db_session.add(UserCard(user_id=user.id, card_id=inactive_card.id, bind_method="phone_auto"))
+    await db_session.commit()
+
+    listed = await client.get("/me/cards", headers=headers)
+    assert [c["barcode"] for c in listed.json()] == ["0123456789101"]
+
+    detail = await client.get(f"/me/cards/{inactive_card.id}", headers=headers)
+    assert detail.status_code == 404
+    assert detail.json()["error"]["code"] == "CARD_NOT_FOUND"
+
+    history = await client.get(f"/me/cards/{inactive_card.id}/transactions", headers=headers)
+    assert history.status_code == 404
+    assert history.json()["error"]["code"] == "CARD_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_bind_card_rate_limited_per_customer(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Manual bind attempts are capped per customer so barcodes cannot be enumerated."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "card_bind_user_limit", 3)
+    _, token = await create_test_customer(db_session, phone="+77019990066")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for _ in range(3):
+        res = await client.post("/me/cards/bind", json={"barcode": "9999999999999"}, headers=headers)
+        assert res.status_code == 404
+
+    blocked = await client.post("/me/cards/bind", json={"barcode": "9999999999999"}, headers=headers)
+    assert blocked.status_code == 429
+    assert blocked.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+
+    # Another customer has an independent budget
+    _, other_token = await create_test_customer(db_session, phone="+77019990077")
+    other = await client.post(
+        "/me/cards/bind",
+        json={"barcode": "9999999999999"},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert other.status_code == 404
