@@ -183,3 +183,57 @@ async def test_refresh_token_expired_fails(
     res = await client.post("/auth/refresh", json={"refresh_token": raw_refresh})
     assert res.status_code == 401
     assert res.json()["error"]["code"] == "REFRESH_TOKEN_EXPIRED"
+
+
+@pytest.mark.asyncio
+async def test_refresh_denied_for_deleted_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Refresh rotation must not issue tokens for a soft-deleted customer."""
+    create_res = await client.post("/auth/challenge", json={"device_id": "dev-del-ref"})
+    c_id = create_res.json()["challenge_id"]
+    code = create_res.json()["code"]
+
+    await confirm_login_challenge(db_session, code, "+77017772299")
+    poll = await client.get(f"/auth/challenge/{c_id}", headers={"X-Device-Id": "dev-del-ref"})
+    raw_refresh = poll.json()["refresh_token"]
+
+    user = await db_session.scalar(select(User))
+    assert user is not None
+    user.deleted_at = datetime.now(UTC)
+    await db_session.commit()
+
+    res = await client.post("/auth/refresh", json={"refresh_token": raw_refresh})
+    assert res.status_code == 401
+    assert res.json()["error"]["code"] == "USER_NOT_FOUND"
+    assert "access_token" not in res.json()
+
+
+@pytest.mark.asyncio
+async def test_challenge_exchange_denied_for_deleted_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """A deleted customer's confirmed challenge cannot be exchanged for tokens."""
+    phone = "+77017772288"
+    first = await client.post("/auth/challenge", json={"device_id": "dev-del-ex-1"})
+    await confirm_login_challenge(db_session, first.json()["code"], phone)
+    await client.get(
+        f"/auth/challenge/{first.json()['challenge_id']}",
+        headers={"X-Device-Id": "dev-del-ex-1"},
+    )
+
+    user = await db_session.scalar(select(User).where(User.phone == phone))
+    assert user is not None
+    user.deleted_at = datetime.now(UTC)
+    await db_session.commit()
+
+    second = await client.post("/auth/challenge", json={"device_id": "dev-del-ex-2"})
+    await confirm_login_challenge(db_session, second.json()["code"], phone)
+    res = await client.get(
+        f"/auth/challenge/{second.json()['challenge_id']}",
+        headers={"X-Device-Id": "dev-del-ex-2"},
+    )
+    assert res.status_code == 403
+    assert res.json()["error"]["code"] == "ACCOUNT_DEACTIVATED"

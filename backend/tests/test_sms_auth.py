@@ -352,6 +352,87 @@ async def test_sms_verify_max_attempts_exhaustion(
 
 
 @pytest.mark.asyncio
+async def test_sms_verify_phone_lockout_across_codes(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wrong attempts accumulate per phone across freshly requested codes and lock verification."""
+    monkeypatch.setattr(settings, "sms_provider_mode", "fake")
+    monkeypatch.setattr(settings, "sms_otp_phone_failed_attempts_limit", 6)
+    monkeypatch.setattr(settings, "sms_otp_request_phone_limit", 100)
+    monkeypatch.setattr(settings, "sms_otp_request_device_limit", 100)
+    fake_provider = get_fake_sms_provider()
+
+    phone = "+77015554422"
+    device_id = "dev-lockout"
+    wrong_code = "000000"
+
+    # Two codes: 4 wrong attempts on the first, 2 on the second reach the limit of 6
+    for wrong_attempts in (4, 2):
+        await client.post("/auth/sms/request", json={"phone": phone, "device_id": device_id})
+        if fake_provider.sent_messages[-1][1] == wrong_code:
+            wrong_code = "000001"
+        for _ in range(wrong_attempts):
+            res = await client.post(
+                "/auth/sms/verify",
+                json={"phone": phone, "device_id": device_id, "code": wrong_code},
+            )
+            assert res.status_code == 400
+
+    # Fresh code requested, but verification is locked even with the CORRECT code
+    await client.post("/auth/sms/request", json={"phone": phone, "device_id": device_id})
+    correct_code = fake_provider.sent_messages[-1][1]
+    locked = await client.post(
+        "/auth/sms/verify",
+        json={"phone": phone, "device_id": device_id, "code": correct_code},
+    )
+    assert locked.status_code == 429
+    assert locked.json()["error"]["code"] == "SMS_VERIFY_LOCKED"
+    assert "access_token" not in locked.json()
+
+    # Other phones are unaffected
+    other_phone = "+77015554433"
+    await client.post("/auth/sms/request", json={"phone": other_phone, "device_id": "dev-other"})
+    other_code = fake_provider.sent_messages[-1][1]
+    ok = await client.post(
+        "/auth/sms/verify",
+        json={"phone": other_phone, "device_id": "dev-other", "code": other_code},
+    )
+    assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_sms_verify_lockout_expires_after_window(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Failed attempts older than the window no longer count toward the lockout."""
+    monkeypatch.setattr(settings, "sms_provider_mode", "fake")
+    monkeypatch.setattr(settings, "sms_otp_phone_failed_attempts_limit", 3)
+    fake_provider = get_fake_sms_provider()
+
+    phone = "+77015554444"
+    device_id = "dev-window"
+
+    await client.post("/auth/sms/request", json={"phone": phone, "device_id": device_id})
+    old_otp = (
+        await db_session.execute(select(OtpCode).where(OtpCode.phone == phone))
+    ).scalar_one()
+    old_otp.attempts = 5
+    old_otp.status = "exhausted"
+    old_otp.created_at = utcnow() - timedelta(
+        seconds=settings.sms_otp_phone_failed_attempts_window_seconds + 60
+    )
+    await db_session.commit()
+
+    await client.post("/auth/sms/request", json={"phone": phone, "device_id": device_id})
+    code = fake_provider.sent_messages[-1][1]
+    res = await client.post(
+        "/auth/sms/verify",
+        json={"phone": phone, "device_id": device_id, "code": code},
+    )
+    assert res.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_sms_verify_expired_code(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -49,13 +49,20 @@ async def handle_wappi_webhook(
         except ValueError:
             pass
 
-    body_bytes = await request.body()
-    if len(body_bytes) > settings.wappi_webhook_max_body_bytes:
-        raise AppError(
-            code="PAYLOAD_TOO_LARGE",
-            message=f"Payload exceeds limit of {settings.wappi_webhook_max_body_bytes} bytes",
-            status_code=413,
-        )
+    # Stream the body with a hard cap so chunked requests (no Content-Length) cannot
+    # force the whole payload into memory before the size check.
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > settings.wappi_webhook_max_body_bytes:
+            raise AppError(
+                code="PAYLOAD_TOO_LARGE",
+                message=f"Payload exceeds limit of {settings.wappi_webhook_max_body_bytes} bytes",
+                status_code=413,
+            )
+        chunks.append(chunk)
+    body_bytes = b"".join(chunks)
 
     # 3. Parse JSON
     try:

@@ -70,7 +70,11 @@ async def auto_bind_cards_by_phone(
         return []
 
     # Find cards matching customer's phone
-    cards_stmt = select(Card.id).where(Card.phone == clean_phone)
+    cards_stmt = (
+        select(Card.id)
+        .join(Business, Business.id == Card.business_id)
+        .where(Card.phone == clean_phone, Business.status == "active")
+    )
     candidate_card_ids = (await session.execute(cards_stmt)).scalars().all()
     if not candidate_card_ids:
         return []
@@ -156,6 +160,7 @@ async def get_customer_cards(
         .where(
             UserCard.user_id == user_id,
             UserCard.hidden_at.is_(None),
+            Business.status == "active",
         )
         .order_by(UserCard.bound_at.desc(), Card.id.desc())
     )
@@ -197,6 +202,7 @@ async def get_customer_card_detail(
             UserCard.user_id == user_id,
             UserCard.card_id == card_id,
             UserCard.hidden_at.is_(None),
+            Business.status == "active",
         )
     )
     row = (await session.execute(stmt)).first()
@@ -263,10 +269,16 @@ async def get_customer_card_transactions(
 ) -> CustomerTransactionHistoryResponse:
     """Fetch cursor-paginated transaction history for a card owned by user."""
     # Enforce ownership and visibility check
-    ownership_stmt = select(UserCard.id).where(
-        UserCard.user_id == user_id,
-        UserCard.card_id == card_id,
-        UserCard.hidden_at.is_(None),
+    ownership_stmt = (
+        select(UserCard.id)
+        .join(Card, Card.id == UserCard.card_id)
+        .join(Business, Business.id == Card.business_id)
+        .where(
+            UserCard.user_id == user_id,
+            UserCard.card_id == card_id,
+            UserCard.hidden_at.is_(None),
+            Business.status == "active",
+        )
     )
     is_owned = (await session.execute(ownership_stmt)).scalar_one_or_none()
     if not is_owned:
