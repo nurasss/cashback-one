@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.*.example
 *.pem
 *.key
 
@@ -65,4 +66,7 @@ Thumbs.db
 
 # Stage 0 Discovery outputs (PII / commercial protection)
 stage0_output/
+
+# Local Redis persistence artifact (standard redis-server output, never commit)
+/dump.rdb
 

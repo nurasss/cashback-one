@@ -1,8 +1,12 @@
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+from app.core.config import settings
+from app.core.logging import get_current_request_id, get_safe_route_id
 
 
 class AppError(Exception):
@@ -44,4 +48,35 @@ def register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content={"error": {"code": "VALIDATION_ERROR", "message": details}},
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        req_id = getattr(request.state, "request_id", "") or get_current_request_id()
+        safe_route = get_safe_route_id(request)
+        is_prod = settings.app_env.lower() == "production"
+
+        if is_prod:
+            logging.getLogger("app.unhandled").error(
+                "unhandled_request_exception",
+                extra={
+                    "event": "unhandled_request_exception",
+                    "request_id": req_id,
+                    "route": safe_route,
+                    "exception_class": exc.__class__.__name__,
+                    "status_code": 500,
+                },
+                exc_info=False,
+            )
+        else:
+            logging.getLogger("app.unhandled").error(
+                f"Unhandled exception during {request.method} {safe_route}: {exc.__class__.__name__}",
+                exc_info=exc,
+                extra={"request_id": req_id, "method": request.method, "route": safe_route},
+            )
+        headers = {"X-Request-ID": req_id} if req_id else {}
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"code": "INTERNAL_SERVER_ERROR", "message": "An internal server error occurred"}},
+            headers=headers,
         )

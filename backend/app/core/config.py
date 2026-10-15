@@ -1,8 +1,29 @@
+import ipaddress
 import re
 from functools import lru_cache
+from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_FORBIDDEN_WEAK_SECRETS: set[str] = {
+    "changeme",
+    "secret",
+    "development-secret",
+    "test-secret",
+    "default-key",
+    "admin123",
+    "password",
+}
+
+
+def _is_weak_secret(val: str) -> bool:
+    normalized = val.strip().lower()
+    if normalized in _FORBIDDEN_WEAK_SECRETS:
+        return True
+    if normalized.startswith(("change_me", "changeme")):
+        return True
+    return bool(normalized.startswith(("test_", "default")) or "fixture" in normalized)
 
 
 class Settings(BaseSettings):
@@ -56,6 +77,34 @@ class Settings(BaseSettings):
         description="Maximum allowed body size for Wappi webhook requests (default 64KB).",
     )
 
+    # Admin browser authentication and operational console.
+    admin_jwt_signing_key: str = Field(default="", description="Independent admin JWT signing key (minimum 32 characters).")
+    admin_access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    admin_refresh_token_ttl_seconds: int = Field(default=28800, ge=900, le=28800)
+    admin_allowed_origins: list[str] = Field(default_factory=list)
+    admin_login_limit: int = Field(default=5, ge=1, le=50)
+    admin_login_ip_limit: int = Field(default=20, ge=1, le=200)
+    admin_login_rate_window_seconds: int = Field(default=300, ge=30, le=3600)
+    admin_agent_stale_seconds: int = Field(default=900, ge=60, le=86400)
+    admin_max_stats_period_days: int = Field(default=90, ge=1, le=365)
+    admin_allow_insecure_http: bool = False
+
+    # Production runtime, connection pool, and security settings (TASK-012)
+    debug: bool = Field(default=False, description="Debug mode. Must be False in production.")
+    db_pool_size: int = Field(default=10, ge=1, le=100, description="Database connection pool size.")
+    db_max_overflow: int = Field(default=20, ge=0, le=100, description="Max overflow connections beyond pool size.")
+    db_pool_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0, description="Database pool checkout timeout.")
+    db_pool_recycle_seconds: int = Field(default=1800, ge=60, le=86400, description="Database connection recycle seconds.")
+    db_pool_pre_ping: bool = Field(default=True, description="Enable connection health pre-ping.")
+    db_statement_timeout_ms: int = Field(default=10000, ge=100, le=60000, description="PostgreSQL statement timeout in ms.")
+
+    redis_connect_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0, description="Redis connection timeout in seconds.")
+    redis_socket_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0, description="Redis operation socket timeout in seconds.")
+
+    forwarded_allow_ips: str = Field(default="127.0.0.1", description="Trusted proxy IPs for forwarded headers. Never '*' in production.")
+    log_format: str = Field(default="json", description="Structured logging format: 'json' or 'text'.")
+    log_level: str = Field(default="INFO", description="Log level: DEBUG, INFO, WARNING, ERROR.")
+
     # SMS OTP Fallback Configuration (TASK-007)
     sms_otp_hash_key: str = Field(
         default="",
@@ -85,6 +134,39 @@ class Settings(BaseSettings):
     sync_max_cards_batch: int = 500
     sync_max_transactions_batch: int = 1000
 
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def validate_app_env(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            raise TypeError(f"APP_ENV must be a string, got {type(v).__name__}")
+        normalized = v.strip().lower()
+        if normalized not in {"test", "development", "production"}:
+            raise ValueError(
+                f"Invalid APP_ENV '{v}'. Allowed environments: development, production, test"
+            )
+        return normalized
+
+    @field_validator("admin_allowed_origins", mode="before")
+    @classmethod
+    def parse_admin_allowed_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            clean = v.strip()
+            if not clean:
+                return []
+            if clean.startswith("[") and clean.endswith("]"):
+                try:
+                    import json
+
+                    parsed = json.loads(clean)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except (ValueError, TypeError):
+                    pass
+            return [p.strip() for p in clean.split(",") if p.strip()]
+        if isinstance(v, (list, tuple, set)):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []
+
     @model_validator(mode="after")
     def validate_configuration(self) -> "Settings":
         db_url = self.database_url.strip() if self.database_url else ""
@@ -92,10 +174,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_URL must be explicitly provided in environment or .env"
             )
-        if self.app_env.lower() != "test" and db_url.startswith("sqlite"):
+        if self.app_env in {"development", "production"} and db_url.startswith("sqlite"):
             raise ValueError(
-                "DATABASE_URL must be a valid PostgreSQL connection string in development/production. "
-                "SQLite is only permitted when APP_ENV=test."
+                "SQLite is only permitted when APP_ENV=test. DATABASE_URL must not use SQLite in production or development. PostgreSQL is required."
             )
 
         # Validate SMS provider mode
@@ -126,6 +207,10 @@ class Settings(BaseSettings):
                 self.wappi_webhook_auth_header = "X-Test-Wappi-Auth"
             if not self.wappi_webhook_auth_secret:
                 self.wappi_webhook_auth_secret = "test_wappi_webhook_secret_min_32_characters_12345"
+            if not self.admin_jwt_signing_key:
+                self.admin_jwt_signing_key = "test_only_admin_signing_key_distinct_678901234567"
+            if not self.admin_allowed_origins:
+                self.admin_allowed_origins = ["https://admin.test"]
         else:
             if not self.redis_url or not self.redis_url.strip():
                 raise ValueError("REDIS_URL must be explicitly provided in environment or .env")
@@ -149,6 +234,98 @@ class Settings(BaseSettings):
                     "Only 'disabled' is currently supported."
                 )
 
+            if not self.admin_jwt_signing_key or len(self.admin_jwt_signing_key.strip()) < 32:
+                raise ValueError("ADMIN_JWT_SIGNING_KEY must be provided and at least 32 characters long")
+            if self.admin_jwt_signing_key == self.jwt_signing_key:
+                raise ValueError("ADMIN_JWT_SIGNING_KEY must be different from JWT_SIGNING_KEY")
+            if not self.admin_allowed_origins:
+                raise ValueError("ADMIN_ALLOWED_ORIGINS must explicitly list trusted browser origins")
+
+            if self.app_env.lower() == "production":
+                if self.debug:
+                    raise ValueError("DEBUG must be disabled (False) in production")
+                if db_url.startswith("sqlite"):
+                    raise ValueError("DATABASE_URL must not use SQLite in production. PostgreSQL is required.")
+                if not db_url.startswith(("postgresql+asyncpg://", "postgresql://")):
+                    raise ValueError("DATABASE_URL must be a PostgreSQL connection URL in production")
+                if self.admin_allow_insecure_http:
+                    raise ValueError("HTTP admin origins require explicit development opt-in: ADMIN_ALLOW_INSECURE_HTTP is strictly forbidden in production")
+                # Check FORWARDED_ALLOW_IPS
+                raw_ips = self.forwarded_allow_ips.strip() if self.forwarded_allow_ips else ""
+                if not raw_ips:
+                    raise ValueError("FORWARDED_ALLOW_IPS must be explicitly specified in production")
+                entries = [p.strip() for p in raw_ips.split(",") if p.strip()]
+                if not entries:
+                    raise ValueError("FORWARDED_ALLOW_IPS must contain at least one valid IP or CIDR in production")
+                for entry in entries:
+                    if entry in {"*", "all"}:
+                        raise ValueError(f"FORWARDED_ALLOW_IPS must not trust all IPs or wildcard '{entry}' in production")
+                    try:
+                        if "/" in entry:
+                            net = ipaddress.ip_network(entry, strict=False)
+                            if net.prefixlen == 0:
+                                raise ValueError(
+                                    f"FORWARDED_ALLOW_IPS must not trust broad network prefix /0 ('{entry}') in production"
+                                )
+                        else:
+                            ipaddress.ip_address(entry)
+                    except ValueError as err:
+                        raise ValueError(f"Invalid IP or CIDR in FORWARDED_ALLOW_IPS: '{entry}'") from err
+
+                # Check weak / default secrets
+                for name, secret in [
+                    ("JWT_SIGNING_KEY", self.jwt_signing_key),
+                    ("ADMIN_JWT_SIGNING_KEY", self.admin_jwt_signing_key),
+                    ("AUTH_CHALLENGE_HASH_KEY", self.auth_challenge_hash_key),
+                    ("SMS_OTP_HASH_KEY", self.sms_otp_hash_key),
+                    ("WAPPI_WEBHOOK_AUTH_SECRET", self.wappi_webhook_auth_secret),
+                ]:
+                    if _is_weak_secret(secret):
+                        raise ValueError(f"{name} uses an insecure or default secret forbidden in production")
+
+                for raw_origin in self.admin_allowed_origins:
+                    if not raw_origin.strip().startswith("https://"):
+                        raise ValueError(f"All ADMIN_ALLOWED_ORIGINS must use HTTPS in production: '{raw_origin}'")
+
+        # CORS and cookie origins are exact HTTP(S) origins, never wildcard URLs.
+        from urllib.parse import urlsplit
+
+        normalized_origins: list[str] = []
+        for raw_origin in self.admin_allowed_origins:
+            origin = raw_origin.strip()
+            try:
+                parsed_origin = urlsplit(origin)
+                hostname = parsed_origin.hostname
+                port = parsed_origin.port
+            except ValueError as err:
+                raise ValueError("ADMIN_ALLOWED_ORIGINS contains an invalid origin") from err
+            if (
+                not hostname
+                or parsed_origin.username
+                or parsed_origin.password
+                or parsed_origin.path
+                or parsed_origin.query
+                or parsed_origin.fragment
+                or parsed_origin.scheme not in {"https", "http"}
+            ):
+                raise ValueError("ADMIN_ALLOWED_ORIGINS must contain exact HTTP(S) origins, never wildcard URLs")
+            if parsed_origin.scheme == "http" and (
+                self.app_env.lower() not in {"test", "development"}
+                or not self.admin_allow_insecure_http
+            ):
+                raise ValueError("HTTP admin origins require explicit development opt-in")
+            default_port = (parsed_origin.scheme == "https" and port == 443) or (
+                parsed_origin.scheme == "http" and port == 80
+            )
+            host = hostname.lower()
+            authority = host if port is None or default_port else f"{host}:{port}"
+            if ":" in host and not host.startswith("["):
+                authority = f"[{host}]" if port is None or default_port else f"[{host}]:{port}"
+            normalized_origins.append(f"{parsed_origin.scheme}://{authority}")
+        if len(set(normalized_origins)) != len(normalized_origins):
+            raise ValueError("ADMIN_ALLOWED_ORIGINS must not contain duplicate origins")
+        self.admin_allowed_origins = normalized_origins
+
         # Validate WHATSAPP_LOGIN_NUMBER format (E.164)
         if not self.whatsapp_login_number or not self.whatsapp_login_number.strip():
             raise ValueError("WHATSAPP_LOGIN_NUMBER must be provided in environment or .env")
@@ -168,4 +345,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

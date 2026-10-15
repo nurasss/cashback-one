@@ -292,11 +292,31 @@ class AuditLog(Base, UUIDPrimaryKey):
     __table_args__ = (
         Index("ix_audit_log_created_at", "created_at"),
         Index("ix_audit_log_entity", "entity"),
+        Index("ix_audit_log_admin_user_id", "admin_user_id"),
+        Index("ix_audit_log_business_created_at_id", "business_id", "created_at", "id"),
     )
 
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     entity: Mapped[str] = mapped_column(String(64), nullable=False)
+    admin_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "admin_users.id",
+            name="fk_audit_log_admin_user_id_admin_users",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "businesses.id",
+            name="fk_audit_log_business_id_businesses",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
     before_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     after_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

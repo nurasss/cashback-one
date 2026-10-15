@@ -20,6 +20,7 @@ import app.models.entities
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
+from app.services.rate_limiter import _test_limiter, get_rate_limiter
 
 
 @event.listens_for(Engine, "connect")
@@ -54,12 +55,29 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:  # type: 
         yield session
 
 
+@pytest.fixture(autouse=True)
+def _inject_test_limiter():
+    """FIX-A: explicitly inject InMemory limiter for ALL unit tests.
+
+    Application runtime is Redis-only; no env flag selects memory limiter.
+    Custom fixtures that only override get_session preserve this override.
+    """
+    app.dependency_overrides[get_rate_limiter] = lambda: _test_limiter  # type: ignore[return-value]
+    _test_limiter.reset()
+    yield
+    # Custom fixtures clear overrides at teardown; ensure clean state.
+    app.dependency_overrides.pop(get_rate_limiter, None)
+
+
 @pytest.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
+    # Explicit unit-test injection of InMemory limiter (FIX-A: runtime is Redis-only).
+    app.dependency_overrides[get_rate_limiter] = lambda: _test_limiter  # type: ignore[return-value]
+    _test_limiter.reset()
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
