@@ -123,6 +123,8 @@ class Settings(BaseSettings):
 
     # Auth TTL and limits
     challenge_ttl_seconds: int = 180  # 3 minutes
+    # Window to exchange a confirmed challenge for tokens, counted from confirmation time
+    challenge_exchange_ttl_seconds: int = 300  # 5 minutes
     access_token_ttl_seconds: int = 900  # 15 minutes
     refresh_token_ttl_seconds: int = 30 * 86400  # 30 days
 

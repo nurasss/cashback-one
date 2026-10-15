@@ -175,9 +175,19 @@ async def get_challenge_status(
             status_code=409,
         )
 
-    # Handle expiration
-    if challenge.status == "expired" or as_utc(challenge.expires_at) <= utcnow():
-        if challenge.status == "pending":
+    # Handle expiration. Challenge TTL limits only the confirmation step: a challenge
+    # confirmed in time stays exchangeable for a short window after confirmation,
+    # so a late poll does not lose a login the customer already completed.
+    now = utcnow()
+    if challenge.status == "confirmed":
+        is_expired = challenge.confirmed_at is None or as_utc(challenge.confirmed_at) + timedelta(
+            seconds=settings.challenge_exchange_ttl_seconds
+        ) <= now
+    else:
+        is_expired = challenge.status == "expired" or as_utc(challenge.expires_at) <= now
+
+    if is_expired:
+        if challenge.status in ("pending", "confirmed"):
             challenge.status = "expired"
             await session.commit()
         return ChallengeStatusResponse(status="expired")

@@ -12,6 +12,7 @@ def normalize_phone(raw_phone: str | None) -> str | None:
         '+77001234567' -> '+77001234567'
         '77001234567' -> '+77001234567'
         '8 (701) 999-88-77' -> '+77019998877'
+        '7019998877' -> '+77019998877'  (10-digit national number without trunk prefix)
         None -> None
         '' -> None
 
@@ -58,7 +59,11 @@ def normalize_phone(raw_phone: str | None) -> str | None:
         if digits.startswith("8"):
             return f"+7{digits[1:]}"
 
-    if 10 <= len(digits) <= 15:
+    # Kazakhstan / Russia national number entered without 8/7 trunk prefix: 701 999 88 77
+    if len(digits) == 10:
+        return f"+7{digits}"
+
+    if 11 <= len(digits) <= 15:
         return f"+{digits}"
 
     raise ValueError(f"Invalid phone number format or length: '{raw_phone}'")

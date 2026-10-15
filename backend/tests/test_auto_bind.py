@@ -237,6 +237,49 @@ async def test_auto_bind_phone_normalization(
 
 
 @pytest.mark.asyncio
+async def test_auto_bind_ten_digit_card_phone(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Card phone entered in ONE without trunk prefix (701 123 45 67) binds to +77011234567."""
+    biz = Business(name="Bakery")
+    db_session.add(biz)
+    await db_session.flush()
+
+    card = Card(
+        business_id=biz.id,
+        barcode="0123456789055",
+        phone=normalize_phone("701 123 45 67"),
+        balance=Decimal("120.0000"),
+    )
+    db_session.add(card)
+
+    user = User(phone="+77011234567", language="ru")
+    db_session.add(user)
+    await db_session.flush()
+
+    auth = AuthSession(
+        user_id=user.id,
+        device_id="device-bakery",
+        refresh_token_hash=hash_refresh_token(f"rfr_{uuid.uuid4()}"),
+        expires_at=utcnow() + timedelta(days=30),
+    )
+    db_session.add(auth)
+    await db_session.commit()
+
+    token = create_access_token(user_id=user.id, session_id=auth.id)
+
+    response = await client.get(
+        "/me/cards",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 1
+    assert items[0]["barcode"] == "0123456789055"
+
+
+@pytest.mark.asyncio
 async def test_auto_bind_pii_not_in_logs(
     client: AsyncClient,
     db_session: AsyncSession,
