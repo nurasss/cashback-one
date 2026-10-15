@@ -36,6 +36,7 @@ from app.services.rate_limiter import RateLimiter, get_rate_limiter
 from app.services.sms_auth_service import request_sms_otp, verify_sms_otp
 from app.services.sms_provider import SmsProvider, get_sms_provider
 from app.services.user_service import ensure_user_active, get_or_create_user_by_phone
+from app.services.whatsapp_sender import WhatsAppOtpProvider, WhatsAppSender, get_whatsapp_sender
 
 router = APIRouter(prefix="/auth", tags=["Customer Auth"])
 
@@ -355,3 +356,38 @@ async def verify_sms(
         code=body.code,
     )
 
+
+
+@router.post("/whatsapp/request", response_model=SmsOtpRequestResponse)
+async def request_whatsapp_code(
+    body: SmsOtpRequest,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    sender: Annotated[WhatsAppSender, Depends(get_whatsapp_sender)],
+) -> SmsOtpRequestResponse:
+    """Send a 6-digit one-time login code to the customer's WhatsApp."""
+    client_ip = request.client.host if request.client else "unknown"
+    return await request_sms_otp(
+        session=session,
+        limiter=limiter,
+        sms_provider=WhatsAppOtpProvider(sender),
+        phone=body.phone,
+        device_id=body.device_id,
+        client_ip=client_ip,
+        channel="whatsapp",
+    )
+
+
+@router.post("/whatsapp/verify", response_model=TokenResponse)
+async def verify_whatsapp_code(
+    body: SmsOtpVerifyRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> TokenResponse:
+    """Verify the WhatsApp one-time code and issue access & refresh tokens."""
+    return await verify_sms_otp(
+        session=session,
+        phone=body.phone,
+        device_id=body.device_id,
+        code=body.code,
+    )

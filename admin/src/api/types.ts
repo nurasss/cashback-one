@@ -6,8 +6,16 @@ export interface AdminMe { admin: AdminIdentity }
 export interface Page<T> { items: T[]; limit: number; offset: number; has_more: boolean }
 export interface Business {
   id: string; name: string; logo_url: string | null; colors: Record<string, unknown> | null;
-  barcode_prefixes: string[] | null; status: string; created_at: string; updated_at: string;
+  barcode_prefixes: string[] | null; status: string; loyalty_tiers?: LoyaltyTier[] | null; created_at: string; updated_at: string;
 }
+export interface LoyaltyTier { level: number; name?: string | null; threshold: string; percent: string }
+export type PromotionKind = 'banner' | 'offer';
+export interface Promotion {
+  id: string; business_id: string | null; kind: PromotionKind; title: string; subtitle: string | null; badge: string | null;
+  body: string | null; image_url: string | null; starts_at: string | null; ends_at: string | null; sort_order: number;
+  is_active: boolean; created_at: string; updated_at: string;
+}
+export interface AppNotification { id: string; business_id: string | null; user_id: string | null; kind: string; title: string; body: string; created_at: string }
 export interface BusinessDetail extends Business {
   cards_count: number; unblocked_cards_count: number; customers_with_cards_count: number; agents_count: number;
 }

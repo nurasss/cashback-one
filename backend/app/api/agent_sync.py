@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -20,8 +21,38 @@ from app.schemas.agent_sync import (
     TransactionsSyncResponse,
 )
 from app.services.agent_auth import authenticate_agent
+from app.services.content_service import is_fresh_transaction, transaction_notification
 
 router = APIRouter(prefix="/agent", tags=["Agent Sync"])
+
+
+async def _notify_owners(
+    session: AsyncSession,
+    business_id: uuid.UUID,
+    fresh: list[tuple[uuid.UUID, str, Decimal, Decimal]],
+) -> None:
+    """Create in-app notifications for fresh accruals / redemptions of bound cards."""
+    if not fresh:
+        return
+    owners = dict(
+        (
+            await session.execute(
+                select(UserCard.card_id, UserCard.user_id).where(
+                    UserCard.card_id.in_({card_id for card_id, *_ in fresh})
+                )
+            )
+        ).tuples().all()
+    )
+    if not owners:
+        return
+    business = await session.get_one(Business, business_id)
+    for card_id, tx_type, amount, balance_after in fresh:
+        user_id = owners.get(card_id)
+        if user_id is None:
+            continue
+        notification = transaction_notification(user_id, business, tx_type, amount, balance_after)
+        if notification is not None:
+            session.add(notification)
 
 
 async def _release_stale_bindings(
@@ -105,6 +136,8 @@ async def sync_cards(
                 existing.full_name = item.full_name
                 existing.balance = item.balance
                 existing.is_blocked = item.is_blocked
+                if "spend_total" in item.model_fields_set:
+                    existing.spend_total = item.spend_total
                 existing.updated_at = item.updated_at
                 updated += 1
         else:
@@ -115,6 +148,7 @@ async def sync_cards(
                 full_name=item.full_name,
                 balance=item.balance,
                 is_blocked=item.is_blocked,
+                spend_total=item.spend_total,
                 updated_at=item.updated_at,
             )
             session.add(new_card)
@@ -192,6 +226,7 @@ async def sync_transactions(
 
     created = 0
     duplicates = 0
+    fresh: list[tuple[uuid.UUID, str, Decimal, Decimal]] = []
 
     for item in body.transactions:
         card = cards_map[item.barcode]
@@ -214,6 +249,10 @@ async def sync_transactions(
             # Track key to avoid duplicates within the same incoming batch
             existing_keys.add(key)
             created += 1
+            if is_fresh_transaction(item.occurred_at):
+                fresh.append((card.id, item.type, item.amount, item.balance_after))
+
+    await _notify_owners(session, agent.business_id, fresh)
 
     await session.commit()
 

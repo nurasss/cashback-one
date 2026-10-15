@@ -1,17 +1,19 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
 )
@@ -31,6 +33,8 @@ class Business(Base, UUIDPrimaryKey, Timestamps):
     colors: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     barcode_prefixes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    # Ordered loyalty levels: [{"level": 1, "name": "...", "threshold": "0", "percent": "3"}]
+    loyalty_tiers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
 
 
 class Agent(Base, UUIDPrimaryKey):
@@ -78,6 +82,8 @@ class Card(Base, UUIDPrimaryKey):
         Numeric(18, 4), default=Decimal("0.0000"), nullable=False
     )
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Cumulative purchase amount from ONE used for loyalty level progress (optional).
+    spend_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
@@ -99,6 +105,25 @@ class User(Base, UUIDPrimaryKey):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Customer profile (all optional, filled in the mobile app)
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    iin: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Read markers driving "new" badges in the app
+    promotions_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    notifications_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class UserCard(Base, UUIDPrimaryKey):
@@ -340,3 +365,82 @@ class WappiWebhookEvent(Base, UUIDPrimaryKey):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
+
+
+class Promotion(Base, UUIDPrimaryKey, Timestamps):
+    """Marketing content shown in the app: home banners and promotion offers.
+
+    business_id NULL means the promotion is shown to every customer.
+    """
+
+    __tablename__ = "promotions"
+    __table_args__ = (
+        Index("ix_promotions_business_id", "business_id"),
+        Index("ix_promotions_active_sort", "is_active", "sort_order"),
+    )
+
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), default="offer", nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    subtitle: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    badge: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class Notification(Base, UUIDPrimaryKey):
+    """In-app notification.
+
+    Audience: user_id set -> that customer only; otherwise every customer with a card
+    in business_id, or every customer when business_id is NULL as well.
+    """
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_created", "user_id", "created_at"),
+        Index("ix_notifications_business_created", "business_id", "created_at"),
+    )
+
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=True
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), default="info", nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class RedemptionCode(Base, UUIDPrimaryKey):
+    """One-time code sent to the customer's WhatsApp to confirm a bonus write-off at the POS."""
+
+    __tablename__ = "redemption_codes"
+    __table_args__ = (
+        Index("ix_redemption_codes_card_created", "card_id", "created_at"),
+    )
+
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False
+    )
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("cards.id", ondelete="CASCADE"), nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

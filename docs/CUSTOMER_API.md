@@ -262,6 +262,32 @@ Returns a deterministic cursor-paginated list of transactions mirrored from POSC
 
 ---
 
+### 3.6. Loyalty level on cards
+
+`GET /me/cards` и `GET /me/cards/{id}` возвращают поле `tier` (или `null`, если у бизнеса не настроены уровни):
+
+```json
+"tier": {"level": 1, "name": "Базовый", "percent": "3.0000", "max_percent": "12.0000", "spend_total": "150000.0000",
+         "next_level": 2, "next_threshold": "500000.0000", "remaining": "350000.0000"}
+```
+
+Уровни задаются в админке у бизнеса (`loyalty_tiers`), прогресс считается по `spend_total` карты из ONE.
+
+### 3.7. Dynamic QR — `GET /me/cards/{card_id}/qr`
+
+Возвращает `{token, expires_at, ttl_seconds}`. Токен `C1` + 48 символов base32, подписан сервером, живёт `QR_TOKEN_TTL_SECONDS` (60 с). Приложение обновляет его каждые `ttl/2`. Номер карты в QR не содержится; касса получает его через `POST /agent/qr/resolve`.
+
+### 3.8. Profile — `GET /me/profile`, `PATCH /me/profile`
+
+Поля: `language` (`ru`/`kz`), `first_name`, `last_name`, `email`, `gender` (`male`/`female`), `city`, `address`, `birth_date` (`YYYY-MM-DD`), `iin` (12 цифр с контрольной суммой), `company`; `phone` только для чтения. PATCH частичный: переданный `null` или пустая строка очищает поле.
+
+### 3.9. Promotions, notifications, badges
+
+* `GET /me/promotions` → `{banners, offers, has_new}`; видны активные акции в окне показа, общие и бизнесов, где у клиента есть карта. `GET /me/promotions/{id}`. `POST /me/promotions/seen` (204) снимает признак «новое».
+* `GET /me/notifications` → `{items, unread_count}` (последние 100; рассылки до регистрации клиента не показываются). `POST /me/notifications/read` (204).
+* `GET /me/badges` → `{promotions_new, notifications_unread}` для значков на вкладках.
+* Свежие (до 24 часов) начисления и списания из синхронизации автоматически создают личное уведомление владельцу карты.
+
 ## 4. Error Responses
 
 All error responses adhere to the standard POSCENTER Loyalty error envelope:

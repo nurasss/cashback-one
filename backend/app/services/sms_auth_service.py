@@ -40,6 +40,7 @@ async def request_sms_otp(
     client_ip: str,
     limiter: RateLimiter,
     sms_provider: SmsProvider,
+    channel: str = "sms",
 ) -> SmsOtpRequestResponse:
     """Request a 6-digit SMS OTP for fallback customer login.
 
@@ -51,12 +52,26 @@ async def request_sms_otp(
     5. Code sent via SmsProvider before committing; failure triggers atomic rollback so no
        orphaned active OTP remains in DB.
     """
-    if isinstance(sms_provider, DisabledSmsProvider):
-        raise AppError(
-            code="SMS_PROVIDER_NOT_CONFIGURED",
-            message="SMS delivery is not configured on this server.",
-            status_code=503,
-        )
+    if channel == "whatsapp":
+        if getattr(sms_provider, "disabled", False):
+            raise AppError(
+                code="WHATSAPP_NOT_CONFIGURED",
+                message="WhatsApp delivery is not configured on this server.",
+                status_code=503,
+            )
+        phone_limit = settings.whatsapp_otp_request_phone_limit
+        device_limit = settings.whatsapp_otp_request_device_limit
+        ip_limit = settings.whatsapp_otp_request_ip_limit
+    else:
+        if isinstance(sms_provider, DisabledSmsProvider):
+            raise AppError(
+                code="SMS_PROVIDER_NOT_CONFIGURED",
+                message="SMS delivery is not configured on this server.",
+                status_code=503,
+            )
+        phone_limit = settings.sms_otp_request_phone_limit
+        device_limit = settings.sms_otp_request_device_limit
+        ip_limit = settings.sms_otp_request_ip_limit
 
     clean_phone = phone.strip()
     clean_device_id = device_id.strip()
@@ -64,8 +79,8 @@ async def request_sms_otp(
     # Rate limiting
     ph_fp = phone_fingerprint(clean_phone)
     if await limiter.is_rate_limited(
-        f"sms:ph:{ph_fp}",
-        settings.sms_otp_request_phone_limit,
+        f"{channel}:ph:{ph_fp}",
+        phone_limit,
         settings.sms_otp_rate_window_seconds,
     ):
         raise AppError(
@@ -75,8 +90,8 @@ async def request_sms_otp(
         )
 
     if await limiter.is_rate_limited(
-        f"sms:dev:{clean_device_id}",
-        settings.sms_otp_request_device_limit,
+        f"{channel}:dev:{clean_device_id}",
+        device_limit,
         settings.sms_otp_rate_window_seconds,
     ):
         raise AppError(
@@ -86,8 +101,8 @@ async def request_sms_otp(
         )
 
     if await limiter.is_rate_limited(
-        f"sms:ip:{client_ip}",
-        settings.sms_otp_request_ip_limit,
+        f"{channel}:ip:{client_ip}",
+        ip_limit,
         settings.sms_otp_rate_window_seconds,
     ):
         raise AppError(
@@ -147,7 +162,7 @@ async def request_sms_otp(
         raise
     except Exception as exc:
         await session.rollback()
-        logger.warning("SMS delivery failed: %s", type(exc).__name__)
+        logger.warning("OTP delivery failed (%s): %s", channel, type(exc).__name__)
         raise AppError(
             code="SMS_DELIVERY_UNAVAILABLE",
             message="SMS delivery is currently unavailable. Please try again later.",

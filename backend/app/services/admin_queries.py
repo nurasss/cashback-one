@@ -66,6 +66,7 @@ def _business_item(row: Business) -> BusinessListItem:
         colors=row.colors,
         barcode_prefixes=row.barcode_prefixes,
         status=row.status,
+        loyalty_tiers=getattr(row, "loyalty_tiers", None),
         created_at=as_utc(row.created_at),
         updated_at=as_utc(row.updated_at),
     )

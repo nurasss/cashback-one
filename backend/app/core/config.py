@@ -130,11 +130,33 @@ class Settings(BaseSettings):
     # Window to exchange a confirmed challenge for tokens, counted from confirmation time
     challenge_exchange_ttl_seconds: int = 300  # 5 minutes
     access_token_ttl_seconds: int = 900  # 15 minutes
-    refresh_token_ttl_seconds: int = 30 * 86400  # 30 days
+    refresh_token_ttl_seconds: int = 14 * 86400  # customer session is remembered for 14 days
 
     auth_challenge_device_limit: int = 5
     auth_challenge_ip_limit: int = 20
     auth_challenge_rate_window_seconds: int = 300
+
+    # Outbound WhatsApp messages (login OTP, redemption codes) via Wappi send API.
+    # 'disabled' rejects sends, 'fake' records them in memory (APP_ENV=test only),
+    # 'log' prints them to the server log (local development only), 'wappi' sends.
+    whatsapp_provider_mode: str = Field(default="disabled")
+    wappi_api_base_url: str = Field(default="https://wappi.pro")
+    wappi_api_token: str = Field(default="")
+    # Profile used to send messages; defaults to WAPPI_LOGIN_PROFILE_ID
+    wappi_sender_profile_id: str = Field(default="")
+    wappi_send_timeout_seconds: float = 10.0
+    whatsapp_otp_request_phone_limit: int = 3
+    whatsapp_otp_request_device_limit: int = 5
+    whatsapp_otp_request_ip_limit: int = 20
+
+    # Dynamic card QR: signed token lifetime
+    qr_token_ttl_seconds: int = 60
+
+    # POS bonus write-off confirmation codes sent to the customer's WhatsApp
+    redemption_code_ttl_seconds: int = 300
+    redemption_code_max_attempts: int = 5
+    redemption_card_request_limit: int = 5
+    redemption_card_rate_window_seconds: int = 600
 
     # Manual card bind attempts per customer (anti barcode enumeration)
     card_bind_user_limit: int = 20
@@ -198,6 +220,23 @@ class Settings(BaseSettings):
                 f"Invalid SMS_PROVIDER_MODE '{self.sms_provider_mode}'. Supported modes: 'disabled', 'fake'."
             )
         self.sms_provider_mode = clean_provider_mode
+
+        clean_whatsapp_mode = (self.whatsapp_provider_mode or "").strip().lower()
+        if clean_whatsapp_mode not in ("disabled", "fake", "log", "wappi"):
+            raise ValueError(
+                f"Invalid WHATSAPP_PROVIDER_MODE '{self.whatsapp_provider_mode}'. "
+                "Supported modes: 'disabled', 'fake', 'log', 'wappi'."
+            )
+        if clean_whatsapp_mode == "log" and self.app_env == "production":
+            raise ValueError("WHATSAPP_PROVIDER_MODE 'log' prints one-time codes and is forbidden in production.")
+        self.whatsapp_provider_mode = clean_whatsapp_mode
+        if clean_whatsapp_mode == "fake" and self.app_env != "test":
+            raise ValueError("WHATSAPP_PROVIDER_MODE 'fake' is strictly forbidden outside APP_ENV=test.")
+        if clean_whatsapp_mode == "wappi":
+            if not self.wappi_api_token.strip():
+                raise ValueError("WAPPI_API_TOKEN must be provided when WHATSAPP_PROVIDER_MODE=wappi")
+            if not self.wappi_api_base_url.strip().startswith("https://"):
+                raise ValueError("WAPPI_API_BASE_URL must use HTTPS")
 
         if self.app_env.lower() == "test":
             # Provide deterministic defaults for test execution

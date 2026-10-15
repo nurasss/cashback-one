@@ -135,6 +135,23 @@ X-Agent-Key: agk_<secret_token>
 
 ---
 
+### 2.4. Необязательное поле карты `spend_total`
+
+`POST /agent/sync/cards` принимает `spend_total` (сумма покупок клиента в ONE, Decimal ≥ 0). По нему считается уровень лояльности. Если поле не передано, сохранённое значение не меняется.
+
+### 2.5. POST /agent/qr/resolve (касса)
+
+`{"token": "C1..."}` → `{"card_id", "barcode"}`. Работает только для карт бизнеса этого агента. Просроченный или подделанный токен → `422 QR_TOKEN_INVALID`.
+
+### 2.6. Код подтверждения списания в WhatsApp (касса)
+
+1. `POST /agent/redemptions` `{"barcode" | "qr_token", "amount"}` → `201 {"redemption_id", "expires_at", "recipient"}`. Сервер отправляет 6-значный код владельцу карты в WhatsApp (номер привязанного клиента, иначе телефон карты). Лимит: 5 запросов на карту за 10 минут.
+2. `POST /agent/redemptions/{id}/verify` `{"code"}` → `{"status": "confirmed", "barcode", "amount"}`. После этого касса проводит списание в ONE. Код живёт 5 минут, 5 попыток.
+
+Ошибки: `REDEMPTION_PHONE_MISSING`, `CARD_BLOCKED`, `REDEMPTION_EXPIRED`, `REDEMPTION_MAX_ATTEMPTS_EXCEEDED`, `REDEMPTION_ALREADY_CONFIRMED`, `INVALID_CODE`, `WHATSAPP_NOT_CONFIGURED`.
+
+**Статус:** вызов этих методов из кассы POSCENTER ONE (1С) не реализован — это часть работ после Stage 0.
+
 ## 3. Error Contract (Формат ошибок)
 
 Все ошибки API возвращаются в едином структурированном виде:
