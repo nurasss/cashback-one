@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAdminSession } from '../auth/provider';
 import type {
-  Agent, AdminUser, AdminUserDetail, AuditItem, Business, BusinessDetail, Card, CardDetail, Dashboard, Page, PageQuery,
+  Agent, AdminUser, AdminUserDetail, AppNotification, AuditItem, Business, BusinessDetail, Card, CardDetail, Dashboard, Page, PageQuery, Promotion,
 } from './types';
 
 export const privateKey = ['admin'] as const;
@@ -69,4 +69,18 @@ export function useAudit(page: PageQuery) {
 export function useAgent(id: string) {
   const { session } = useAdminSession();
   return useQuery({ queryKey: [...privateKey, 'agent', id], queryFn: ({ signal }) => session.api.request<Agent>(`/admin/agents/${encodeURIComponent(id)}`, { signal }) });
+}
+
+export function usePromotions(business_id: string | undefined, page: PageQuery) {
+  const { session } = useAdminSession();
+  const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
+  if (business_id) query.set('business_id', business_id);
+  return useQuery({ queryKey: [...privateKey, 'promotions', business_id, page], queryFn: ({ signal }) => session.api.request<Page<Promotion>>(`/admin/promotions?${query}`, { signal }) });
+}
+
+export function useAppNotifications(business_id: string | undefined, page: PageQuery) {
+  const { session } = useAdminSession();
+  const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
+  if (business_id) query.set('business_id', business_id);
+  return useQuery({ queryKey: [...privateKey, 'app-notifications', business_id, page], queryFn: ({ signal }) => session.api.request<Page<AppNotification>>(`/admin/notifications?${query}`, { signal }) });
 }

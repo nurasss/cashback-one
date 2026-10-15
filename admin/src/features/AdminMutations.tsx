@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, useBusinesses } from '../api/queries';
-import type { AgentKeyDisclosure, BusinessDetail } from '../api/types';
+import type { AgentKeyDisclosure, BusinessDetail, LoyaltyTier } from '../api/types';
 import { useAdminSession } from '../auth/provider';
 
-function DialogFrame({ title, onClose, children }: {
+export function DialogFrame({ title, onClose, children }: {
   title: string; onClose: () => void; children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -38,6 +38,14 @@ function DialogFrame({ title, onClose, children }: {
   </div>;
 }
 
+function isTier(value: unknown): value is LoyaltyTier {
+  if (typeof value !== 'object' || value === null) return false;
+  const tier = value as Record<string, unknown>;
+  const decimal = (v: unknown) => (typeof v === 'string' || typeof v === 'number') && /^\d+(\.\d+)?$/.test(String(v));
+  return Number.isInteger(tier.level) && decimal(tier.threshold) && decimal(tier.percent)
+    && (tier.name === undefined || tier.name === null || typeof tier.name === 'string');
+}
+
 export function BusinessEditorDialog({ business, onClose, onSaved }: {
   business?: BusinessDetail; onClose: () => void; onSaved: () => void;
 }) {
@@ -48,6 +56,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
   const [colorsText, setColorsText] = useState(JSON.stringify(business?.colors ?? null, null, 2));
   const [prefixesText, setPrefixesText] = useState(JSON.stringify(business?.barcode_prefixes ?? [], null, 2));
   const [status, setStatus] = useState<'active' | 'inactive'>(business?.status === 'inactive' ? 'inactive' : 'active');
+  const [tiersText, setTiersText] = useState(JSON.stringify(business?.loyalty_tiers ?? null, null, 2));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -98,6 +107,17 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       return;
     }
 
+    let loyaltyTiers: LoyaltyTier[] | null;
+    try {
+      const parsed: unknown = JSON.parse(tiersText || 'null');
+      if (parsed === null) loyaltyTiers = null;
+      else if (Array.isArray(parsed) && parsed.length > 0 && parsed.length <= 10 && parsed.every(isTier)) loyaltyTiers = parsed;
+      else throw new Error('invalid');
+    } catch {
+      setError('Уровни должны быть JSON-массивом до 10 объектов {level, name, threshold, percent} или null.');
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -106,6 +126,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
         colors,
         barcode_prefixes: barcodePrefixes,
         status,
+        ...(business ? { loyalty_tiers: loyaltyTiers } : {}),
       };
       if (business) {
         await session.api.request<BusinessDetail>(`/admin/businesses/${encodeURIComponent(business.id)}`, {
@@ -134,6 +155,8 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       <textarea id="business-colors" rows={5} value={colorsText} onChange={event => setColorsText(event.target.value)} />
       <label htmlFor="business-prefixes">Префиксы barcode (JSON array; пустой список допустим)</label>
       <textarea id="business-prefixes" rows={3} value={prefixesText} onChange={event => setPrefixesText(event.target.value)} />
+      {business && <><label htmlFor="business-tiers">Уровни лояльности (JSON: level, name, threshold — сумма покупок, percent — % баллов)</label>
+      <textarea id="business-tiers" rows={6} value={tiersText} placeholder='[{"level": 1, "name": "Базовый", "threshold": "0", "percent": "3"}]' onChange={event => setTiersText(event.target.value)} /></>}
       <label htmlFor="business-status">Статус</label>
       <select id="business-status" value={status} onChange={event => setStatus(event.target.value as 'active' | 'inactive')}>
         <option value="active">Активен</option><option value="inactive">Неактивен</option>

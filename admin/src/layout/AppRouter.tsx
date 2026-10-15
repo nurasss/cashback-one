@@ -7,6 +7,7 @@ import { BusinessesPage, BusinessDetailPage } from '../pages/BusinessesPage';
 import { AgentsPage, AgentDetailPage } from '../pages/AgentsPage';
 import { OperationsPage, CardDetailPage, UserDetailPage } from '../pages/OperationsPage';
 import { AuditPage } from '../pages/AuditPage';
+import { ContentPage } from '../pages/ContentPage';
 import { ErrorNotice, LoadingPage } from '../components/Feedback';
 
 function ProtectedLayout() {
@@ -41,6 +42,7 @@ function RouterState() {
       <Route path="cards/:cardId" element={<CardDetailPage />} />
       <Route path="users/:userId" element={<UserDetailPage />} />
       <Route path="audit" element={<AuditPage />} />
+      <Route path="content" element={<ContentPage />} />
       <Route path="admin" element={<DashboardPage />} />
       <Route path="admin/businesses" element={<RequireSuperadmin><BusinessesPage /></RequireSuperadmin>} />
       <Route path="admin/businesses/:businessId" element={<RequireSuperadmin><BusinessDetailPage /></RequireSuperadmin>} />
@@ -50,6 +52,7 @@ function RouterState() {
       <Route path="admin/cards/:cardId" element={<CardDetailPage />} />
       <Route path="admin/users/:userId" element={<UserDetailPage />} />
       <Route path="admin/audit" element={<AuditPage />} />
+      <Route path="admin/content" element={<ContentPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>
   </Routes>;

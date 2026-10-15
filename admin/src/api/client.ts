@@ -2,7 +2,7 @@ import { ApiError, errorFromResponse } from './errors';
 import { validateRuntimeBaseUrl } from './transport';
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: object;
   authenticated?: boolean;
   retryAuthentication?: boolean;
