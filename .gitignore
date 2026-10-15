@@ -70,3 +70,7 @@ stage0_output/
 # Local Redis persistence artifact (standard redis-server output, never commit)
 /dump.rdb
 
+
+# Binary app builds (too large for git)
+*.apk
+*.ipa
