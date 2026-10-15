@@ -12,6 +12,16 @@ def test_phone_normalization_standard_kz() -> None:
     assert normalize_phone("8-705-555-44-33") == "+77055554433"
 
 
+def test_phone_normalization_ten_digit_national_number() -> None:
+    """10-digit numbers without the 8/7 trunk prefix are KZ/RU national numbers."""
+    assert normalize_phone("7012345678") == "+77012345678"
+    assert normalize_phone("701 234 56 78") == "+77012345678"
+    assert normalize_phone("(701) 234-56-78") == "+77012345678"
+    assert normalize_phone("9161234567") == "+79161234567"
+    # Explicit international format is left untouched
+    assert normalize_phone("+77012345678") == "+77012345678"
+
+
 def test_phone_normalization_empty_and_none() -> None:
     assert normalize_phone(None) is None
     assert normalize_phone("") is None
