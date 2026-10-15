@@ -2,10 +2,18 @@ import json
 import re
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Generic, Literal, TypeVar
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from app.core.admin_types import AdminRole
 
@@ -124,6 +132,34 @@ class BusinessCreateRequest(BaseModel):
         return self
 
 
+class LoyaltyTier(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    level: int = Field(ge=1, le=99)
+    name: str | None = Field(default=None, max_length=40)
+    threshold: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+    percent: Decimal = Field(ge=0, le=100, max_digits=6, decimal_places=2)
+
+    @field_serializer("threshold", "percent")
+    def serialize_decimal(self, value: Decimal) -> str:
+        return format(value.normalize(), "f")
+
+
+def _validate_tiers(value: list[LoyaltyTier] | None) -> list[LoyaltyTier] | None:
+    if value is None:
+        return None
+    if not 1 <= len(value) <= 10:
+        raise ValueError("loyalty_tiers must contain 1 to 10 levels")
+    ordered = sorted(value, key=lambda tier: tier.threshold)
+    if ordered[0].threshold != 0:
+        raise ValueError("the first loyalty level must start at threshold 0")
+    if len({tier.level for tier in value}) != len(value) or len({t.threshold for t in value}) != len(value):
+        raise ValueError("loyalty levels and thresholds must be unique")
+    if [tier.level for tier in ordered] != sorted(tier.level for tier in value):
+        raise ValueError("higher levels must have higher thresholds")
+    return ordered
+
+
 class BusinessUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -132,6 +168,7 @@ class BusinessUpdateRequest(BaseModel):
     colors: dict[str, object] | None = None
     barcode_prefixes: list[str] | None = Field(default=None, max_length=64)
     status: BusinessStatus | None = None
+    loyalty_tiers: list[LoyaltyTier] | None = None
 
     @field_validator("name")
     @classmethod
@@ -141,6 +178,7 @@ class BusinessUpdateRequest(BaseModel):
     _logo = field_validator("logo_url")(_validate_logo_url)
     _colors = field_validator("colors")(_validate_colors)
     _prefixes = field_validator("barcode_prefixes")(_validate_barcode_prefixes)
+    _tiers = field_validator("loyalty_tiers")(_validate_tiers)
 
     @model_validator(mode="after")
     def require_fields_and_non_null_required_values(self) -> "BusinessUpdateRequest":
@@ -217,6 +255,7 @@ class BusinessListItem(BaseModel):
     colors: dict[str, object] | None
     barcode_prefixes: list[str] | None
     status: str
+    loyalty_tiers: list[dict[str, object]] | None = None
     created_at: datetime
     updated_at: datetime
 

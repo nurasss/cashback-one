@@ -21,6 +21,7 @@ from app.schemas.wallet import (
     CustomerTransactionHistoryResponse,
     CustomerTransactionResponse,
 )
+from app.services.loyalty import tier_info
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ async def get_customer_cards(
                 updated_at=card.updated_at,
                 bound_at=bound_at,
                 bind_method=bind_method,
+                tier=tier_info(business.loyalty_tiers, card.spend_total),
                 business=BusinessInfo(
                     id=business.id,
                     name=business.name,
@@ -223,6 +225,7 @@ async def get_customer_card_detail(
         updated_at=card.updated_at,
         bound_at=bound_at,
         bind_method=bind_method,
+        tier=tier_info(business.loyalty_tiers, card.spend_total),
         business=BusinessInfo(
             id=business.id,
             name=business.name,
@@ -585,6 +588,7 @@ async def bind_customer_card(
         updated_at=target_card.updated_at,
         bound_at=final_uc.bound_at,
         bind_method=final_uc.bind_method,
+        tier=tier_info(target_business.loyalty_tiers, target_card.spend_total),
         business=BusinessInfo(
             id=target_business.id,
             name=target_business.name,

@@ -44,6 +44,27 @@ class BusinessInfo(BaseModel):
     branding: BusinessBranding | None = None
 
 
+def _money(val: Decimal | None) -> str | None:
+    return None if val is None else f"{val:.4f}"
+
+
+class LoyaltyTierInfo(BaseModel):
+    """Customer's loyalty level on a card and progress to the next level."""
+
+    level: int
+    name: str | None = None
+    percent: Decimal
+    max_percent: Decimal
+    spend_total: Decimal | None = None
+    next_level: int | None = None
+    next_threshold: Decimal | None = None
+    remaining: Decimal | None = None
+
+    @field_serializer("percent", "max_percent", "spend_total", "next_threshold", "remaining")
+    def serialize_money(self, val: Decimal | None) -> str | None:
+        return _money(val)
+
+
 class CustomerCardResponse(BaseModel):
     """Customer loyalty card view."""
 
@@ -57,6 +78,7 @@ class CustomerCardResponse(BaseModel):
     bound_at: datetime
     bind_method: str
     business: BusinessInfo
+    tier: LoyaltyTierInfo | None = None
 
     @field_serializer("balance")
     def serialize_balance(self, val: Decimal) -> str:

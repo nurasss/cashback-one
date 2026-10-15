@@ -19,6 +19,13 @@ class CardSyncItem(BaseModel):
     full_name: str | None = Field(default=None, max_length=255)
     balance: Decimal = Field(..., decimal_places=4, max_digits=18)
     is_blocked: bool = Field(default=False)
+    spend_total: Decimal | None = Field(
+        default=None,
+        decimal_places=4,
+        max_digits=18,
+        ge=0,
+        description="Cumulative purchase amount in ONE (drives loyalty level progress)",
+    )
     updated_at: datetime = Field(..., description="Timestamp of card update in ONE")
 
 

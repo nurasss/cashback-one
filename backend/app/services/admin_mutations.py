@@ -43,6 +43,11 @@ _KNOWN_ADMIN_ACTIONS: set[str] = {
     "agent_revoked",
     "agent_full_resync_requested",
     "card_unbound",
+    "promotion_created",
+    "promotion_updated",
+    "promotion_deleted",
+    "notification_created",
+    "notification_deleted",
 }
 
 _ALLOWED_BUSINESS_STATUSES: set[str] = {"active", "inactive"}
@@ -51,6 +56,7 @@ _ALLOWED_COMMAND_STATUSES: set[str] = {"pending", "processing", "completed", "fa
 _ALLOWED_BUSINESS_FIELDS: set[str] = {
     "barcode_prefixes",
     "colors",
+    "loyalty_tiers",
     "logo_url",
     "name",
     "status",
@@ -306,6 +312,25 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 if isinstance(v, bool):
                     projected["unbound"] = v
 
+    elif action in (
+        "promotion_created",
+        "promotion_updated",
+        "promotion_deleted",
+        "notification_created",
+        "notification_deleted",
+    ):
+        for k, v in value.items():
+            if k in ("promotion_id", "notification_id", "business_id"):
+                cid = _clean_uuid_str(v)
+                if cid:
+                    projected[k] = cid
+            elif k in ("is_active", "targeted_user"):
+                if isinstance(v, bool):
+                    projected[k] = v
+            elif k == "kind":
+                if isinstance(v, str) and v in ("banner", "offer", "info"):
+                    projected[k] = v
+
     if not projected:
         return None
     return projected
@@ -397,7 +422,7 @@ def _business_state(
 ) -> dict[str, Any]:
     configured = sorted(
         field
-        for field in ("barcode_prefixes", "colors", "logo_url", "name", "status")
+        for field in ("barcode_prefixes", "colors", "loyalty_tiers", "logo_url", "name", "status")
         if getattr(business, field, None) is not None
     )
     state: dict[str, Any] = {
@@ -453,7 +478,7 @@ async def update_business(
     if business is None:
         raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
     before = _business_state(business)
-    fields = request.model_dump(exclude_unset=True)
+    fields = request.model_dump(mode="json", exclude_unset=True)
     previous_colors = business.colors
     for field, value in fields.items():
         setattr(business, field, value)

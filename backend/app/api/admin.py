@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_deps import AdminScope, get_admin_scope, require_admin_origin
@@ -34,6 +34,14 @@ from app.schemas.admin import (
     UserListItem,
     UserSearchRequest,
 )
+from app.schemas.admin_content import (
+    NotificationAdminItem,
+    NotificationCreateRequest,
+    PromotionAdminItem,
+    PromotionCreateRequest,
+    PromotionUpdateRequest,
+)
+from app.services import admin_content
 from app.services.admin_auth import authenticate_admin
 from app.services.admin_mutations import (
     create_agent,
@@ -256,3 +264,71 @@ async def admin_audit(
     page: Annotated[PaginationParams, Depends()],
 ) -> Page[AuditItem]:
     return await list_audit_logs(db, scope, page.limit, page.offset)
+
+
+@router.get("/promotions", response_model=Page[PromotionAdminItem])
+async def admin_promotions(
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    page: Annotated[PaginationParams, Depends()],
+    business_id: uuid.UUID | None = None,
+) -> Page[PromotionAdminItem]:
+    return await admin_content.list_promotions(db, scope, business_id, page.limit, page.offset)
+
+
+@router.post("/promotions", response_model=PromotionAdminItem, status_code=201)
+async def admin_create_promotion(
+    body: PromotionCreateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> PromotionAdminItem:
+    return await admin_content.create_promotion(db, admin, body)
+
+
+@router.patch("/promotions/{promotion_id}", response_model=PromotionAdminItem)
+async def admin_update_promotion(
+    promotion_id: uuid.UUID,
+    body: PromotionUpdateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> PromotionAdminItem:
+    return await admin_content.update_promotion(db, admin, promotion_id, body)
+
+
+@router.delete("/promotions/{promotion_id}", status_code=204)
+async def admin_delete_promotion(
+    promotion_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    await admin_content.delete_promotion(db, admin, promotion_id)
+    return Response(status_code=204)
+
+
+@router.get("/notifications", response_model=Page[NotificationAdminItem])
+async def admin_notifications(
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    page: Annotated[PaginationParams, Depends()],
+    business_id: uuid.UUID | None = None,
+) -> Page[NotificationAdminItem]:
+    return await admin_content.list_notifications(db, scope, business_id, page.limit, page.offset)
+
+
+@router.post("/notifications", response_model=NotificationAdminItem, status_code=201)
+async def admin_create_notification(
+    body: NotificationCreateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> NotificationAdminItem:
+    return await admin_content.create_notification(db, admin, body)
+
+
+@router.delete("/notifications/{notification_id}", status_code=204)
+async def admin_delete_notification(
+    notification_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    await admin_content.delete_notification(db, admin, notification_id)
+    return Response(status_code=204)
