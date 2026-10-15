@@ -6,6 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.security import (
     CHALLENGE_CODE_ALPHABET,
     CHALLENGE_CODE_LENGTH,
@@ -212,6 +213,72 @@ async def test_challenge_status_expired(client: AsyncClient, db_session: AsyncSe
     )
     assert res.status_code == 200
     assert res.json()["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_challenge_confirmed_in_time_exchangeable_after_ttl(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Challenge confirmed before TTL still issues tokens when polled after TTL elapsed."""
+    device_id = "device-late-poll-1"
+    create_res = await client.post("/auth/challenge", json={"device_id": device_id})
+    challenge_id = create_res.json()["challenge_id"]
+    code = create_res.json()["code"]
+
+    confirmed = await confirm_login_challenge(db_session, code, "+77019998877")
+    assert confirmed.is_success is True
+
+    # Challenge TTL elapses between confirmation and the app's next poll
+    challenge = await db_session.get(LoginChallenge, uuid.UUID(challenge_id))
+    assert challenge is not None
+    challenge.expires_at = datetime.now(UTC) - timedelta(seconds=10)
+    await db_session.commit()
+
+    res = await client.get(
+        f"/auth/challenge/{challenge_id}",
+        headers={"X-Device-Id": device_id},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "confirmed"
+    assert "access_token" in data
+    assert "refresh_token" in data
+
+
+@pytest.mark.asyncio
+async def test_challenge_confirmed_exchange_window_elapsed_expires(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Confirmed challenge not exchanged within the exchange window expires without tokens."""
+    device_id = "device-late-poll-2"
+    create_res = await client.post("/auth/challenge", json={"device_id": device_id})
+    challenge_id = create_res.json()["challenge_id"]
+    code = create_res.json()["code"]
+
+    confirmed = await confirm_login_challenge(db_session, code, "+77019998877")
+    assert confirmed.is_success is True
+
+    challenge = await db_session.get(LoginChallenge, uuid.UUID(challenge_id))
+    assert challenge is not None
+    challenge.confirmed_at = datetime.now(UTC) - timedelta(
+        seconds=settings.challenge_exchange_ttl_seconds + 10
+    )
+    challenge.expires_at = datetime.now(UTC) - timedelta(seconds=10)
+    await db_session.commit()
+
+    res = await client.get(
+        f"/auth/challenge/{challenge_id}",
+        headers={"X-Device-Id": device_id},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "expired"
+    assert "access_token" not in data
+
+    await db_session.refresh(challenge)
+    assert challenge.status == "expired"
 
 
 @pytest.mark.asyncio
