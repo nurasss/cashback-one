@@ -55,7 +55,7 @@ export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: 
 
   if (count === 0) return null;
   const loopBanners = [banners[count - 1]!, ...banners, banners[0]!];
-  return <View style={styles.carousel} onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}>
+  return <View testID="banner-carousel" style={styles.carousel} onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}>
     {cardWidth > 0 && <Animated.ScrollView ref={scrollRef as never} horizontal showsHorizontalScrollIndicator={false} snapToInterval={step} decelerationRate="fast"
       contentOffset={{ x: step, y: 0 }} scrollEventThrottle={16}
       contentContainerStyle={{ paddingHorizontal: 36, gap: 12 }}

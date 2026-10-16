@@ -76,9 +76,10 @@ it('home shows phone, balance, status, max cashback and hot offers', async () =>
   const { screen } = mountWith(<Home />);
   await waitFor(() => expect(screen.getByText('+7 705 834 43 26')).toBeTruthy());
   await waitFor(() => expect(screen.getByText(ru.hotOffers)).toBeTruthy());
+  fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 200 } } });
   expect(screen.getByText('Не упустите до 12% баллов')).toBeTruthy();
   expect(screen.getAllByText('0,00').length).toBeGreaterThanOrEqual(2);
-  await waitFor(() => expect(screen.getByLabelText('Выиграй авто')).toBeTruthy());
+  await waitFor(() => expect(screen.getAllByLabelText('Выиграй авто').length).toBeGreaterThan(0));
   fireEvent.press(screen.getByLabelText('Скидка на хиты. Покупайте выгодно'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'o1' } });
   fireEvent.press(screen.getByLabelText(/Ваш статус 1/));
@@ -86,13 +87,14 @@ it('home shows phone, balance, status, max cashback and hot offers', async () =>
   screen.unmount();
 });
 
-it('status screen shows progress to the next level and opens accrual history', async () => {
-  serve({ '/me/cards': [card] });
+it('status screen shows progress to the next level and opens the levels calculator', async () => {
+  const levels = [{ level: 1, name: null, threshold: '0', percent: '3' }, { level: 2, name: null, threshold: '500000', percent: '5' }];
+  serve({ '/me/cards': [{ ...card, tier: { ...tier, levels } }] });
   const { screen } = mountWith(<StatusScreen />);
   await waitFor(() => expect(screen.getByText('ещё 350 000 ₸')).toBeTruthy());
   expect(screen.getByText('до статуса 2')).toBeTruthy();
-  fireEvent.press(screen.getByRole('button', { name: ru.accrualHistory }));
-  expect(mockPush).toHaveBeenCalledWith('/history');
+  fireEvent.press(screen.getByRole('button', { name: ru.howToRaise }));
+  await waitFor(() => expect(screen.getByLabelText(ru.calcLabel)).toBeTruthy());
   screen.unmount();
 });
 

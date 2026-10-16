@@ -18,11 +18,10 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 const token = 'C1' + 'ABCDEFGH'.repeat(6);
 const qr = (expiresInMs: number): CardQr => ({ token, expires_at: new Date(Date.now() + expiresInMs).toISOString(), ttl_seconds: 60 });
 
-it('tab bar renames Messages to Notifications and marks new promotions and notifications', () => {
+it('tab bar shows Messages like the design and marks new promotions and notifications', () => {
   const onSelect = jest.fn();
   const screen = render(<TabBar active="index" onSelect={onSelect} badges={{ promotions: true, notifications: 3 }} />);
-  expect(screen.getByText(ru.tabNotifications)).toBeTruthy();
-  expect(screen.queryByText('Сообщения')).toBeNull();
+  expect(screen.getByText('Сообщения')).toBeTruthy();
   expect(screen.getByLabelText(`${ru.tabPromotions}. ${ru.newBadge}`)).toBeTruthy();
   expect(screen.getByLabelText(`${ru.tabNotifications}. ${ru.newBadge}`)).toBeTruthy();
   fireEvent.press(screen.getByLabelText(ru.tabQr));
