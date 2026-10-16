@@ -94,7 +94,7 @@ export default function ProfileScreen() {
           </View>
           {error !== null && <ErrorNotice error={error} />}
           {saved && <Text accessibilityLiveRegion="polite" style={local.saved}>{t('saved')}</Text>}
-          <Button label={saving ? t('loading') : t('save')} disabled={saving} onPress={() => { void save(); }} style={{ borderRadius: 12, minHeight: 50 }} />
+          <Button label={saving ? t('loading') : t('save')} disabled={saving} onPress={() => { void save(); }} style={{ marginTop: 8 }} />
           <View style={local.links}>
             <ProfileRow icon="history" label={t('accrualHistory')} onPress={() => router.push('/history')} />
             <ProfileRow icon="card" label={t('myCards')} onPress={() => router.push('/cards')} />
@@ -109,7 +109,7 @@ export default function ProfileScreen() {
 }
 
 function Field({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
-  return <View style={{ gap: 10 }}>
+  return <View style={{ gap: 6 }}>
     <Text style={local.fieldLabel}>{label}</Text>
     <TextInput accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={theme.colors.placeholder} maxLength={100}
       onChangeText={onChange} style={[styles.input, local.profileInput]} />
@@ -117,9 +117,9 @@ function Field({ label, value, placeholder, onChange }: { label: string; value: 
 }
 
 const local = StyleSheet.create({
-  fieldLabel: { fontFamily: fonts.medium, fontSize: 15, color: theme.colors.text },
-  profileInput: { minHeight: 42, fontSize: 17 },
+  fieldLabel: { fontFamily: fonts.semibold, fontSize: 11, color: theme.colors.muted, textTransform: 'uppercase', letterSpacing: 0.8 },
+  profileInput: { minHeight: 46, fontSize: 15 },
   divider: { height: 1, backgroundColor: theme.colors.border },
-  saved: { fontFamily: fonts.medium, fontSize: 15, color: theme.colors.success, textAlign: 'center' },
-  links: { backgroundColor: theme.colors.background, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 4 },
+  saved: { fontFamily: fonts.medium, fontSize: 14, color: theme.colors.success, textAlign: 'center' },
+  links: { backgroundColor: theme.colors.background, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 4, marginTop: 8 },
 });

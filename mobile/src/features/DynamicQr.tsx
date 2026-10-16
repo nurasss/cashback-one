@@ -26,17 +26,17 @@ export function DynamicQr({ qr, loading, failed, blocked }: { qr: CardQr | undef
         <Text style={styles.message}>{failed ? tr('qrUnavailable') : tr('loading')}</Text>}
     </View>
     <View style={styles.hintRow}>
-      <Icon name="scan" size={36} color={t.colors.primary} strokeWidth={2.2} />
+      <Icon name="scan" size={24} color={t.colors.primary} strokeWidth={2.2} />
       <Text style={styles.hint}>{tr('showToCashier')}</Text>
     </View>
   </View>;
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: t.colors.surface, borderRadius: 40, paddingVertical: 40, paddingHorizontal: 24, alignItems: 'center', gap: 34,
+  card: { backgroundColor: t.colors.surface, borderRadius: 28, paddingVertical: 32, paddingHorizontal: 24, alignItems: 'center', gap: 24,
     shadowColor: t.colors.shadow, shadowOpacity: 0.04, shadowRadius: 20, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
   qrBox: { alignItems: 'center', justifyContent: 'center' },
-  message: { fontFamily: fonts.medium, fontSize: 16, color: t.colors.muted, textAlign: 'center' },
-  hintRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  hint: { fontFamily: fonts.semibold, fontSize: 19, color: t.colors.primary },
+  message: { fontFamily: fonts.medium, fontSize: 14, color: t.colors.muted, textAlign: 'center' },
+  hintRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  hint: { fontFamily: fonts.semibold, fontSize: 15, color: t.colors.primary },
 });

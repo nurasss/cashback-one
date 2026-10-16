@@ -121,12 +121,12 @@ const offerIcons: IconName[] = ['percent', 'gift', 'card', 'cart'];
 export function OfferCard({ offer, index, onPress, wide = false, fill = false }: { offer: Promotion; index: number; onPress: () => void; wide?: boolean; fill?: boolean }) {
   return <PressScale accessibilityRole="button" accessibilityLabel={[offer.badge, offer.title].filter(Boolean).join('. ')} onPress={onPress}
     style={[styles.offer, index === 0 || index === 3 ? styles.offerPink : styles.offerGray, wide && styles.offerWide, fill && styles.offerFill]}>
-    {offer.image_url ? <Image source={{ uri: offer.image_url }} style={[styles.offerImage, wide && styles.offerImageWide]} resizeMode="contain" accessibilityIgnoresInvertColors /> : null}
+    {offer.image_url ? <Image source={{ uri: offer.image_url }} style={wide ? styles.offerImageWide : styles.offerImage} resizeMode="contain" accessibilityIgnoresInvertColors /> : null}
     {offer.badge ? <View style={styles.offerBadge}>
       <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={12} color={t.colors.onPrimary} strokeWidth={2.4} />
       <Text style={styles.offerBadgeText} numberOfLines={1}>{offer.badge}</Text>
     </View> : null}
-    <Text style={styles.offerTitle} numberOfLines={3}>{offer.title}</Text>
+    <Text style={[styles.offerTitle, wide && styles.offerTitleWide]} numberOfLines={3}>{offer.title}</Text>
   </PressScale>;
 }
 
@@ -155,11 +155,12 @@ const styles = StyleSheet.create({
   offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 20, padding: 14, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 10, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
   offerPink: { backgroundColor: '#FCE9EC' },
   offerGray: { backgroundColor: '#F1F1F4' },
-  offerWide: { flexBasis: 'auto', flexGrow: 0 },
+  offerWide: { flexBasis: 'auto', flexGrow: 0, minHeight: 112, justifyContent: 'center' },
   offerBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: t.colors.primary, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, maxWidth: '100%', zIndex: 1 },
   offerBadgeText: { fontFamily: fonts.bold, fontSize: 10, lineHeight: 13, color: t.colors.onPrimary, flexShrink: 1 },
   offerTitle: { fontFamily: fonts.bold, fontSize: 14, lineHeight: 18, color: t.colors.text, width: '75%', zIndex: 1 },
   offerImage: { position: 'absolute', right: -6, bottom: -4, width: '62%', height: '55%', zIndex: 0 },
-  offerImageWide: { width: '70%', height: '52%' },
+  offerImageWide: { position: 'absolute', right: 8, top: 8, bottom: 8, width: '34%', zIndex: 0 },
+  offerTitleWide: { width: '60%', fontSize: 15, lineHeight: 19 },
   offerFill: { flexBasis: 0, minHeight: 0 },
 });

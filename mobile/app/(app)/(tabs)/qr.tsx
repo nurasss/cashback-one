@@ -5,6 +5,7 @@ import { useCardQr } from '../../../src/api/app';
 import { Button, Chip, EmptyState, Loading, ScreenHeader, styles } from '../../../src/components/ui';
 import { useActiveCard } from '../../../src/features/activeCard';
 import { DynamicQr } from '../../../src/features/DynamicQr';
+import { FadeIn } from '../../../src/components/motion';
 import { useI18n } from '../../../src/i18n';
 
 export default function QrScreen() {
@@ -14,11 +15,11 @@ export default function QrScreen() {
   const list = cards.data ?? [];
   return <SafeAreaView edges={['top']} style={styles.screen}>
     <ScreenHeader title={t('tabQr')} back onBack={() => router.navigate('/')} />
-    <ScrollView contentContainerStyle={[styles.content, { paddingTop: 126 }]}>
+    <ScrollView contentContainerStyle={[styles.content, { paddingTop: 96 }]}>
       {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
         <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
       </EmptyState> : <>
-        <DynamicQr qr={qr.data} loading={qr.isPending || qr.isFetching} failed={qr.isError} blocked={card.is_blocked} />
+        <FadeIn><DynamicQr qr={qr.data} loading={qr.isPending || qr.isFetching} failed={qr.isError} blocked={card.is_blocked} /></FadeIn>
         {list.length > 1 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
           {list.map(item => <Chip key={item.id} label={item.business.name} selected={item.id === card.id} onPress={() => select(item.id)} />)}
         </View>}

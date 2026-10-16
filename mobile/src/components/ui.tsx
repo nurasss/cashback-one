@@ -32,9 +32,9 @@ export function ScreenHeader({ title, back = false, onBack, right }: { title: st
   return <View style={styles.header}>
     {back && <Pressable accessibilityRole="button" accessibilityLabel={tr('back')} hitSlop={12} style={styles.backButton}
       onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace('/')))}>
-      <Icon name="arrowLeft" size={30} strokeWidth={1.8} />
+      <Icon name="arrowLeft" size={24} strokeWidth={2} />
     </Pressable>}
-    <Text accessibilityRole="header" style={[styles.headerTitle, { flex: 1 }, right ? { fontSize: 19 } : null]} numberOfLines={1}>{title}</Text>
+    <Text accessibilityRole="header" style={[styles.headerTitle, { flex: 1 }, right ? { fontSize: 18 } : null]} numberOfLines={1}>{title}</Text>
     {right}
   </View>;
 }
@@ -75,13 +75,13 @@ export function NewDot({ style }: { style?: ViewStyle }) {
 
 export const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: t.colors.background },
-  content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 140 },
+  content: { padding: 20, gap: 20, paddingBottom: 140 },
   gap: { gap: t.spacing.sm }, row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: t.spacing.md },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: t.spacing.lg, paddingTop: t.spacing.md, paddingBottom: t.spacing.md, minHeight: 64 },
-  backButton: { width: 30, height: 40, justifyContent: 'center' },
-  headerTitle: { fontFamily: fonts.bold, fontSize: 24, color: t.colors.text },
-  title: { fontFamily: fonts.bold, fontSize: 22, color: t.colors.text }, hero: { fontFamily: fonts.bold, fontSize: t.font.hero, color: t.colors.text },
-  body: { fontFamily: fonts.regular, fontSize: t.font.body, color: t.colors.text, lineHeight: 24 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12, minHeight: 56 },
+  backButton: { width: 28, height: 40, justifyContent: 'center' },
+  headerTitle: { fontFamily: fonts.bold, fontSize: 20, color: t.colors.text },
+  title: { fontFamily: fonts.bold, fontSize: 18, color: t.colors.text }, hero: { fontFamily: fonts.bold, fontSize: t.font.hero, color: t.colors.text },
+  body: { fontFamily: fonts.regular, fontSize: 15, color: t.colors.text, lineHeight: 22 },
   muted: { fontFamily: fonts.regular, fontSize: t.font.small, color: t.colors.muted, lineHeight: 20 },
   label: { fontFamily: fonts.semibold, fontSize: t.font.body, color: t.colors.text },
   fieldLabel: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.text },
@@ -103,9 +103,9 @@ export const styles = StyleSheet.create({
   error: { padding: t.spacing.md, gap: t.spacing.md, backgroundColor: t.colors.softError, borderRadius: t.radius.sm },
   errorText: { fontFamily: fonts.medium, color: t.colors.error, fontSize: t.font.body },
   empty: { alignItems: 'center', gap: t.spacing.md, padding: t.spacing.xl },
-  emptyIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: t.colors.softPrimary, alignItems: 'center', justifyContent: 'center' },
-  chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: t.radius.pill, backgroundColor: t.colors.surface },
+  emptyIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: t.colors.softPrimary, alignItems: 'center', justifyContent: 'center' },
+  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: t.radius.pill, backgroundColor: t.colors.surface },
   chipSelected: { backgroundColor: t.colors.primary },
-  chipText: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.text }, chipTextSelected: { color: t.colors.onPrimary },
+  chipText: { fontFamily: fonts.medium, fontSize: 13, color: t.colors.text }, chipTextSelected: { color: t.colors.onPrimary },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: t.colors.primary, borderWidth: 2, borderColor: t.colors.surface },
 });
