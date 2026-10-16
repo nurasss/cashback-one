@@ -5,18 +5,18 @@ import { errorMessages } from '../i18n/ru';
 import { useI18n } from '../i18n';
 import { fonts, theme as t } from '../theme';
 import { Icon, type IconName } from './icons';
+import { PressScale } from './motion';
 
 export function Button({ label, onPress, disabled, secondary = false, destructive = false, style }: {
   label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; destructive?: boolean; style?: ViewStyle;
 }) {
   const isDisabled = !!disabled;
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress}
-    style={({ pressed }) => [styles.button, secondary && styles.secondary, destructive && styles.destructive,
-      pressed && !isDisabled && !secondary && styles.pressed, pressed && !isDisabled && styles.dim,
+  return <PressScale accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} scale={0.97}
+    style={[styles.button, secondary && styles.secondary, destructive && styles.destructive,
       isDisabled && (secondary ? styles.secondaryDisabled : styles.disabled), style]}>
     <Text style={[styles.buttonText, secondary && styles.secondaryText,
       isDisabled && (secondary ? styles.secondaryDisabledText : styles.disabledText)]}>{label}</Text>
-  </Pressable>;
+  </PressScale>;
 }
 
 export function Input({ label, hint, error, ...props }: TextInputProps & { label: string; hint?: string; error?: string }) {
@@ -85,12 +85,12 @@ export const styles = StyleSheet.create({
   muted: { fontFamily: fonts.regular, fontSize: t.font.small, color: t.colors.muted, lineHeight: 20 },
   label: { fontFamily: fonts.semibold, fontSize: t.font.body, color: t.colors.text },
   fieldLabel: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.text },
-  input: { minHeight: 54, paddingHorizontal: 18, borderRadius: 10, backgroundColor: t.colors.input, color: t.colors.text, fontFamily: fonts.medium, fontSize: 18 },
+  input: { minHeight: 48, paddingHorizontal: 16, borderRadius: 12, backgroundColor: t.colors.input, color: t.colors.text, fontFamily: fonts.medium, fontSize: 16 },
   inputError: { borderWidth: 1, borderColor: t.colors.error },
   errorSmall: { fontFamily: fonts.medium, fontSize: t.font.small, color: t.colors.error },
-  button: { minHeight: 56, paddingHorizontal: t.spacing.lg, borderRadius: 14, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center' },
+  button: { minHeight: 46, paddingHorizontal: t.spacing.lg, borderRadius: 12, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center' },
   pressed: { backgroundColor: t.colors.primaryPressed },
-  buttonText: { fontFamily: fonts.medium, fontSize: 18, color: t.colors.onPrimary, textAlign: 'center' },
+  buttonText: { fontFamily: fonts.semibold, fontSize: 15, color: t.colors.onPrimary, textAlign: 'center' },
   secondary: { backgroundColor: t.colors.tint }, secondaryText: { color: t.colors.primary },
   disabled: { backgroundColor: '#FDE9EC', borderWidth: 1, borderColor: '#F5C9D1' },
   disabledText: { color: '#7E2333' },

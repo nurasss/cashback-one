@@ -3,6 +3,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useI18n } from '../i18n';
 import { fonts, theme as t } from '../theme';
 import { Icon, type IconName } from './icons';
+import { PressScale } from './motion';
 import { NewDot } from './ui';
 
 export type TabRoute = 'index' | 'promotions' | 'qr' | 'notifications' | 'profile';
@@ -25,10 +26,10 @@ export function TabBar({ active, onSelect, badges }: {
       const label = tr(tab.label);
       if (tab.route === 'qr') {
         return <View key={tab.route} style={styles.centerSlot}>
-          <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected }} onPress={() => onSelect('qr')}
-            style={({ pressed }) => [styles.qrButton, pressed && { backgroundColor: t.colors.primaryPressed }]}>
+          <PressScale accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected }} onPress={() => onSelect('qr')} scale={0.9}
+            style={styles.qrButton}>
             <Icon name="qr" size={24} color={t.colors.onPrimary} />
-          </Pressable>
+          </PressScale>
         </View>;
       }
       const hasNew = (tab.route === 'promotions' && badges.promotions) || (tab.route === 'notifications' && badges.notifications > 0);

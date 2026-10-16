@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProfile, usePromotions } from '../../../src/api/app';
 import { Icon } from '../../../src/components/icons';
+import { FadeIn } from '../../../src/components/motion';
 import { Button, EmptyState, ErrorNotice, Loading, styles } from '../../../src/components/ui';
 import { useActiveCard } from '../../../src/features/activeCard';
 import { BalanceHeader, BannerCarousel, OfferCard, StatusCard } from '../../../src/features/home';
@@ -20,12 +21,12 @@ export default function Home() {
 
   return <SafeAreaView edges={['top']} style={styles.screen}>
     <View style={local.page}>
-      <View style={local.topSheet}>
+      <FadeIn style={local.topSheet}>
         <BalanceHeader phone={phoneText(profile.data?.phone)} balance={card?.balance ?? '0'} />
         <BannerCarousel banners={promotions.data?.banners ?? []} open={openPromotion} />
-      </View>
+      </FadeIn>
 
-      <View style={local.section}>
+      <FadeIn index={1} style={local.section}>
         {cards.isPending ? <Loading /> : cards.isError && !cards.data ? <ErrorNotice error={cards.error} retry={() => { void cards.refetch(); }} /> :
           card ? <>
             <StatusCard tier={card.tier} balance={card.balance} onPress={() => router.push('/status')} />
@@ -36,9 +37,9 @@ export default function Home() {
           </> : <View style={styles.sheet}><EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
             <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
           </EmptyState></View>}
-      </View>
+      </FadeIn>
 
-      <View style={local.offersSheet}>
+      <FadeIn index={2} style={local.offersSheet}>
         <View style={local.offersHeader}>
           <Text style={local.offersTitle}>{t('hotOffers')}</Text>
           <Pressable accessibilityRole="button" hitSlop={10} onPress={() => router.push('/promotions')} style={local.allLink}>
@@ -50,7 +51,7 @@ export default function Home() {
           <View style={local.grid}>{[offers.slice(0, 2), offers.slice(2, 4)].map((row, r) => row.length > 0 && <View key={r} style={local.gridRow}>
             {row.map((offer, i) => <OfferCard key={offer.id} fill offer={offer} index={r * 2 + i} onPress={() => openPromotion(offer.id)} />)}
           </View>)}</View>}
-      </View>
+      </FadeIn>
     </View>
   </SafeAreaView>;
 }
