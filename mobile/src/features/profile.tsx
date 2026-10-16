@@ -29,15 +29,15 @@ export function ProfileRow({ label, value, placeholder, onPress, icon }: { label
     style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}>
     {icon && <Icon name={icon} size={22} color={t.colors.primary} />}
     <Text style={styles.rowLabel}>{label}</Text>
-    <Text style={[styles.rowValue, !value && { color: t.colors.subtle }]} numberOfLines={1}>{value || placeholder || ''}</Text>
+    <Text style={[styles.rowValue, !value && { color: t.colors.placeholder }]} numberOfLines={1}>{value || placeholder || ''}</Text>
     <Icon name="chevronRight" size={22} color={t.colors.subtle} />
   </Pressable>;
 }
 
 // Bottom sheet editor for one profile field: free text or a fixed list of options.
-export function FieldSheet({ title, initial, options, keyboardType = 'default', placeholder, maxLength, validate, onDone, onClose }: {
+export function FieldSheet({ title, initial, hint, options, keyboardType = 'default', placeholder, maxLength, validate, onDone, onClose }: {
   title: string; initial: string; options?: { value: string; label: string }[]; keyboardType?: 'default' | 'email-address' | 'number-pad';
-  placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; onDone: (value: string) => void; onClose: () => void;
+  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; onDone: (value: string) => void; onClose: () => void;
 }) {
   const { t: tr } = useI18n();
   const [value, setValue] = useState(initial);
@@ -53,13 +53,14 @@ export function FieldSheet({ title, initial, options, keyboardType = 'default', 
       <View style={styles.sheet}>
         <View style={styles.sheetHandle} />
         <Text style={styles.sheetTitle}>{title}</Text>
+        {hint && <Text style={styles.sheetHint}>{hint}</Text>}
         {options ? options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ selected: value === option.value }}
           onPress={() => finish(option.value)} style={styles.option}>
           <Text style={styles.optionText}>{option.label}</Text>
           {value === option.value && <Icon name="check" size={22} color={t.colors.primary} />}
         </Pressable>) : <>
           <TextInput value={value} onChangeText={next => { setValue(next); setError(null); }} accessibilityLabel={title} placeholder={placeholder}
-            placeholderTextColor={t.colors.subtle} keyboardType={keyboardType} maxLength={maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
+            placeholderTextColor={t.colors.placeholder} keyboardType={keyboardType} maxLength={maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
             style={[styles.input, error ? { borderWidth: 1, borderColor: t.colors.error } : null]} onSubmitEditing={() => finish(value)} />
           {error && <Text style={styles.error}>{error}</Text>}
           <Button label={tr('done')} onPress={() => finish(value)} />
@@ -73,7 +74,7 @@ const styles = StyleSheet.create({
   switch: { flexDirection: 'row', backgroundColor: t.colors.input, borderRadius: 14, padding: 3 },
   switchItem: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12 },
   switchSelected: { backgroundColor: t.colors.primary },
-  switchText: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.subtle },
+  switchText: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.muted },
   switchTextSelected: { color: t.colors.onPrimary },
   avatar: { width: 170, height: 170, borderRadius: 85, backgroundColor: t.colors.input, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontFamily: fonts.bold, fontSize: 52, color: t.colors.muted },
@@ -85,6 +86,7 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40, gap: 16 },
   sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: t.colors.border },
   sheetTitle: { fontFamily: fonts.bold, fontSize: 22, color: t.colors.text },
+  sheetHint: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: t.colors.muted },
   input: { minHeight: 54, paddingHorizontal: 18, borderRadius: 10, backgroundColor: t.colors.input, color: t.colors.text, fontFamily: fonts.medium, fontSize: 18 },
   error: { fontFamily: fonts.medium, fontSize: 13, color: t.colors.error },
   option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 56, borderBottomWidth: 1, borderBottomColor: t.colors.border },

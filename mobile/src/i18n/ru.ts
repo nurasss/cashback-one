@@ -6,7 +6,7 @@ export const ru = {
   newBadge: 'Есть новое',
   // Login
   loginTitle: 'Вход', loginBody: 'Введите номер телефона. Мы отправим одноразовый код в WhatsApp.',
-  phone: 'Номер телефона', phoneHint: 'Например, +7 701 123 45 67', requestCode: 'Получить код в WhatsApp',
+  phone: 'Номер телефона', phoneHint: 'Например, +7 701 123 45 67', requestCode: 'Получить код',
   code: 'Код из WhatsApp', codeHint: 'Введите 6 цифр из сообщения', codeSent: 'Код отправлен в WhatsApp на номер', verify: 'Войти',
   resend: 'Отправить код ещё раз', resendIn: 'Новый код через', seconds: 'сек.', changePhone: 'Изменить номер',
   sessionNote: 'Мы запомним вход на этом устройстве на 14 дней.',
@@ -18,7 +18,7 @@ export const ru = {
   showToCashier: 'Покажите QR кассиру', qrRefreshIn: 'Код обновится через {seconds} сек.', qrUnavailable: 'Не удалось получить QR-код. Проверьте интернет.',
   cardBlocked: 'Карта заблокирована',
   // Status
-  myStatus: 'Мой статус', untilStatus: 'до статуса {level}', moreToSpend: 'ещё {amount} ₸', maxStatus: 'У вас максимальный статус',
+  myStatus: 'Мой статус', untilStatus: 'до статуса {level}', remainingAmount: '{amount} ₸', moreToSpend: 'ещё {amount} ₸', maxStatus: 'У вас максимальный статус',
   statusesSoon: 'Статусы лояльности скоро появятся',
   howToRaise: 'Как повысить статус', howToLead: 'Процент зависит от статуса. На кассе чек проводит кассир по QR — здесь можно прикинуть, сколько баллов придёт.',
   statusN: 'Статус {level}', fromAmount: 'от {amount} ₸', currentStatusLine: 'Сейчас статус {level} — {percent}% от суммы', calcLabel: 'Сумма чека',
@@ -31,9 +31,11 @@ export const ru = {
   // Notifications
   notifications: 'Уведомления', noNotifications: 'Новых уведомлений нет',
   // Profile
-  myProfile: 'Мой профиль', langKz: 'Қаз', langRu: 'Рус', firstName: 'Имя', lastName: 'Фамилия', firstNamePh: 'Введите имя', lastNamePh: 'Введите фамилию',
+  myProfile: 'Мой профиль', profileOptionalNote: 'Поля профиля необязательны. Заполняйте только то, чем хотите поделиться.',
+  langKz: 'Қаз', langRu: 'Рус', firstName: 'Имя', lastName: 'Фамилия', firstNamePh: 'Введите имя', lastNamePh: 'Введите фамилию',
   email: 'E-mail', emailPh: 'Введите e-mail', gender: 'Пол', male: 'Мужской', female: 'Женский', city: 'Город', address: 'Адрес',
-  birthDate: 'Дата рождения', birthDatePh: 'ДД.ММ.ГГГГ', iin: 'ИИН', company: 'Компания', saved: 'Профиль сохранён',
+  birthDate: 'Дата рождения', birthDatePh: 'ДД.ММ.ГГГГ', iin: 'ИИН', iinHint: 'Необязательно. ИИН не нужен для входа и просмотра баланса.',
+  company: 'Компания', saveChanges: 'Сохранить изменения', saved: 'Профиль сохранён',
   myCards: 'Мои карты', logout: 'Выйти', logoutConfirm: 'Выйти из аккаунта?', notSet: 'Не указано',
   invalidEmail: 'Проверьте e-mail', invalidIin: 'ИИН — 12 цифр', invalidDate: 'Дата в формате ДД.ММ.ГГГГ',
   revokeFailed: 'Вы вышли на этом устройстве. Сервер не подтвердил выход из-за ошибки сети.',

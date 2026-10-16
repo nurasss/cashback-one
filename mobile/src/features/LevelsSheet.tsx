@@ -45,7 +45,7 @@ export function LevelsSheet({ tier, onClose }: { tier: Tier; onClose: () => void
           <Text style={styles.current}>{tr('currentStatusLine', { level: tier.level, percent: percentText(tier.percent) })}</Text>
           <Text style={styles.fieldLabel}>{tr('calcLabel')}</Text>
           <TextInput accessibilityLabel={tr('calcLabel')} value={amount} onChangeText={value => setAmount(value.replace(/\D/g, '').slice(0, 9))}
-            keyboardType="number-pad" placeholder="0" placeholderTextColor={t.colors.subtle} style={styles.input} />
+            keyboardType="number-pad" placeholder="0" placeholderTextColor={t.colors.placeholder} style={styles.input} />
           <View style={styles.quick}>{[5000, 15000, 40000, 120000].map(value => <Pressable key={value} accessibilityRole="button" onPress={() => setAmount(String(value))} style={styles.quickChip}>
             <Text style={styles.quickText}>{amountText(String(value))}</Text></Pressable>)}</View>
           {points ? <Text accessibilityLiveRegion="polite" style={styles.result}>{tr('calcResult', { points })}</Text>
@@ -78,5 +78,5 @@ const styles = StyleSheet.create({
   quickText: { fontFamily: fonts.semibold, fontSize: 14, color: t.colors.text },
   result: { fontFamily: fonts.bold, fontSize: 17, color: t.colors.primary },
   hint: { fontFamily: fonts.medium, fontSize: 13, color: t.colors.muted },
-  disclaimer: { fontFamily: fonts.regular, fontSize: 12, color: t.colors.subtle },
+  disclaimer: { fontFamily: fonts.regular, fontSize: 12, color: t.colors.muted },
 });

@@ -1,12 +1,12 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Icon, type IconName } from '../components/icons';
 import { NewDot } from '../components/ui';
 import { useI18n } from '../i18n';
 import { fonts, theme as t } from '../theme';
 import type { Promotion, Tier } from '../types/api';
-import { pointsText } from '../utils/format';
+import { amountText, percentText, pointsText } from '../utils/format';
 
 export function BalanceHeader({ phone, balance }: { phone: string; balance: string }) {
   const { t: tr } = useI18n();
@@ -21,13 +21,13 @@ export function BalanceHeader({ phone, balance }: { phone: string; balance: stri
 
 // Banner = data-driven card: title/subtitle from the admin on the left, picture on the right.
 export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: (id: string) => void }) {
-  const { width } = useWindowDimensions();
   const [index, setIndex] = useState(0);
-  const cardWidth = width - 48 - 24;
+  const [containerWidth, setContainerWidth] = useState(0);
+  const cardWidth = Math.max(0, containerWidth - 72);
   const step = cardWidth + 12;
   if (banners.length === 0) return null;
-  return <View style={styles.carousel}>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={step} decelerationRate="fast"
+  return <View style={styles.carousel} onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}>
+    {cardWidth > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={step} decelerationRate="fast"
       contentContainerStyle={{ paddingHorizontal: 36, gap: 12 }}
       onMomentumScrollEnd={event => setIndex(Math.round(event.nativeEvent.contentOffset.x / step))}>
       {banners.map(banner => <Pressable key={banner.id} accessibilityRole="button" accessibilityLabel={[banner.title, banner.subtitle].filter(Boolean).join('. ')}
@@ -39,7 +39,7 @@ export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: 
           {banner.subtitle && <Text style={styles.bannerSubtitle} numberOfLines={3}>{banner.subtitle}</Text>}
         </View>
       </Pressable>)}
-    </ScrollView>
+    </ScrollView>}
     {banners.length > 1 && <View style={styles.dots} accessibilityElementsHidden>
       {banners.map((banner, dot) => <View key={banner.id} style={[styles.pageDot, dot === index && styles.pageDotActive]} />)}
     </View>}
@@ -48,6 +48,12 @@ export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: 
 
 export function StatusCard({ tier, balance, onPress }: { tier: Tier | null | undefined; balance: string; onPress: () => void }) {
   const { t: tr } = useI18n();
+  const nextLevel = tier?.next_level;
+  const remaining = tier?.remaining;
+  const rightLabel = nextLevel != null && remaining != null ? tr('untilStatus', { level: nextLevel }) : tier ? tr('maxStatus') : tr('pointsSum');
+  const rightValue = nextLevel != null && remaining != null
+    ? tr('remainingAmount', { amount: amountText(remaining) })
+    : tier ? tr('cashbackPercent', { percent: percentText(tier.percent) }) : pointsText(balance);
   return <Pressable accessibilityRole="button" accessibilityLabel={`${tr('yourStatus')} ${tier?.level ?? ''}. ${tr('pointsSum')} ${pointsText(balance)}`}
     onPress={onPress} style={({ pressed }) => [styles.statusWrap, pressed && { opacity: 0.88 }]}>
     <LinearGradient colors={['#FFC9C9', '#FFE3E3', '#FFD5D2']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statusCard}>
@@ -56,9 +62,9 @@ export function StatusCard({ tier, balance, onPress }: { tier: Tier | null | und
         <Text style={styles.statusValue}>{tier ? tier.level : '—'}</Text>
       </View>
       <View style={styles.statusRight}>
-        <View style={{ gap: 6, alignItems: 'flex-end' }}>
-          <Text style={styles.statusCaption}>{tr('pointsSum')}</Text>
-          <Text style={styles.statusValue}>{pointsText(balance)}</Text>
+        <View style={{ gap: 6, alignItems: 'flex-end', flexShrink: 1, minWidth: 0 }}>
+          <Text style={styles.statusCaption} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{rightLabel}</Text>
+          <Text style={styles.statusValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{rightValue}</Text>
         </View>
         <Icon name="chevronRight" size={26} />
       </View>
@@ -102,8 +108,8 @@ const styles = StyleSheet.create({
   pageDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#D9D9DD' },
   pageDotActive: { backgroundColor: t.colors.primary },
   statusWrap: { borderRadius: 30, overflow: 'hidden' },
-  statusCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 26, paddingVertical: 10 },
-  statusRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  statusCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22, paddingVertical: 10 },
+  statusRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, minWidth: 0 },
   statusCaption: { fontFamily: fonts.medium, fontSize: 17, color: t.colors.muted },
   statusValue: { fontFamily: fonts.extrabold, fontSize: 28, color: t.colors.text },
   offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 24, padding: 14, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 12 },

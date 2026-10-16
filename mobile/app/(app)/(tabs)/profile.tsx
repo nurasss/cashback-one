@@ -31,6 +31,9 @@ export default function ProfileScreen() {
   const [saved, setSaved] = useState(false);
   useEffect(() => { if (profile.data && !form) setForm(toForm(profile.data)); }, [profile.data, form]);
 
+  const original = profile.data ? toForm(profile.data) : null;
+  const hasChanges = !!form && !!original && (Object.keys(form) as (keyof Form)[]).some(key => form[key] !== original[key]);
+
   const update = (field: keyof Form, value: string) => { setForm(current => current ? { ...current, [field]: value } : current); setSaved(false); };
   const patch = async (body: Record<string, unknown>) => {
     const next = await api.request<Profile>('/me/profile', { method: 'PATCH', auth: true, body });
@@ -58,7 +61,7 @@ export default function ProfileScreen() {
     onPress: () => { void session.logout().then(failed => { if (failed) Alert.alert(t('logout'), t('revokeFailed')); }); } }]);
 
   const genderLabel = (value: string) => value === 'male' ? t('male') : value === 'female' ? t('female') : '';
-  const sheets: Record<SheetField, { title: string; placeholder?: string; keyboardType?: 'default' | 'email-address' | 'number-pad'; maxLength?: number;
+  const sheets: Record<SheetField, { title: string; hint?: string; placeholder?: string; keyboardType?: 'default' | 'email-address' | 'number-pad'; maxLength?: number;
     options?: { value: Gender; label: string }[]; validate?: (value: string) => string | null }> = {
     email: { title: t('email'), placeholder: t('emailPh'), keyboardType: 'email-address', maxLength: 255,
       validate: value => !value || /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(value) ? null : t('invalidEmail') },
@@ -67,7 +70,7 @@ export default function ProfileScreen() {
     address: { title: t('address'), maxLength: 255 },
     birth_date: { title: t('birthDate'), placeholder: t('birthDatePh'), keyboardType: 'number-pad', maxLength: 10,
       validate: value => birthDateToApi(value) === undefined ? t('invalidDate') : null },
-    iin: { title: t('iin'), keyboardType: 'number-pad', maxLength: 12, validate: value => !value || /^\d{12}$/.test(value) ? null : t('invalidIin') },
+    iin: { title: t('iin'), hint: t('iinHint'), keyboardType: 'number-pad', maxLength: 12, validate: value => !value || /^\d{12}$/.test(value) ? null : t('invalidIin') },
     company: { title: t('company'), maxLength: 255 },
   };
 
@@ -77,6 +80,7 @@ export default function ProfileScreen() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: 8 }]}>
         {profile.isPending || !form ? (profile.isError ? <ErrorNotice error={profile.error} retry={() => { void profile.refetch(); }} /> : <Loading />) : <>
+          <Text style={local.optionalNote}>{t('profileOptionalNote')}</Text>
           <Avatar initials={initials(form.first_name, form.last_name)} />
           <View style={{ gap: 18 }}>
             <Field label={t('firstName')} value={form.first_name} placeholder={t('firstNamePh')} onChange={value => update('first_name', value)} />
@@ -94,7 +98,7 @@ export default function ProfileScreen() {
           </View>
           {error !== null && <ErrorNotice error={error} />}
           {saved && <Text accessibilityLiveRegion="polite" style={local.saved}>{t('saved')}</Text>}
-          <Button label={saving ? t('loading') : t('save')} disabled={saving} onPress={() => { void save(); }} />
+          <Button label={saving ? t('loading') : t('saveChanges')} disabled={saving || !hasChanges} onPress={() => { void save(); }} />
           <View style={local.links}>
             <ProfileRow icon="history" label={t('accrualHistory')} onPress={() => router.push('/history')} />
             <ProfileRow icon="card" label={t('myCards')} onPress={() => router.push('/cards')} />
@@ -111,7 +115,7 @@ export default function ProfileScreen() {
 function Field({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
   return <View style={{ gap: 10 }}>
     <Text style={local.fieldLabel}>{label}</Text>
-    <TextInput accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={theme.colors.subtle} maxLength={100}
+    <TextInput accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={theme.colors.placeholder} maxLength={100}
       onChangeText={onChange} style={styles.input} />
   </View>;
 }
@@ -120,5 +124,6 @@ const local = StyleSheet.create({
   fieldLabel: { fontFamily: fonts.medium, fontSize: 18, color: theme.colors.text },
   divider: { height: 1, backgroundColor: theme.colors.border },
   saved: { fontFamily: fonts.medium, fontSize: 15, color: theme.colors.success, textAlign: 'center' },
+  optionalNote: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: theme.colors.muted, textAlign: 'center' },
   links: { backgroundColor: theme.colors.background, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 4 },
 });

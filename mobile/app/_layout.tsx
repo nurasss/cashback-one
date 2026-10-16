@@ -1,7 +1,7 @@
 import { Montserrat_400Regular, Montserrat_500Medium, Montserrat_600SemiBold, Montserrat_700Bold, Montserrat_800ExtraBold, useFonts } from '@expo-google-fonts/montserrat';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { SessionProvider, useSession } from '../src/auth/provider';
 import { Button, ErrorNotice, Loading, styles } from '../src/components/ui';
@@ -29,8 +29,23 @@ function Navigation() {
 }
 
 export default function RootLayout() {
+  const { width } = useWindowDimensions();
   const [fontsLoaded, fontError] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_600SemiBold, Montserrat_700Bold, Montserrat_800ExtraBold });
   // Keep the native splash until Montserrat is ready; on a font error fall back to the system font.
   if (!fontsLoaded && !fontError) return null;
-  return <SafeAreaProvider><I18nProvider><SessionProvider><StatusBar style="dark" />{DEMO_ENABLED && <DemoRibbon />}<Navigation /></SessionProvider></I18nProvider></SafeAreaProvider>;
+  const app = <><StatusBar style="dark" />{DEMO_ENABLED && <DemoRibbon />}<Navigation /></>;
+  return <SafeAreaProvider><I18nProvider><SessionProvider>
+    {Platform.OS === 'web' && DEMO_ENABLED ? <View style={webDemoStyles.backdrop}>
+      <View style={[webDemoStyles.frame, width > 430 && webDemoStyles.desktopFrame]}>{app}</View>
+    </View> : app}
+  </SessionProvider></I18nProvider></SafeAreaProvider>;
 }
+
+const webDemoStyles = StyleSheet.create({
+  backdrop: { flex: 1, alignItems: 'center', backgroundColor: '#E6E7EB' },
+  frame: { flex: 1, width: '100%', maxWidth: 430, backgroundColor: theme.colors.background },
+  desktopFrame: {
+    marginVertical: 20, borderRadius: 28, borderWidth: 1, borderColor: '#D8D9DE', overflow: 'hidden',
+    shadowColor: '#111111', shadowOpacity: 0.12, shadowRadius: 24, shadowOffset: { width: 0, height: 8 }, elevation: 8,
+  },
+});

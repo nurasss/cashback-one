@@ -9,16 +9,20 @@ import { Icon, type IconName } from './icons';
 export function Button({ label, onPress, disabled, secondary = false, destructive = false, style }: {
   label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; destructive?: boolean; style?: ViewStyle;
 }) {
+  const isDisabled = !!disabled;
   return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress}
-    style={({ pressed }) => [styles.button, secondary && styles.secondary, destructive && styles.destructive, pressed && !secondary && styles.pressed, (disabled || pressed) && styles.dim, style]}>
-    <Text style={[styles.buttonText, secondary && styles.secondaryText]}>{label}</Text>
+    style={({ pressed }) => [styles.button, secondary && styles.secondary, destructive && styles.destructive,
+      pressed && !isDisabled && !secondary && styles.pressed, pressed && !isDisabled && styles.dim,
+      isDisabled && (secondary ? styles.secondaryDisabled : styles.disabled), style]}>
+    <Text style={[styles.buttonText, secondary && styles.secondaryText,
+      isDisabled && (secondary ? styles.secondaryDisabledText : styles.disabledText)]}>{label}</Text>
   </Pressable>;
 }
 
 export function Input({ label, hint, error, ...props }: TextInputProps & { label: string; hint?: string; error?: string }) {
   return <View style={styles.gap}>
     <Text style={styles.fieldLabel}>{label}</Text>
-    <TextInput {...props} accessibilityLabel={label} style={[styles.input, error ? styles.inputError : null]} placeholderTextColor={t.colors.subtle} />
+    <TextInput {...props} accessibilityLabel={label} style={[styles.input, error ? styles.inputError : null]} placeholderTextColor={t.colors.placeholder} />
     {error ? <Text style={styles.errorSmall}>{error}</Text> : hint ? <Text style={styles.muted}>{hint}</Text> : null}
   </View>;
 }
@@ -88,6 +92,10 @@ export const styles = StyleSheet.create({
   pressed: { backgroundColor: t.colors.primaryPressed },
   buttonText: { fontFamily: fonts.medium, fontSize: 18, color: t.colors.onPrimary, textAlign: 'center' },
   secondary: { backgroundColor: t.colors.tint }, secondaryText: { color: t.colors.primary },
+  disabled: { backgroundColor: '#FDE9EC', borderWidth: 1, borderColor: '#F5C9D1' },
+  disabledText: { color: '#7E2333' },
+  secondaryDisabled: { backgroundColor: '#E9E9EC', borderWidth: 1, borderColor: '#D6D6DB' },
+  secondaryDisabledText: { color: '#5E5E66' },
   destructive: { backgroundColor: t.colors.error }, dim: { opacity: 0.6 },
   panel: { padding: t.spacing.lg, borderRadius: t.radius.md, backgroundColor: t.colors.surface, gap: t.spacing.md },
   sheet: { backgroundColor: t.colors.surface, borderRadius: 32, paddingVertical: t.spacing.lg },

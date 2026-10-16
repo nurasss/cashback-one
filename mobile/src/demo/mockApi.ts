@@ -54,7 +54,7 @@ export function createDemoApi() {
     { id: 'n2', kind: 'info', title: 'Хиты недели в зале', body: 'Красные ценники: молоко, хлеб и овощи. Не пропустите купон.', created_at: daysAgo(3) },
     { id: 'n1', kind: 'info', title: '2-й статус от 350 000 ₸', body: 'Сейчас 3%. На 4-м статусе каждая покупка даёт 12%.', created_at: daysAgo(4) },
   ];
-  let profile: Profile = { phone: '+77058344326', language: 'ru', first_name: null, last_name: null, email: null, gender: null, city: null, address: null, birth_date: null, iin: null, company: null };
+  let profile: Profile = { phone: '+7 7•• ••• •• 26', language: 'ru', first_name: null, last_name: null, email: null, gender: null, city: null, address: null, birth_date: null, iin: null, company: null };
 
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const error = (status: number, code: string) => json({ error: { code, message: code } }, status);

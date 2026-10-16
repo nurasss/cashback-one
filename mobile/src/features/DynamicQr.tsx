@@ -30,7 +30,7 @@ export function DynamicQr({ qr, loading, failed, blocked }: { qr: CardQr | undef
       <Icon name="scan" size={36} color={t.colors.primary} strokeWidth={2.2} />
       <Text style={styles.hint}>{tr('showToCashier')}</Text>
     </View>
-    {valid && !blocked && <Text accessibilityLiveRegion="polite" style={styles.timer}>{tr('qrRefreshIn', { seconds: refreshIn })}</Text>}
+    {valid && !blocked && <Text style={styles.timer}>{tr('qrRefreshIn', { seconds: refreshIn })}</Text>}
   </View>;
 }
 
