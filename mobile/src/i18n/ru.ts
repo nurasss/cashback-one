@@ -2,7 +2,7 @@ export const ru = {
   app: 'POSCENTER ONE', bonusCurrency: 'ONE', loading: 'Загрузка…', retry: 'Повторить', cancel: 'Отмена', save: 'Сохранить', done: 'Готово',
   back: 'Назад', all: 'Все', more: 'Загрузить ещё', bootstrap: 'Восстанавливаем сессию', signingOut: 'Выходим из аккаунта',
   // Tabs
-  tabHome: 'Главная', tabPromotions: 'Акции', tabQr: 'Мой QR-код', tabNotifications: 'Уведомления', tabProfile: 'Профиль',
+  tabHome: 'Главная', tabPromotions: 'Акции', tabQr: 'Мой QR-код', tabNotifications: 'Сообщения', tabProfile: 'Профиль',
   newBadge: 'Есть новое',
   // Login
   loginTitle: 'Вход', loginBody: 'Введите номер телефона. Мы отправим одноразовый код в WhatsApp.',

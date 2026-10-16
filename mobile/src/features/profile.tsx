@@ -20,13 +20,13 @@ export function LanguageSwitch({ value, onChange, disabled }: { value: Language;
 
 export function Avatar({ initials }: { initials: string }) {
   return <View style={styles.avatar} accessibilityElementsHidden>
-    {initials ? <Text style={styles.avatarText}>{initials}</Text> : <Icon name="user" size={64} color={t.colors.subtle} strokeWidth={1.4} />}
+    {initials ? <Text style={styles.avatarText}>{initials}</Text> : null}
   </View>;
 }
 
 export function ProfileRow({ label, value, placeholder, onPress, icon }: { label: string; value?: string; placeholder?: string; onPress: () => void; icon?: IconName }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={`${label}${value ? ': ' + value : ''}`} onPress={onPress}
-    style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}>
+    hitSlop={4} style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}>
     {icon && <Icon name={icon} size={22} color={t.colors.primary} />}
     <Text style={styles.rowLabel}>{label}</Text>
     <Text style={[styles.rowValue, !value && { color: t.colors.placeholder }]} numberOfLines={1}>{value || placeholder || ''}</Text>
@@ -76,11 +76,11 @@ const styles = StyleSheet.create({
   switchSelected: { backgroundColor: t.colors.primary },
   switchText: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.muted },
   switchTextSelected: { color: t.colors.onPrimary },
-  avatar: { width: 170, height: 170, borderRadius: 85, backgroundColor: t.colors.input, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 154, height: 154, borderRadius: 77, backgroundColor: t.colors.input, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontFamily: fonts.bold, fontSize: 52, color: t.colors.muted },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 58 },
-  rowLabel: { fontFamily: fonts.semibold, fontSize: 19, color: t.colors.text },
-  rowValue: { flex: 1, textAlign: 'right', fontFamily: fonts.regular, fontSize: 17, color: t.colors.muted },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 36 },
+  rowLabel: { fontFamily: fonts.semibold, fontSize: 16, color: t.colors.text },
+  rowValue: { flex: 1, textAlign: 'right', fontFamily: fonts.regular, fontSize: 15, color: t.colors.muted },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
   sheetWrap: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   sheet: { backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40, gap: 16 },

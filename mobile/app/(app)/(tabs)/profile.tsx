@@ -31,9 +31,6 @@ export default function ProfileScreen() {
   const [saved, setSaved] = useState(false);
   useEffect(() => { if (profile.data && !form) setForm(toForm(profile.data)); }, [profile.data, form]);
 
-  const original = profile.data ? toForm(profile.data) : null;
-  const hasChanges = !!form && !!original && (Object.keys(form) as (keyof Form)[]).some(key => form[key] !== original[key]);
-
   const update = (field: keyof Form, value: string) => { setForm(current => current ? { ...current, [field]: value } : current); setSaved(false); };
   const patch = async (body: Record<string, unknown>) => {
     const next = await api.request<Profile>('/me/profile', { method: 'PATCH', auth: true, body });
@@ -78,11 +75,10 @@ export default function ProfileScreen() {
     <ScreenHeader title={t('myProfile')} back onBack={() => router.navigate('/')}
       right={<LanguageSwitch value={language} onChange={changeLanguage} disabled={!profile.data} />} />
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: 8 }]}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: 8, gap: 6 }]}>
         {profile.isPending || !form ? (profile.isError ? <ErrorNotice error={profile.error} retry={() => { void profile.refetch(); }} /> : <Loading />) : <>
-          <Text style={local.optionalNote}>{t('profileOptionalNote')}</Text>
           <Avatar initials={initials(form.first_name, form.last_name)} />
-          <View style={{ gap: 18 }}>
+          <View style={{ gap: 12 }}>
             <Field label={t('firstName')} value={form.first_name} placeholder={t('firstNamePh')} onChange={value => update('first_name', value)} />
             <Field label={t('lastName')} value={form.last_name} placeholder={t('lastNamePh')} onChange={value => update('last_name', value)} />
           </View>
@@ -98,7 +94,7 @@ export default function ProfileScreen() {
           </View>
           {error !== null && <ErrorNotice error={error} />}
           {saved && <Text accessibilityLiveRegion="polite" style={local.saved}>{t('saved')}</Text>}
-          <Button label={saving ? t('loading') : t('saveChanges')} disabled={saving || !hasChanges} onPress={() => { void save(); }} />
+          <Button label={saving ? t('loading') : t('save')} disabled={saving} onPress={() => { void save(); }} style={{ borderRadius: 12, minHeight: 50 }} />
           <View style={local.links}>
             <ProfileRow icon="history" label={t('accrualHistory')} onPress={() => router.push('/history')} />
             <ProfileRow icon="card" label={t('myCards')} onPress={() => router.push('/cards')} />
@@ -116,14 +112,14 @@ function Field({ label, value, placeholder, onChange }: { label: string; value: 
   return <View style={{ gap: 10 }}>
     <Text style={local.fieldLabel}>{label}</Text>
     <TextInput accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={theme.colors.placeholder} maxLength={100}
-      onChangeText={onChange} style={styles.input} />
+      onChangeText={onChange} style={[styles.input, local.profileInput]} />
   </View>;
 }
 
 const local = StyleSheet.create({
-  fieldLabel: { fontFamily: fonts.medium, fontSize: 18, color: theme.colors.text },
+  fieldLabel: { fontFamily: fonts.medium, fontSize: 15, color: theme.colors.text },
+  profileInput: { minHeight: 42, fontSize: 17 },
   divider: { height: 1, backgroundColor: theme.colors.border },
   saved: { fontFamily: fonts.medium, fontSize: 15, color: theme.colors.success, textAlign: 'center' },
-  optionalNote: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: theme.colors.muted, textAlign: 'center' },
   links: { backgroundColor: theme.colors.background, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 4 },
 });

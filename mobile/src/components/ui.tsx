@@ -78,7 +78,7 @@ export const styles = StyleSheet.create({
   content: { padding: t.spacing.lg, gap: t.spacing.lg, paddingBottom: 140 },
   gap: { gap: t.spacing.sm }, row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: t.spacing.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: t.spacing.lg, paddingTop: t.spacing.md, paddingBottom: t.spacing.md, minHeight: 64 },
-  backButton: { width: 40, height: 40, justifyContent: 'center' },
+  backButton: { width: 30, height: 40, justifyContent: 'center' },
   headerTitle: { fontFamily: fonts.bold, fontSize: 24, color: t.colors.text },
   title: { fontFamily: fonts.bold, fontSize: 22, color: t.colors.text }, hero: { fontFamily: fonts.bold, fontSize: t.font.hero, color: t.colors.text },
   body: { fontFamily: fonts.regular, fontSize: t.font.body, color: t.colors.text, lineHeight: 24 },

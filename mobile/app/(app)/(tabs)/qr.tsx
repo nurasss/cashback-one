@@ -14,7 +14,7 @@ export default function QrScreen() {
   const list = cards.data ?? [];
   return <SafeAreaView edges={['top']} style={styles.screen}>
     <ScreenHeader title={t('tabQr')} back onBack={() => router.navigate('/')} />
-    <ScrollView contentContainerStyle={[styles.content, { paddingTop: 48 }]}>
+    <ScrollView contentContainerStyle={[styles.content, { paddingTop: 126 }]}>
       {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
         <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
       </EmptyState> : <>

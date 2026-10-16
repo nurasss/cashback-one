@@ -1,12 +1,11 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Icon, type IconName } from '../components/icons';
-import { NewDot } from '../components/ui';
 import { useI18n } from '../i18n';
 import { fonts, theme as t } from '../theme';
 import type { Promotion, Tier } from '../types/api';
-import { amountText, percentText, pointsText } from '../utils/format';
+import { pointsText } from '../utils/format';
 
 export function BalanceHeader({ phone, balance }: { phone: string; balance: string }) {
   const { t: tr } = useI18n();
@@ -19,26 +18,42 @@ export function BalanceHeader({ phone, balance }: { phone: string; balance: stri
   </View>;
 }
 
-// Banner = data-driven card: title/subtitle from the admin on the left, picture on the right.
+// Banner = data-driven card: the opening word is highlighted, with campaign artwork on the right.
 export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: (id: string) => void }) {
   const [index, setIndex] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
   const cardWidth = Math.max(0, containerWidth - 72);
   const step = cardWidth + 12;
+  useEffect(() => {
+    if (cardWidth > 0) requestAnimationFrame(() => scrollRef.current?.scrollTo({ x: step, animated: false }));
+  }, [cardWidth, step, banners.length]);
   if (banners.length === 0) return null;
+  const loopBanners = [banners[banners.length - 1]!, ...banners, banners[0]!];
   return <View style={styles.carousel} onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}>
-    {cardWidth > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} snapToInterval={step} decelerationRate="fast"
+    {cardWidth > 0 && <ScrollView ref={scrollRef} horizontal showsHorizontalScrollIndicator={false} snapToInterval={step} decelerationRate="fast"
+      contentOffset={{ x: step, y: 0 }}
       contentContainerStyle={{ paddingHorizontal: 36, gap: 12 }}
-      onMomentumScrollEnd={event => setIndex(Math.round(event.nativeEvent.contentOffset.x / step))}>
-      {banners.map(banner => <Pressable key={banner.id} accessibilityRole="button" accessibilityLabel={[banner.title, banner.subtitle].filter(Boolean).join('. ')}
-        onPress={() => open(banner.id)} style={[styles.banner, { width: cardWidth }]}>
-        {banner.image_url && <Image source={{ uri: banner.image_url }} style={styles.bannerImage} resizeMode="cover" accessibilityIgnoresInvertColors />}
-        <LinearGradient pointerEvents="none" colors={['#F1F1F4', 'rgba(241,241,244,0.92)', 'rgba(241,241,244,0)']} locations={[0, 0.42, 0.7]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
-        <View style={styles.bannerText}>
-          <Text style={styles.bannerTitle} numberOfLines={3}>{banner.title}</Text>
+      onMomentumScrollEnd={event => {
+        const rawIndex = Math.round(event.nativeEvent.contentOffset.x / step);
+        if (rawIndex === 0) scrollRef.current?.scrollTo({ x: step * banners.length, animated: false });
+        if (rawIndex === banners.length + 1) scrollRef.current?.scrollTo({ x: step, animated: false });
+        setIndex(rawIndex <= 0 ? banners.length - 1 : rawIndex > banners.length ? 0 : rawIndex - 1);
+      }}>
+      {loopBanners.map((banner, slot) => {
+        const active = slot === index + 1;
+        return <Pressable key={`${banner.id}-${slot}`} accessibilityRole="button" accessibilityLabel={[banner.title, banner.subtitle].filter(Boolean).join('. ')}
+          onPress={() => open(banner.id)} style={[styles.banner, { width: cardWidth }]}>
+        {banner.image_url && <Image source={{ uri: banner.image_url }} style={[styles.bannerImage, !active && styles.bannerImageSide]} resizeMode={active ? 'contain' : 'cover'} accessibilityIgnoresInvertColors />}
+        {active && <View style={styles.bannerText}>
+          <Text style={styles.bannerTitle} numberOfLines={2}>
+            <Text style={styles.bannerTitleAccent}>{banner.title.trim().split(/\s+/)[0]} </Text>
+            {banner.title.trim().split(/\s+/).slice(1).join(' ')}
+          </Text>
           {banner.subtitle && <Text style={styles.bannerSubtitle} numberOfLines={3}>{banner.subtitle}</Text>}
-        </View>
-      </Pressable>)}
+        </View>}
+      </Pressable>;
+      })}
     </ScrollView>}
     {banners.length > 1 && <View style={styles.dots} accessibilityElementsHidden>
       {banners.map((banner, dot) => <View key={banner.id} style={[styles.pageDot, dot === index && styles.pageDotActive]} />)}
@@ -48,15 +63,11 @@ export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: 
 
 export function StatusCard({ tier, balance, onPress }: { tier: Tier | null | undefined; balance: string; onPress: () => void }) {
   const { t: tr } = useI18n();
-  const nextLevel = tier?.next_level;
-  const remaining = tier?.remaining;
-  const rightLabel = nextLevel != null && remaining != null ? tr('untilStatus', { level: nextLevel }) : tier ? tr('maxStatus') : tr('pointsSum');
-  const rightValue = nextLevel != null && remaining != null
-    ? tr('remainingAmount', { amount: amountText(remaining) })
-    : tier ? tr('cashbackPercent', { percent: percentText(tier.percent) }) : pointsText(balance);
+  const rightLabel = tr('pointsSum');
+  const rightValue = pointsText(balance);
   return <Pressable accessibilityRole="button" accessibilityLabel={`${tr('yourStatus')} ${tier?.level ?? ''}. ${tr('pointsSum')} ${pointsText(balance)}`}
     onPress={onPress} style={({ pressed }) => [styles.statusWrap, pressed && { opacity: 0.88 }]}>
-    <LinearGradient colors={['#FFC9C9', '#FFE3E3', '#FFD5D2']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statusCard}>
+    <LinearGradient colors={['#FFB2A4', '#FFC4B6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statusCard}>
       <View style={{ gap: 6 }}>
         <Text style={styles.statusCaption}>{tr('yourStatus')}</Text>
         <Text style={styles.statusValue}>{tier ? tier.level : '—'}</Text>
@@ -77,7 +88,8 @@ const offerIcons: IconName[] = ['percent', 'gift', 'card', 'cart'];
 // Offer card: badge + title on top, picture in a rounded frame at the bottom (works with any photo from the admin).
 export function OfferCard({ offer, index, onPress, wide = false, fill = false }: { offer: Promotion; index: number; onPress: () => void; wide?: boolean; fill?: boolean }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={[offer.badge, offer.title].filter(Boolean).join('. ')} onPress={onPress}
-    style={({ pressed }) => [styles.offer, wide && styles.offerWide, fill && styles.offerFill, pressed && { opacity: 0.88 }]}>
+    style={({ pressed }) => [styles.offer, index === 0 || index === 3 ? styles.offerPink : styles.offerGray, wide && styles.offerWide, fill && styles.offerFill, pressed && { opacity: 0.88 }]}>
+    {offer.image_url ? <Image source={{ uri: offer.image_url }} style={[styles.offerImage, wide && styles.offerImageWide]} resizeMode="contain" accessibilityIgnoresInvertColors /> : null}
     <View style={styles.offerTop}>
       {offer.badge ? <View style={styles.offerBadge}>
         <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={20} color={t.colors.onPrimary} strokeWidth={2.2} />
@@ -85,9 +97,7 @@ export function OfferCard({ offer, index, onPress, wide = false, fill = false }:
       </View> : <View />}
       <Icon name="chevronRight" size={22} color={t.colors.muted} />
     </View>
-    <Text style={styles.offerTitle} numberOfLines={2}>{offer.title}</Text>
-    {offer.image_url ? <Image source={{ uri: offer.image_url }} style={[styles.offerImage, wide && styles.offerImageWide, fill && styles.offerImageFill]} resizeMode="cover" accessibilityIgnoresInvertColors /> : null}
-    {offer.is_new && <NewDot style={styles.offerNew} />}
+    <Text style={styles.offerTitle} numberOfLines={3}>{offer.title}</Text>
   </Pressable>;
 }
 
@@ -99,28 +109,30 @@ const styles = StyleSheet.create({
   brandBadge: { backgroundColor: t.colors.primary, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 7 },
   brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 18, color: t.colors.onPrimary, letterSpacing: -0.5 },
   carousel: { gap: 10, paddingBottom: 14 },
-  banner: { aspectRatio: 2.9, borderRadius: 26, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
-  bannerImage: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '68%' },
-  bannerText: { width: '58%', paddingLeft: 20, gap: 8 },
-  bannerTitle: { fontFamily: fonts.extrabold, fontSize: 19, lineHeight: 22, color: t.colors.text, textTransform: 'uppercase' },
-  bannerSubtitle: { fontFamily: fonts.bold, fontSize: 12, lineHeight: 15, color: t.colors.text, textTransform: 'uppercase' },
+  banner: { aspectRatio: 2.35, borderRadius: 26, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
+  bannerImage: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '49%', height: '90%' },
+  bannerImageSide: { top: 0, right: 0, bottom: 0, width: '100%', height: '100%' },
+  bannerText: { width: '46%', paddingLeft: 16, gap: 4, zIndex: 1 },
+  bannerTitle: { fontFamily: fonts.extrabold, fontSize: 20, lineHeight: 21, color: t.colors.text, textTransform: 'uppercase' },
+  bannerTitleAccent: { color: t.colors.primary },
+  bannerSubtitle: { fontFamily: fonts.extrabold, fontSize: 14, lineHeight: 16, color: t.colors.text, textTransform: 'uppercase' },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 10 },
   pageDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#D9D9DD' },
   pageDotActive: { backgroundColor: t.colors.primary },
   statusWrap: { borderRadius: 30, overflow: 'hidden' },
   statusCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22, paddingVertical: 10 },
   statusRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, minWidth: 0 },
-  statusCaption: { fontFamily: fonts.medium, fontSize: 17, color: t.colors.muted },
+  statusCaption: { fontFamily: fonts.medium, fontSize: 14, color: t.colors.text },
   statusValue: { fontFamily: fonts.extrabold, fontSize: 28, color: t.colors.text },
-  offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 24, padding: 14, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 12 },
+  offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 24, padding: 12, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 8 },
+  offerPink: { backgroundColor: '#FCE9EC' },
+  offerGray: { backgroundColor: '#F1F1F4' },
   offerWide: { flexBasis: 'auto', flexGrow: 0 },
-  offerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
-  offerBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: t.colors.primary, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6, maxWidth: '86%' },
-  offerBadgeText: { fontFamily: fonts.semibold, fontSize: 12, lineHeight: 15, color: t.colors.onPrimary, flexShrink: 1 },
-  offerTitle: { fontFamily: fonts.extrabold, fontSize: 14, lineHeight: 18, color: t.colors.text },
-  offerImage: { width: '100%', aspectRatio: 1.15, borderRadius: 16, backgroundColor: '#ECECEF' },
-  offerImageWide: { aspectRatio: 1.9 },
-  offerFill: { flexBasis: 0, minHeight: 0, padding: 10, gap: 8 },
-  offerImageFill: { aspectRatio: undefined, flex: 1, minHeight: 0 },
-  offerNew: { position: 'absolute', top: 10, left: 10 },
+  offerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, zIndex: 1 },
+  offerBadge: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: t.colors.primary, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6, maxWidth: '88%', zIndex: 1 },
+  offerBadgeText: { fontFamily: fonts.bold, fontSize: 11, lineHeight: 13, color: t.colors.onPrimary, flexShrink: 1 },
+  offerTitle: { fontFamily: fonts.extrabold, fontSize: 15, lineHeight: 18, color: t.colors.text, width: '72%', zIndex: 1 },
+  offerImage: { position: 'absolute', right: -8, bottom: -3, width: '70%', height: '52%', zIndex: 0 },
+  offerImageWide: { width: '70%', height: '52%' },
+  offerFill: { flexBasis: 0, minHeight: 0, padding: 12, gap: 8 },
 });

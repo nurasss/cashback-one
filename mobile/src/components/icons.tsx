@@ -3,13 +3,14 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { theme } from '../theme';
 
 export type IconName =
-  | 'home' | 'gift' | 'bell' | 'user' | 'qr' | 'arrowLeft' | 'chevronRight' | 'crown' | 'percent' | 'scan'
+  | 'home' | 'gift' | 'bell' | 'message' | 'user' | 'qr' | 'arrowLeft' | 'chevronRight' | 'crown' | 'percent' | 'scan'
   | 'card' | 'cart' | 'plus' | 'minus' | 'logout' | 'history' | 'check' | 'tag' | 'wallet' | 'x';
 
 const paths: Record<IconName, React.ReactNode> = {
   home: <><Path d="M3 10.5 12 3l9 7.5" /><Path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5" /><Path d="M9.5 16h5" /></>,
   gift: <><Rect x="3" y="8" width="18" height="4" rx="1" /><Path d="M12 8v13" /><Path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><Path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" /></>,
   bell: <><Path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><Path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></>,
+  message: <><Path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z" /></>,
   user: <><Circle cx="12" cy="12" r="10" /><Circle cx="12" cy="10" r="3" /><Path d="M7 20.66V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.66" /></>,
   qr: <><Rect x="3" y="3" width="7" height="7" rx="1" /><Rect x="14" y="3" width="7" height="7" rx="1" /><Rect x="3" y="14" width="7" height="7" rx="1" /><Path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4M20 17v3" /></>,
   arrowLeft: <><Path d="M19 12H5" /><Path d="m12 19-7-7 7-7" /></>,

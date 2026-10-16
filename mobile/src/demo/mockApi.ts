@@ -8,11 +8,12 @@ export const demoTokens: Tokens = { access_token: 'demo-access', refresh_token: 
 
 // Sample artwork served next to the demo build (cut from the design mockup); real content comes from the admin by URL.
 const IMG = '/demo/img/';
+const REF_IMG = `${IMG}reference-redesign/`;
 const daysAgo = (days: number, hour = 12) => { const d = new Date(); d.setDate(d.getDate() - days); d.setHours(hour, 15, 0, 0); return d.toISOString(); };
 
 export function createDemoApi() {
   const card: Card = {
-    id: 'demo-card', barcode: '0123456789012', balance: '2450.0000', is_blocked: false, updated_at: daysAgo(0), bound_at: daysAgo(30), bind_method: 'phone_auto',
+    id: 'demo-card', barcode: '0123456789012', balance: '0.0000', is_blocked: false, updated_at: daysAgo(0), bound_at: daysAgo(30), bind_method: 'phone_auto',
     business: { id: 'demo-business', name: 'POSCENTER Маркет', branding: null },
     tier: {
       level: 1, name: 'Статус 1', percent: '3.0000', max_percent: '12.0000', spend_total: '0.0000', next_level: 2, next_threshold: '350000.0000', remaining: '350000.0000',
@@ -34,15 +35,15 @@ export function createDemoApi() {
   });
   const promotions: Promotions = {
     banners: [
-      { ...offer('b1', 'Выиграй авто', ''), kind: 'banner', subtitle: 'и другие ценные призы', badge: null, image_url: `${IMG}suv.jpg` },
+      { ...offer('b1', 'Выиграй авто', ''), kind: 'banner', subtitle: 'и другие ценные призы', badge: null, image_url: `${REF_IMG}banner-car-ribbon.png` },
       { ...offer('b2', 'Кэшбэк до 12%', ''), kind: 'banner', subtitle: 'за каждую покупку', badge: null, image_url: `${IMG}card.jpg` },
       { ...offer('b3', 'Подарки за покупки', ''), kind: 'banner', subtitle: 'каждый день', badge: null, image_url: `${IMG}gifts.jpg` },
     ],
     offers: [
-      offer('o1', 'Покупайте выгодно', 'Скидка на хиты', { image_url: `${IMG}basket.jpg`, body: 'Скидки до 30% на популярные товары каждую неделю.' }),
-      offer('o2', 'Товары по лучшим ценам', 'Акция недели', { image_url: `${IMG}tag.jpg`, ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), body: 'Специальные цены на товары недели.' }),
-      offer('o3', 'Больше бонусов', 'Выгодно с картой', { image_url: `${IMG}card.jpg`, body: 'Оплачивайте картой и получайте повышенный кешбэк.' }),
-      offer('o4', 'Свежие продукты', 'Суперцена', { image_url: `${IMG}produce.jpg` }),
+      offer('o1', 'Покупайте выгодно', 'Скидка на хиты', { image_url: `${REF_IMG}offer-basket.png`, body: 'Скидки до 30% на популярные товары каждую неделю.' }),
+      offer('o2', 'Товары по лучшим ценам', 'Акция недели', { image_url: `${REF_IMG}offer-discount-tag.png`, ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), body: 'Специальные цены на товары недели.' }),
+      offer('o3', 'Больше бонусов', 'Выгодно с картой', { image_url: `${REF_IMG}offer-loyalty-coins.png`, body: 'Оплачивайте картой и получайте повышенный кешбэк.' }),
+      offer('o4', 'Свежие продукты', 'Суперцена', { image_url: `${REF_IMG}offer-fresh-produce.png` }),
     ],
     has_new: true,
   };

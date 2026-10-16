@@ -10,7 +10,7 @@ const tabs: { route: TabRoute; icon: IconName; label: 'tabHome' | 'tabPromotions
   { route: 'index', icon: 'home', label: 'tabHome' },
   { route: 'promotions', icon: 'gift', label: 'tabPromotions' },
   { route: 'qr', icon: 'qr', label: 'tabQr' },
-  { route: 'notifications', icon: 'bell', label: 'tabNotifications' },
+  { route: 'notifications', icon: 'message', label: 'tabNotifications' },
   { route: 'profile', icon: 'user', label: 'tabProfile' },
 ];
 
@@ -27,7 +27,7 @@ export function TabBar({ active, onSelect, badges }: {
         return <View key={tab.route} style={styles.centerSlot}>
           <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected }} onPress={() => onSelect('qr')}
             style={({ pressed }) => [styles.qrButton, pressed && { backgroundColor: t.colors.primaryPressed }]}>
-            <Icon name="qr" size={30} color={t.colors.onPrimary} />
+            <Icon name="qr" size={24} color={t.colors.onPrimary} />
           </Pressable>
         </View>;
       }
@@ -36,7 +36,7 @@ export function TabBar({ active, onSelect, badges }: {
       return <Pressable key={tab.route} accessibilityRole="tab" accessibilityState={{ selected }}
         accessibilityLabel={hasNew ? `${label}. ${tr('newBadge')}` : label} onPress={() => onSelect(tab.route)} style={styles.item}>
         <View>
-          <Icon name={tab.icon} size={28} color={color} strokeWidth={1.8} filled={selected && tab.route === 'index'} />
+          <Icon name={tab.icon} size={24} color={color} strokeWidth={1.8} filled={selected && tab.route === 'index'} />
           {hasNew && <NewDot style={styles.dot} />}
         </View>
         <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.label, { color: selected ? t.colors.primary : t.colors.muted }]}>{label}</Text>
@@ -52,10 +52,10 @@ const styles = StyleSheet.create({
     shadowColor: t.colors.shadow, shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12,
   },
   item: { flex: 1, alignItems: 'center', gap: 6, minHeight: 56, justifyContent: 'flex-end', paddingHorizontal: 2 },
-  label: { fontFamily: fonts.medium, fontSize: 10, letterSpacing: -0.2 },
+  label: { fontFamily: fonts.medium, fontSize: 11, letterSpacing: -0.2 },
   centerSlot: { flex: 1, alignItems: 'center' },
   qrButton: {
-    width: 68, height: 68, borderRadius: 34, marginTop: -34, marginBottom: 8, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center',
+    width: 52, height: 52, borderRadius: 26, marginTop: -26, marginBottom: 8, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center',
     shadowColor: t.colors.primary, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8,
   },
   dot: { position: 'absolute', top: -2, right: -4 },

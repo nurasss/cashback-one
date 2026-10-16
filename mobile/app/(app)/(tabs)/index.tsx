@@ -57,8 +57,8 @@ export default function Home() {
 
 const local = StyleSheet.create({
   page: { flex: 1, paddingBottom: 96 },
-  topSheet: { backgroundColor: theme.colors.surface, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
-  section: { paddingHorizontal: 24, paddingVertical: 8, gap: 6 },
+  topSheet: { backgroundColor: theme.colors.surface, borderBottomLeftRadius: 32, borderBottomRightRadius: 32, paddingBottom: 12 },
+  section: { paddingHorizontal: 24, paddingTop: 25, paddingBottom: 8, gap: 6 },
   promoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
   promoLineText: { fontFamily: fonts.semibold, fontSize: 15, color: theme.colors.primary },
   offersSheet: { flex: 1, minHeight: 0, backgroundColor: theme.colors.surface, borderRadius: 32, paddingTop: 16, paddingBottom: 14, gap: 10 },

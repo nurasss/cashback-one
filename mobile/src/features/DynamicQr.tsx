@@ -16,8 +16,7 @@ export function DynamicQr({ qr, loading, failed, blocked }: { qr: CardQr | undef
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const expiresAt = qr ? Date.parse(qr.expires_at) : 0;
   const valid = !!qr && isQrToken(qr.token) && expiresAt > now;
-  const size = Math.max(180, Math.min(280, width - 140));
-  const refreshIn = qr ? Math.max(0, Math.ceil((expiresAt - now) / 1000 - qr.ttl_seconds / 2)) : 0;
+  const size = Math.max(180, Math.min(240, width - 168));
 
   return <View style={styles.card}>
     <View style={[styles.qrBox, { width: size, height: size }]}>
@@ -30,7 +29,6 @@ export function DynamicQr({ qr, loading, failed, blocked }: { qr: CardQr | undef
       <Icon name="scan" size={36} color={t.colors.primary} strokeWidth={2.2} />
       <Text style={styles.hint}>{tr('showToCashier')}</Text>
     </View>
-    {valid && !blocked && <Text style={styles.timer}>{tr('qrRefreshIn', { seconds: refreshIn })}</Text>}
   </View>;
 }
 
@@ -41,5 +39,4 @@ const styles = StyleSheet.create({
   message: { fontFamily: fonts.medium, fontSize: 16, color: t.colors.muted, textAlign: 'center' },
   hintRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   hint: { fontFamily: fonts.semibold, fontSize: 19, color: t.colors.primary },
-  timer: { fontFamily: fonts.regular, fontSize: 13, color: t.colors.muted, marginTop: -18 },
 });
