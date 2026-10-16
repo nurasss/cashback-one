@@ -3,6 +3,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError } from '../src/api/errors';
 import { useSession } from '../src/auth/provider';
+import { FadeIn } from '../src/components/motion';
 import { Button, ErrorNotice, Input, styles } from '../src/components/ui';
 import { useI18n } from '../src/i18n';
 import { deviceId } from '../src/storage/secure';
@@ -45,9 +46,11 @@ export default function Login() {
   return <SafeAreaView style={styles.screen}>
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={local.content}>
-        <View style={local.brand}><Text style={local.brandText}>{t('bonusCurrency')}</Text></View>
-        <Text style={local.title}>{t('loginTitle')}</Text>
-        <Text style={[styles.body, { color: theme.colors.muted }]}>{t('loginBody')}</Text>
+        <FadeIn style={{ gap: 12 }}>
+          <View style={local.brand}><Text style={local.brandText}>{t('bonusCurrency')}</Text></View>
+          <Text style={local.title}>{t('loginTitle')}</Text>
+          <Text style={[styles.body, { color: theme.colors.muted }]}>{t('loginBody')}</Text>
+        </FadeIn>
         {!sentPhone ? <View style={local.form}>
           <Input label={t('phone')} hint={t('phoneHint')} value={phone} onChangeText={setPhone} editable={!busy}
             keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" maxLength={20} />
@@ -70,9 +73,9 @@ export default function Login() {
 }
 
 const local = StyleSheet.create({
-  content: { padding: theme.spacing.lg, gap: theme.spacing.lg, paddingTop: theme.spacing.xxl },
-  brand: { alignSelf: 'flex-start', backgroundColor: theme.colors.primary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 },
-  brandText: { fontFamily: fonts.extrabold, fontSize: 22, color: theme.colors.onPrimary },
-  title: { fontFamily: fonts.bold, fontSize: 34, color: theme.colors.text },
-  form: { gap: theme.spacing.md, backgroundColor: theme.colors.surface, borderRadius: 24, padding: theme.spacing.lg },
+  content: { padding: 20, gap: 20, paddingTop: 56 },
+  brand: { alignSelf: 'flex-start', backgroundColor: theme.colors.primary, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 8 },
+  brandText: { fontFamily: fonts.extrabold, fontSize: 16, color: theme.colors.onPrimary, letterSpacing: 0.4 },
+  title: { fontFamily: fonts.bold, fontSize: 26, lineHeight: 32, color: theme.colors.text },
+  form: { gap: 14, backgroundColor: theme.colors.surface, borderRadius: 22, padding: 20, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
 });

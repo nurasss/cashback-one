@@ -3,6 +3,7 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useHistory, type HistoryFilter } from '../../src/api/wallet';
 import { Icon } from '../../src/components/icons';
+import { FadeIn } from '../../src/components/motion';
 import { Button, Chip, EmptyState, ErrorNotice, Loading, ScreenHeader, styles } from '../../src/components/ui';
 import { useActiveCard } from '../../src/features/activeCard';
 import { useI18n } from '../../src/i18n';
@@ -28,11 +29,11 @@ export default function HistoryScreen() {
         {history.isError && <ErrorNotice error={history.error} retry={() => { void (history.isFetchNextPageError ? history.fetchNextPage() : history.refetch()); }} />}
       </View>}
       ListEmptyComponent={history.isSuccess || !card ? <EmptyState icon="history" title={t('noHistory')} /> : null}
-      renderItem={({ item }) => {
+      renderItem={({ item, index }) => {
         const incoming = item.type === 'accrual';
-        return <View style={local.row}>
+        return <FadeIn index={Math.min(index, 6)} style={local.row}>
           <View style={[local.icon, { backgroundColor: incoming ? theme.colors.softPrimary : '#EFEFF2' }]}>
-            <Icon name={incoming ? 'plus' : 'minus'} size={20} color={incoming ? theme.colors.primary : theme.colors.muted} />
+            <Icon name={incoming ? 'plus' : 'minus'} size={18} color={incoming ? theme.colors.primary : theme.colors.muted} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={local.title}>{transactionLabel(item.type, language)}</Text>
@@ -43,7 +44,7 @@ export default function HistoryScreen() {
             <Text style={[local.amount, { color: incoming ? theme.colors.primary : theme.colors.text }]}>{incoming ? '+' : '−'}{pointsText(item.amount.replace('-', ''))}</Text>
             <Text style={styles.muted}>{t('balanceAfter')} {pointsText(item.balance_after)}</Text>
           </View>
-        </View>;
+        </FadeIn>;
       }}
       ListFooterComponent={history.hasNextPage ? <Button label={history.isFetchingNextPage ? t('loading') : t('more')} secondary disabled={history.isFetching}
         onPress={() => { void history.fetchNextPage(); }} /> : null} />
@@ -51,8 +52,8 @@ export default function HistoryScreen() {
 }
 
 const local = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: theme.colors.surface, borderRadius: 20, padding: 16 },
-  icon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  title: { fontFamily: fonts.semibold, fontSize: 16, color: theme.colors.text },
-  amount: { fontFamily: fonts.bold, fontSize: 17 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.surface, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
+  icon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  title: { fontFamily: fonts.semibold, fontSize: 14, color: theme.colors.text },
+  amount: { fontFamily: fonts.bold, fontSize: 15 },
 });
