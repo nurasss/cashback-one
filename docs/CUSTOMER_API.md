@@ -290,6 +290,47 @@ Returns a deterministic cursor-paginated list of transactions mirrored from POSC
 * `GET /me/badges` → `{promotions_new, notifications_unread}` для значков на вкладках.
 * Свежие (до 24 часов) начисления и списания из синхронизации автоматически создают личное уведомление владельцу карты.
 
+### 3.10. Phone Wallet Passes («Add to Wallet»)
+
+Позволяет добавить карту в Apple Wallet (iOS) или Google Wallet (Android). В отличие от динамического QR внутри приложения, на Wallet-карте отображается **статичный штрихкод** (`card.barcode`) в виде QR, который кассир может отсканировать прямо с заблокированного телефона. Числовой баланс и статус на карте не отображаются (карта Wallet не синхронизируется при каждой покупке), а на обороте указано, что актуальный баланс доступен в приложении Cashback One, и что списание баллов подтверждается WhatsApp-кодом.
+
+#### Проверка доступности кошельков
+**`GET /me/wallet`** (Bearer JWT)
+
+Возвращает флаги включения сервисов кошельков на текущем сервере:
+```json
+{
+  "apple": true,
+  "google": true
+}
+```
+
+#### Запрос ссылки на добавление
+**`POST /me/cards/{card_id}/wallet`** (Bearer JWT)
+
+Тело запроса:
+```json
+{
+  "platform": "apple"
+}
+```
+(`"apple"` или `"google"`)
+
+Успешный ответ (200 OK):
+```json
+{
+  "url": "https://api.cashback-qr.poscenter.kz/wallet/apple/W1AA...4Z.pkpass",
+  "expires_at": "2026-10-17T01:30:00Z"
+}
+```
+Для `"google"` поле `url` ведёт на `https://pay.google.com/gp/v/save/<JWT>`, а `expires_at` равно `null`.
+Если сервис не настроен, возвращается `503 WALLET_UNAVAILABLE`. Если карта заблокирована, возвращается `409 CARD_BLOCKED`.
+
+### 3.11. Публичные эндпоинты кошельков
+
+* **`GET /wallet/apple/{token}.pkpass`**: скачивание подписанного архива `.pkpass` для Apple Wallet без заголовка авторизации по одноразовому HMAC-токену `W1...`. Возвращает `Content-Type: application/vnd.apple.pkpass` и `Cache-Control: no-store`. Если ссылка недействительна или карта заблокирована — `404 WALLET_LINK_INVALID`.
+* **`GET /wallet/assets/google-logo.png`**: публичный логотип сервиса в формате PNG для шаблонов Google Wallet. `Cache-Control: public, max-age=86400`.
+
 ## 4. Error Responses
 
 All error responses adhere to the standard POSCENTER Loyalty error envelope:
@@ -315,7 +356,10 @@ All error responses adhere to the standard POSCENTER Loyalty error envelope:
 | `401` | `USER_NOT_FOUND` | User account deactivated or deleted |
 | `400` | `INVALID_CURSOR` | Pagination cursor format is corrupt |
 | `404` | `CARD_NOT_FOUND` | Card not found, business inactive, or not owned by user (IDOR protected) |
+| `404` | `WALLET_LINK_INVALID` | Apple Wallet download link is corrupt, expired, or card is blocked |
 | `409` | `BUSINESS_SELECTION_REQUIRED` | Multiple businesses match barcode; user selection required |
 | `409` | `CARD_ACTIVATION_REQUIRED` | Card has no phone in ONE; activation required |
 | `409` | `CARD_BIND_NOT_ALLOWED` | Card phone does not match user or card is owned by another user |
+| `409` | `CARD_BLOCKED` | Card is blocked; cannot be added to wallet |
+| `503` | `WALLET_UNAVAILABLE` | Wallet service (Apple or Google) is not configured on this server |
 | `422` | `VALIDATION_ERROR` | Request validation error (e.g. invalid barcode format or UUID) |

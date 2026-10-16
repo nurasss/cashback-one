@@ -59,6 +59,8 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips \"$$FORWARDED_ALLOW_IPS\""]
     env_file: .env
+    volumes:
+      - ./secrets:/app/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy

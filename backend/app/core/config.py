@@ -162,6 +162,20 @@ class Settings(BaseSettings):
     card_bind_user_limit: int = 20
     card_bind_rate_window_seconds: int = 300
 
+    # "Add to Wallet" passes: the card's static barcode as a QR (the in-app QR stays dynamic).
+    # Each wallet is enabled only when all of its settings are present.
+    wallet_public_base_url: str = Field(default="", description="Public HTTPS URL of this API, e.g. https://api.example.kz")
+    wallet_organization_name: str = "POSCENTER ONE"
+    wallet_link_ttl_seconds: int = 600
+    apple_pass_type_id: str = ""
+    apple_team_id: str = ""
+    apple_pass_cert_file: str = Field(default="", description="PEM certificate of the Pass Type ID")
+    apple_pass_key_file: str = Field(default="", description="PEM private key of the Pass Type ID certificate")
+    apple_pass_key_password: str = ""
+    apple_wwdr_cert_file: str = Field(default="", description="PEM Apple WWDR intermediate certificate")
+    google_wallet_issuer_id: str = ""
+    google_wallet_service_account_file: str = Field(default="", description="Service account JSON key with Wallet access")
+
     # Agent sync limits
     sync_max_cards_batch: int = 500
     sync_max_transactions_batch: int = 1000
@@ -237,6 +251,11 @@ class Settings(BaseSettings):
                 raise ValueError("WAPPI_API_TOKEN must be provided when WHATSAPP_PROVIDER_MODE=wappi")
             if not self.wappi_api_base_url.strip().startswith("https://"):
                 raise ValueError("WAPPI_API_BASE_URL must use HTTPS")
+
+        base = self.wallet_public_base_url.strip().rstrip("/")
+        if base and not base.startswith("https://") and self.app_env == "production":
+            raise ValueError("WALLET_PUBLIC_BASE_URL must use HTTPS")
+        self.wallet_public_base_url = base
 
         if self.app_env.lower() == "test":
             # Provide deterministic defaults for test execution

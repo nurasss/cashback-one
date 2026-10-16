@@ -143,3 +143,17 @@ class CardQrResponse(BaseModel):
     token: str
     expires_at: datetime
     ttl_seconds: int
+
+
+class WalletAvailability(BaseModel):
+    apple: bool
+    google: bool
+
+
+class WalletLinkRequest(BaseModel):
+    platform: Literal["apple", "google"]
+
+
+class WalletLinkResponse(BaseModel):
+    url: str
+    expires_at: datetime | None

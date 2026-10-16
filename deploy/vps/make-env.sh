@@ -34,6 +34,18 @@ DB_POOL_TIMEOUT_SECONDS=10
 DB_POOL_RECYCLE_SECONDS=1800
 DB_POOL_PRE_PING=true
 DB_STATEMENT_TIMEOUT_MS=15000
+# Apple Wallet / Google Wallet passes (optional, uncomment when keys are available)
+# WALLET_PUBLIC_BASE_URL=https://api.cashback-qr.poscenter.kz
+# WALLET_ORGANIZATION_NAME="POSCENTER ONE"
+# WALLET_LINK_TTL_SECONDS=600
+# APPLE_PASS_TYPE_ID=pass.kz.poscenter.cashback
+# APPLE_TEAM_ID=XXXXXXXXXX
+# APPLE_PASS_CERT_FILE=/app/secrets/apple_pass_cert.pem
+# APPLE_PASS_KEY_FILE=/app/secrets/apple_pass_key.pem
+# APPLE_PASS_KEY_PASSWORD=
+# APPLE_WWDR_CERT_FILE=/app/secrets/apple_wwdr.pem
+# GOOGLE_WALLET_ISSUER_ID=3388000000022xxxxxx
+# GOOGLE_WALLET_SERVICE_ACCOUNT_FILE=/app/secrets/google_sa.json
 ENV
 chmod 600 .env
 echo ".env created (permissions 600); secrets are not printed"
