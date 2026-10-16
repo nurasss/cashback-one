@@ -16,7 +16,7 @@ function LanguageSync() {
 export default function AppLayout() {
   return <ActiveCardProvider>
     <LanguageSync />
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.colors.background } }}>
+    <Stack screenOptions={{ headerShown: false, animation: 'ios_from_right', gestureEnabled: true, contentStyle: { backgroundColor: theme.colors.background } }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="status" />
       <Stack.Screen name="history" />

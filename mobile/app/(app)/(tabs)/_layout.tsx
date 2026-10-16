@@ -5,7 +5,7 @@ import { theme } from '../../../src/theme';
 
 export default function TabsLayout() {
   const badges = useBadges();
-  return <Tabs screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: theme.colors.background } }}
+  return <Tabs screenOptions={{ headerShown: false, animation: 'shift', sceneStyle: { backgroundColor: theme.colors.background } }}
     tabBar={({ state, navigation }) => <TabBar active={state.routes[state.index]?.name as TabRoute}
       onSelect={route => navigation.navigate(route)}
       badges={{ promotions: badges.data?.promotions_new ?? false, notifications: badges.data?.notifications_unread ?? 0 }} />}>
