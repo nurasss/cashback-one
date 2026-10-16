@@ -31,7 +31,7 @@ export default function Home() {
           card ? <>
             <StatusCard tier={card.tier} balance={card.balance} onPress={() => router.push('/status')} />
             {card.tier && Number(card.tier.max_percent) > 0 && <View style={local.promoLine}>
-              <Icon name="crown" size={24} color={theme.colors.primary} />
+              <Icon name="crown" size={18} color={theme.colors.primary} />
               <Text style={local.promoLineText}>{t('dontMiss', { percent: percentText(card.tier.max_percent) })}</Text>
             </View>}
           </> : <View style={styles.sheet}><EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
@@ -43,7 +43,7 @@ export default function Home() {
         <View style={local.offersHeader}>
           <Text style={local.offersTitle}>{t('hotOffers')}</Text>
           <Pressable accessibilityRole="button" hitSlop={10} onPress={() => router.push('/promotions')} style={local.allLink}>
-            <Text style={local.allText}>{t('all')}</Text><Icon name="chevronRight" size={22} color={theme.colors.primary} />
+            <Text style={local.allText}>{t('all')}</Text><Icon name="chevronRight" size={16} color={theme.colors.primary} />
           </Pressable>
         </View>
         {promotions.isPending ? <Loading /> : promotions.isError ? <ErrorNotice error={promotions.error} retry={() => { void promotions.refetch(); }} /> :
@@ -58,15 +58,15 @@ export default function Home() {
 
 const local = StyleSheet.create({
   page: { flex: 1, paddingBottom: 96 },
-  topSheet: { backgroundColor: theme.colors.surface, borderBottomLeftRadius: 32, borderBottomRightRadius: 32, paddingBottom: 12 },
-  section: { paddingHorizontal: 24, paddingTop: 25, paddingBottom: 8, gap: 6 },
-  promoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  promoLineText: { fontFamily: fonts.semibold, fontSize: 15, color: theme.colors.primary },
-  offersSheet: { flex: 1, minHeight: 0, backgroundColor: theme.colors.surface, borderRadius: 32, paddingTop: 16, paddingBottom: 14, gap: 10 },
-  offersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24 },
-  offersTitle: { fontFamily: fonts.bold, fontSize: 20, color: theme.colors.text },
-  allLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  allText: { fontFamily: fonts.semibold, fontSize: 18, color: theme.colors.primary },
-  grid: { flex: 1, minHeight: 0, gap: 10, paddingHorizontal: 20 },
-  gridRow: { flex: 1, minHeight: 0, flexDirection: 'row', gap: 10 },
+  topSheet: { backgroundColor: theme.colors.surface, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, paddingBottom: 14 },
+  section: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, gap: 10 },
+  promoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  promoLineText: { fontFamily: fonts.semibold, fontSize: 13, color: theme.colors.primary },
+  offersSheet: { flex: 1, minHeight: 0, backgroundColor: theme.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 18, paddingBottom: 14, gap: 12 },
+  offersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20 },
+  offersTitle: { fontFamily: fonts.bold, fontSize: 18, color: theme.colors.text },
+  allLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  allText: { fontFamily: fonts.semibold, fontSize: 14, color: theme.colors.primary },
+  grid: { flex: 1, minHeight: 0, gap: 12, paddingHorizontal: 20 },
+  gridRow: { flex: 1, minHeight: 0, flexDirection: 'row', gap: 12 },
 });

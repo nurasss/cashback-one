@@ -87,7 +87,7 @@ function Dot({ dot, count, step, scrollX }: { dot: number; count: number; step: 
   const slots = Array.from(new Set(peaks.flatMap(p => [p - 1, p, p + 1]))).sort((x, y) => x - y);
   const inputRange = slots.map(slot => slot * step);
   const full = (slot: number) => peaks.includes(slot);
-  const width = scrollX.interpolate({ inputRange, outputRange: slots.map(slot => (full(slot) ? 24 : 8)), extrapolate: 'clamp' });
+  const width = scrollX.interpolate({ inputRange, outputRange: slots.map(slot => (full(slot) ? 18 : 6)), extrapolate: 'clamp' });
   const backgroundColor = scrollX.interpolate({ inputRange, outputRange: slots.map(slot => (full(slot) ? t.colors.primary : '#D9D9DD')), extrapolate: 'clamp' });
   return <Animated.View style={[styles.pageDot, { width, backgroundColor }]} />;
 }
@@ -109,7 +109,7 @@ export function StatusCard({ tier, balance, onPress }: { tier: Tier | null | und
           <Text style={styles.statusCaption} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{rightLabel}</Text>
           <Text style={styles.statusValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{rightValue}</Text>
         </View>
-        <Icon name="chevronRight" size={26} />
+        <Icon name="chevronRight" size={22} />
       </View>
     </LinearGradient>
   </PressScale>;
@@ -122,48 +122,44 @@ export function OfferCard({ offer, index, onPress, wide = false, fill = false }:
   return <PressScale accessibilityRole="button" accessibilityLabel={[offer.badge, offer.title].filter(Boolean).join('. ')} onPress={onPress}
     style={[styles.offer, index === 0 || index === 3 ? styles.offerPink : styles.offerGray, wide && styles.offerWide, fill && styles.offerFill]}>
     {offer.image_url ? <Image source={{ uri: offer.image_url }} style={[styles.offerImage, wide && styles.offerImageWide]} resizeMode="contain" accessibilityIgnoresInvertColors /> : null}
-    <View style={styles.offerTop}>
-      {offer.badge ? <View style={styles.offerBadge}>
-        <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={20} color={t.colors.onPrimary} strokeWidth={2.2} />
-        <Text style={styles.offerBadgeText} numberOfLines={2}>{offer.badge}</Text>
-      </View> : <View />}
-      <Icon name="chevronRight" size={22} color={t.colors.muted} />
-    </View>
+    {offer.badge ? <View style={styles.offerBadge}>
+      <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={12} color={t.colors.onPrimary} strokeWidth={2.4} />
+      <Text style={styles.offerBadgeText} numberOfLines={1}>{offer.badge}</Text>
+    </View> : null}
     <Text style={styles.offerTitle} numberOfLines={3}>{offer.title}</Text>
   </PressScale>;
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 24, paddingVertical: 10 },
-  phone: { fontFamily: fonts.medium, fontSize: 17, color: t.colors.text, flexShrink: 1 },
-  balanceGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  balance: { fontFamily: fonts.semibold, fontSize: 17, color: t.colors.text },
-  brandBadge: { backgroundColor: t.colors.primary, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 5 },
-  brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 15, color: t.colors.onPrimary, letterSpacing: -0.5 },
-  carousel: { gap: 10, paddingBottom: 14 },
-  banner: { aspectRatio: 2.35, borderRadius: 26, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
+  phone: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.text, flexShrink: 1 },
+  balanceGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  balance: { fontFamily: fonts.semibold, fontSize: 15, color: t.colors.text },
+  brandBadge: { backgroundColor: t.colors.primary, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 },
+  brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 13, color: t.colors.onPrimary, letterSpacing: 0.4 },
+  carousel: { gap: 12, paddingBottom: 12 },
+  banner: { aspectRatio: 2.4, borderRadius: 22, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
   bannerImage: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '49%', height: '90%' },
-  bannerText: { width: '46%', paddingLeft: 16, gap: 4, zIndex: 1 },
-  bannerTitle: { fontFamily: fonts.extrabold, fontSize: 20, lineHeight: 21, color: t.colors.text, textTransform: 'uppercase' },
+  bannerText: { width: '50%', paddingLeft: 18, gap: 6, zIndex: 1 },
+  bannerTitle: { fontFamily: fonts.extrabold, fontSize: 17, lineHeight: 20, color: t.colors.text, textTransform: 'uppercase' },
   bannerTitleAccent: { color: t.colors.primary },
-  bannerSubtitle: { fontFamily: fonts.extrabold, fontSize: 14, lineHeight: 16, color: t.colors.text, textTransform: 'uppercase' },
-  dots: { flexDirection: 'row', justifyContent: 'center', gap: 10 },
-  pageDot: { height: 8, borderRadius: 4, backgroundColor: '#D9D9DD' },
+  bannerSubtitle: { fontFamily: fonts.bold, fontSize: 11, lineHeight: 15, color: t.colors.muted, textTransform: 'uppercase', letterSpacing: 0.3 },
+  dots: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  pageDot: { height: 6, borderRadius: 3, backgroundColor: '#D9D9DD' },
   pageDotActive: { backgroundColor: t.colors.primary },
-  statusWrap: { borderRadius: 30, overflow: 'hidden' },
-  statusCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22, paddingVertical: 10 },
+  statusWrap: { borderRadius: 22, overflow: 'hidden', shadowColor: '#F28A75', shadowOpacity: 0.18, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  statusCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
   statusRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, minWidth: 0 },
-  statusCaption: { fontFamily: fonts.medium, fontSize: 14, color: t.colors.text },
-  statusValue: { fontFamily: fonts.extrabold, fontSize: 28, color: t.colors.text },
-  offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 24, padding: 12, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 8 },
+  statusCaption: { fontFamily: fonts.semibold, fontSize: 11, color: 'rgba(17,17,17,0.6)', textTransform: 'uppercase', letterSpacing: 0.8 },
+  statusValue: { fontFamily: fonts.extrabold, fontSize: 26, color: t.colors.text },
+  offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 20, padding: 14, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 10, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
   offerPink: { backgroundColor: '#FCE9EC' },
   offerGray: { backgroundColor: '#F1F1F4' },
   offerWide: { flexBasis: 'auto', flexGrow: 0 },
-  offerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, zIndex: 1 },
-  offerBadge: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: t.colors.primary, borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6, maxWidth: '88%', zIndex: 1 },
-  offerBadgeText: { fontFamily: fonts.bold, fontSize: 11, lineHeight: 13, color: t.colors.onPrimary, flexShrink: 1 },
-  offerTitle: { fontFamily: fonts.extrabold, fontSize: 15, lineHeight: 18, color: t.colors.text, width: '72%', zIndex: 1 },
-  offerImage: { position: 'absolute', right: -8, bottom: -3, width: '70%', height: '52%', zIndex: 0 },
+  offerBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: t.colors.primary, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, maxWidth: '100%', zIndex: 1 },
+  offerBadgeText: { fontFamily: fonts.bold, fontSize: 10, lineHeight: 13, color: t.colors.onPrimary, flexShrink: 1 },
+  offerTitle: { fontFamily: fonts.bold, fontSize: 14, lineHeight: 18, color: t.colors.text, width: '75%', zIndex: 1 },
+  offerImage: { position: 'absolute', right: -6, bottom: -4, width: '62%', height: '55%', zIndex: 0 },
   offerImageWide: { width: '70%', height: '52%' },
-  offerFill: { flexBasis: 0, minHeight: 0, padding: 12, gap: 8 },
+  offerFill: { flexBasis: 0, minHeight: 0 },
 });
