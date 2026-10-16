@@ -6,6 +6,8 @@ export const DEMO_ENABLED = process.env.EXPO_PUBLIC_DEMO === '1';
 export const DEMO_BASE_URL = 'https://demo.invalid';
 export const demoTokens: Tokens = { access_token: 'demo-access', refresh_token: 'demo-refresh', token_type: 'bearer', expires_in: 900 };
 
+// Sample artwork served next to the demo build (cut from the design mockup); real content comes from the admin by URL.
+const IMG = '/demo/img/';
 const daysAgo = (days: number, hour = 12) => { const d = new Date(); d.setDate(d.getDate() - days); d.setHours(hour, 15, 0, 0); return d.toISOString(); };
 
 export function createDemoApi() {
@@ -26,15 +28,15 @@ export function createDemoApi() {
   });
   const promotions: Promotions = {
     banners: [
-      { ...offer('b1', 'Выиграй авто', ''), kind: 'banner', subtitle: 'и другие ценные призы', badge: null },
+      { ...offer('b1', 'Выиграй авто', ''), kind: 'banner', subtitle: 'и другие ценные призы', badge: null, image_url: `${IMG}banner1.jpg` },
       { ...offer('b2', 'Двойные баллы', ''), kind: 'banner', subtitle: 'на всё по выходным', badge: null },
       { ...offer('b3', 'Подарки за покупки', ''), kind: 'banner', subtitle: 'каждый день', badge: null },
     ],
     offers: [
-      offer('o1', 'Покупайте выгодно', 'Скидка на хиты', { body: 'Скидки до 30% на популярные товары каждую неделю.' }),
-      offer('o2', 'Товары по лучшим ценам', 'Акция недели', { ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), body: 'Специальные цены на товары недели.' }),
-      offer('o3', 'Больше бонусов', 'Выгодно с картой', { body: 'Оплачивайте картой и получайте повышенный кешбэк.' }),
-      offer('o4', 'Свежие продукты', 'Суперцена'),
+      offer('o1', 'Покупайте выгодно', 'Скидка на хиты', { image_url: `${IMG}offer1.png`, body: 'Скидки до 30% на популярные товары каждую неделю.' }),
+      offer('o2', 'Товары по лучшим ценам', 'Акция недели', { image_url: `${IMG}offer2.png`, ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), body: 'Специальные цены на товары недели.' }),
+      offer('o3', 'Больше бонусов', 'Выгодно с картой', { image_url: `${IMG}offer3.png`, body: 'Оплачивайте картой и получайте повышенный кешбэк.' }),
+      offer('o4', 'Свежие продукты', 'Суперцена', { image_url: `${IMG}offer4.png` }),
     ],
     has_new: true,
   };
