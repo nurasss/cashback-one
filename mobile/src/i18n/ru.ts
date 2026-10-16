@@ -17,6 +17,8 @@ export const ru = {
   // QR
   showToCashier: 'Покажите QR кассиру', qrRefreshIn: 'Код обновится через {seconds} сек.', qrUnavailable: 'Не удалось получить QR-код. Проверьте интернет.',
   cardBlocked: 'Карта заблокирована',
+  addToAppleWallet: 'Добавить в Apple Wallet',
+  addToGoogleWallet: 'Добавить в Google Wallet',
   // Status
   myStatus: 'Мой статус', untilStatus: 'до статуса {level}', remainingAmount: '{amount} ₸', moreToSpend: 'ещё {amount} ₸', maxStatus: 'У вас максимальный статус',
   statusesSoon: 'Статусы лояльности скоро появятся',
@@ -59,6 +61,9 @@ export const errorMessages: Record<string, string> = {
   CARD_NOT_FOUND: 'Карта не найдена или недоступна для вашего аккаунта.', CARD_ACTIVATION_REQUIRED: 'Активируйте карту на кассе и укажите свой номер телефона.',
   CARD_BIND_NOT_ALLOWED: 'Эту карту нельзя привязать к вашему аккаунту. Проверьте номер или обратитесь на кассу.',
   BUSINESS_SELECTION_REQUIRED: 'Выберите организацию, которая выдала карту.', INVALID_CURSOR: 'История изменилась. Обновите экран.',
+  CARD_BLOCKED: 'Карта заблокирована.',
+  WALLET_UNAVAILABLE: 'Сервис кошелька временно недоступен. Попробуйте позже.',
+  WALLET_LINK_INVALID: 'Ссылка для добавления в кошелёк недействительна.',
   PROMOTION_NOT_FOUND: 'Акция завершилась или недоступна.',
   NETWORK_UNAVAILABLE: 'Нет соединения. Проверьте интернет и повторите.', REQUEST_TIMEOUT: 'Сервер не ответил вовремя. Повторите запрос.',
   SERVER_UNAVAILABLE: 'Сервис временно недоступен. Попробуйте позже.', UNKNOWN_ERROR: 'Произошла ошибка. Повторите запрос.',

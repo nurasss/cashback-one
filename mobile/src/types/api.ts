@@ -27,3 +27,6 @@ export interface AppNotification { id: string; kind: string; title: string; body
 export interface Notifications { items: AppNotification[]; unread_count: number }
 export interface Badges { promotions_new: boolean; notifications_unread: number }
 export interface CardQr { token: string; expires_at: string; ttl_seconds: number }
+export interface WalletAvailability { apple: boolean; google: boolean }
+export interface WalletLinkRequest { platform: 'apple' | 'google' }
+export interface WalletLinkResponse { url: string; expires_at: string | null }

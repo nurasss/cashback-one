@@ -1,6 +1,6 @@
 // Demo mode (EXPO_PUBLIC_DEMO=1): an in-memory stand-in for the Cloud API with sample data, so the app can be
 // viewed without WhatsApp delivery or a customer database. Never used unless the flag is set at build time.
-import type { Badges, Card, CardQr, HistoryPage, Notifications, Profile, Promotion, Promotions, Tokens, Transaction } from '../types/api';
+import type { Badges, Card, CardQr, HistoryPage, Notifications, Profile, Promotion, Promotions, Tokens, Transaction, WalletAvailability } from '../types/api';
 
 export const DEMO_ENABLED = process.env.EXPO_PUBLIC_DEMO === '1';
 export const DEMO_BASE_URL = 'https://demo.invalid';
@@ -74,6 +74,7 @@ export function createDemoApi() {
     const method = (init?.method ?? 'GET').toUpperCase();
     if (path === '/auth/refresh') return json(demoTokens);
     if (path === '/auth/logout') return json({ status: 'ok' });
+    if (path === '/me/wallet' && method === 'GET') return json({ apple: false, google: false } satisfies WalletAvailability);
     if (path === '/me/cards' && method === 'GET') return json([card]);
     if (path === '/me/cards/bind') return json(card);
     if (path === `/me/cards/${card.id}` && method === 'GET') return json(card);
