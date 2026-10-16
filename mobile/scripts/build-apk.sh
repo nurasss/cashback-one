@@ -85,3 +85,9 @@ echo "=== Package Badging ($BUILD_TOOLS/aapt) ==="
 echo "=== Result ==="
 ls -lh "$OUTPUT_APK"
 echo "Build complete: $OUTPUT_APK"
+
+CLEANUP_BUILD="${CLEANUP_BUILD:-1}"
+if [ "$CLEANUP_BUILD" = "1" ]; then
+  echo "=== Cleaning temporary build artifacts (saving disk space) ==="
+  rm -rf android/app/build android/.gradle
+fi

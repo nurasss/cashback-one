@@ -5,8 +5,10 @@ import { Linking, Platform } from 'react-native';
 import QrScreen from '../app/(app)/(tabs)/qr';
 import { ActiveCardProvider } from '../src/features/activeCard';
 import { I18nProvider } from '../src/i18n';
-import { ru } from '../src/i18n/ru';
+import { ru, errorMessages } from '../src/i18n/ru';
 import type { Card } from '../src/types/api';
+import { ApiError } from '../src/api/errors';
+import { requestWalletLink, useRequestWalletLink, useWalletLink } from '../src/api/app';
 
 const mockRequest = jest.fn();
 jest.mock('../src/auth/provider', () => ({
@@ -168,4 +170,48 @@ it('does not show wallet button on web even if wallet is available', async () =>
 
   Platform.OS = 'ios';
   screen.unmount();
+});
+
+it('displays ErrorNotice when requestWalletLink rejects without crashing', async () => {
+  Platform.OS = 'android';
+  mockRequest.mockImplementation((path: string) => {
+    if (path === '/me/cards') return Promise.resolve([testCard]);
+    if (path.startsWith('/me/cards/card-123/qr')) {
+      return Promise.resolve({ token: 'C1TESTTOKEN', expires_at: new Date(Date.now() + 60_000).toISOString(), ttl_seconds: 60 });
+    }
+    if (path === '/me/wallet') return Promise.resolve({ apple: false, google: true });
+    if (path === '/me/cards/card-123/wallet') {
+      return Promise.reject(new ApiError('WALLET_UNAVAILABLE', 503));
+    }
+    return Promise.reject(new Error(`unexpected ${path}`));
+  });
+
+  const { screen } = mountScreen(<QrScreen />);
+  await waitFor(() => expect(screen.getByLabelText(ru.addToGoogleWallet)).toBeTruthy());
+
+  fireEvent.press(screen.getByLabelText(ru.addToGoogleWallet));
+
+  await waitFor(() => {
+    expect(screen.getByText(errorMessages.WALLET_UNAVAILABLE!)).toBeTruthy();
+  });
+
+  Platform.OS = 'ios';
+  screen.unmount();
+});
+
+it('requestWalletLink throws when api is not passed or undefined', async () => {
+  await expect(
+    requestWalletLink('card-123', 'apple')
+  ).rejects.toThrow('ApiClient is required to request wallet link');
+});
+
+it('useRequestWalletLink and useWalletLink correctly invoke api.request', async () => {
+  const dummyApi = { request: jest.fn().mockResolvedValue({ url: 'https://test.link' }) };
+  const res = await requestWalletLink(dummyApi, 'card-999', 'apple');
+  expect(res.url).toBe('https://test.link');
+  expect(dummyApi.request).toHaveBeenCalledWith(
+    '/me/cards/card-999/wallet',
+    expect.objectContaining({ method: 'POST', auth: true, body: { platform: 'apple' } }),
+  );
+  expect(useWalletLink).toBe(useRequestWalletLink);
 });

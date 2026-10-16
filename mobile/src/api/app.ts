@@ -65,18 +65,22 @@ export async function requestWalletLink(
   cardIdOrPlatform: string,
   platformOrApi?: 'apple' | 'google' | RequestCaller,
 ): Promise<WalletLinkResponse> {
-  let api: RequestCaller;
+  let api: RequestCaller | undefined;
   let cardId: string;
   let platform: 'apple' | 'google';
 
   if (typeof apiOrCardId === 'string') {
     cardId = apiOrCardId;
     platform = cardIdOrPlatform as 'apple' | 'google';
-    api = platformOrApi as RequestCaller;
+    api = platformOrApi as RequestCaller | undefined;
   } else {
     api = apiOrCardId;
     cardId = cardIdOrPlatform;
     platform = platformOrApi as 'apple' | 'google';
+  }
+
+  if (!api) {
+    throw new Error('ApiClient is required to request wallet link. Pass api instance or use useRequestWalletLink() hook in components.');
   }
 
   return api.request<WalletLinkResponse>(`/me/cards/${encodeURIComponent(cardId)}/wallet`, {
@@ -90,3 +94,5 @@ export function useRequestWalletLink() {
   const { api } = useSession();
   return (cardId: string, platform: 'apple' | 'google') => requestWalletLink(api, cardId, platform);
 }
+
+export const useWalletLink = useRequestWalletLink;
