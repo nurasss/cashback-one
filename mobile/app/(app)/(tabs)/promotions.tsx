@@ -19,7 +19,7 @@ export default function PromotionsScreen() {
       refreshControl={<RefreshControl refreshing={promotions.isRefetching} onRefresh={() => { void promotions.refetch(); }} tintColor={theme.colors.primary} />}>
       {promotions.isPending ? <Loading /> : promotions.isError ? <ErrorNotice error={promotions.error} retry={() => { void promotions.refetch(); }} /> :
         offers.length === 0 ? <EmptyState icon="gift" title={t('noPromotions')} /> :
-        <View style={{ gap: 14 }}>{offers.map((offer, index) => <OfferCard key={offer.id} offer={offer} index={index} wide
+        <View style={{ gap: 14 }}>{offers.map((offer, index) => <OfferCard key={offer.id} offer={offer} wide
           onPress={() => router.push({ pathname: '/promotion/[id]', params: { id: offer.id } })} />)}</View>}
     </ScrollView>
   </SafeAreaView>;

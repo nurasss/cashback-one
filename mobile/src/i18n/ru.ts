@@ -11,6 +11,7 @@ export const ru = {
   resend: 'Отправить код ещё раз', resendIn: 'Новый код через', seconds: 'сек.', changePhone: 'Изменить номер',
   sessionNote: 'Мы запомним вход на этом устройстве на 14 дней.',
   // Home
+  hello: 'Здравствуйте', helloName: 'Здравствуйте, {name}', yourPoints: 'Ваши баллы', toNextStatus: 'ещё {amount} ₸ до статуса {level}',
   yourStatus: 'Ваш статус', pointsSum: 'Сумма баллов', dontMiss: 'Не упустите до {percent}% баллов', hotOffers: 'Горячие предложения',
   noCardTitle: 'Добавьте карту лояльности', noCardBody: 'Карты с вашим номером появятся автоматически. Карту можно привязать и по номеру.',
   bind: 'Привязать карту', noOffers: 'Скоро здесь появятся предложения',
