@@ -47,3 +47,14 @@ cd admin && VITE_API_BASE_URL=https://api.cashback-qr.poscenter.kz VITE_ALLOW_IN
 ## Мобильное приложение
 
 Адрес API для сборки: `EXPO_PUBLIC_API_BASE_URL=https://api.cashback-qr.poscenter.kz`.
+
+## Демо покупательского приложения (веб)
+
+https://cashback-qr.poscenter.kz/demo/ — веб-версия приложения с тестовыми данными и пометкой «ДЕМО» (вход не нужен, данные не настоящие, правки профиля живут только в открытой вкладке). Собирается флагом `EXPO_PUBLIC_DEMO=1`; без флага приложение ходит только на настоящий API.
+
+```bash
+cd mobile
+EXPO_PUBLIC_DEMO=1 EXPO_WEB_BASE_URL=/demo EXPO_PUBLIC_API_BASE_URL=https://demo.invalid npx expo export --platform web --output-dir /tmp/demo-web
+```
+
+Содержимое `/tmp/demo-web` (кроме `metadata.json` и неиспользуемых начертаний Montserrat 100/200/300/900 и *Italic) загружается по FTPS в папку `demo/` сайта вместе с `.htaccess` для маршрутов. После загрузки сверьте размеры файлов с локальными.

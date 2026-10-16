@@ -25,6 +25,10 @@
     },
     "android": {
       "package": "kz.cashbackone.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
     }
   }
 }
