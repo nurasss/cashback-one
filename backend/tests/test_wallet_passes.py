@@ -16,10 +16,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs7
 from cryptography.x509.oid import NameOID
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.time import utcnow
+from app.models.entities import UserCard
 from app.services import wallet_passes
 from tests.test_customer_app import business_with_card, customer
 
@@ -172,10 +174,22 @@ async def test_card_wallet_link_errors(
     _user2, headers2 = await customer(db_session, "+77011000004")
     _, card = await business_with_card(db_session, user1, barcode="0123456789010")
 
-    # Card not owned / hidden -> 404
+    # Card not owned -> 404
     res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers2)
     assert res.status_code == 404
     assert res.json()["error"]["code"] == "CARD_NOT_FOUND"
+
+    # Hidden card -> 404
+    user_card = (await db_session.execute(
+        select(UserCard).where(UserCard.user_id == user1.id, UserCard.card_id == card.id)
+    )).scalar_one()
+    user_card.hidden_at = utcnow()
+    await db_session.commit()
+    res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers1)
+    assert res.status_code == 404
+    assert res.json()["error"]["code"] == "CARD_NOT_FOUND"
+    user_card.hidden_at = None
+    await db_session.commit()
 
     # Wallet unconfigured -> 503
     monkeypatch.setattr(settings, "apple_pass_type_id", "")
@@ -297,9 +311,36 @@ async def test_apple_pass_generation_download_and_signature(
 
 
 @pytest.mark.asyncio
-async def test_apple_pass_download_invalid_token(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_apple_pass_download_invalid_token(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 1. Unconfigured Apple Wallet -> 503
+    monkeypatch.setattr(wallet_passes, "apple_enabled", lambda: False)
+    res = await client.get("/wallet/apple/W1invalidtoken.pkpass")
+    assert res.status_code == 503
+    assert res.json()["error"]["code"] == "WALLET_UNAVAILABLE"
+
+    # 2. Corrupt / invalid token -> 404
     monkeypatch.setattr(wallet_passes, "apple_enabled", lambda: True)
     res = await client.get("/wallet/apple/W1invalidtoken.pkpass")
+    assert res.status_code == 404
+    assert res.json()["error"]["code"] == "WALLET_LINK_INVALID"
+
+    # 3. Valid token for blocked card -> 404
+    user, _ = await customer(db_session, "+77011000007")
+    biz, card = await business_with_card(db_session, user, barcode="0123456789999")
+    card.is_blocked = True
+    await db_session.commit()
+    token, _ = wallet_passes.issue_link_token(card.id)
+    res = await client.get(f"/wallet/apple/{token}.pkpass")
+    assert res.status_code == 404
+    assert res.json()["error"]["code"] == "WALLET_LINK_INVALID"
+
+    # 4. Valid token for inactive business -> 404
+    card.is_blocked = False
+    biz.status = "inactive"
+    await db_session.commit()
+    res = await client.get(f"/wallet/apple/{token}.pkpass")
     assert res.status_code == 404
     assert res.json()["error"]["code"] == "WALLET_LINK_INVALID"
 

@@ -42,14 +42,21 @@ BRAND_HEX = "#EE1D3E"
 
 
 def apple_enabled() -> bool:
-    return all((
+    configured = all((
         settings.wallet_public_base_url, settings.apple_pass_type_id, settings.apple_team_id,
         settings.apple_pass_cert_file, settings.apple_pass_key_file, settings.apple_wwdr_cert_file,
     ))
+    return configured and all(
+        Path(p).is_file()
+        for p in (settings.apple_pass_cert_file, settings.apple_pass_key_file, settings.apple_wwdr_cert_file)
+    )
 
 
 def google_enabled() -> bool:
-    return all((settings.wallet_public_base_url, settings.google_wallet_issuer_id, settings.google_wallet_service_account_file))
+    configured = all((
+        settings.wallet_public_base_url, settings.google_wallet_issuer_id, settings.google_wallet_service_account_file,
+    ))
+    return configured and Path(settings.google_wallet_service_account_file).is_file()
 
 
 # --- Signed download links (Apple) ----------------------------------------------------------
@@ -125,13 +132,25 @@ def apple_pass_json(card: Card, business: Business) -> dict[str, Any]:
     }
 
 
-@lru_cache(maxsize=1)
-def _apple_signer() -> tuple[x509.Certificate, Any, x509.Certificate]:
-    cert = x509.load_pem_x509_certificate(Path(settings.apple_pass_cert_file).read_bytes())
-    password = settings.apple_pass_key_password.encode() if settings.apple_pass_key_password else None
-    key = serialization.load_pem_private_key(Path(settings.apple_pass_key_file).read_bytes(), password=password)
-    wwdr = x509.load_pem_x509_certificate(Path(settings.apple_wwdr_cert_file).read_bytes())
+@lru_cache(maxsize=2)
+def _load_apple_signer(cert_file: str, key_file: str, wwdr_file: str, key_password: str) -> tuple[x509.Certificate, Any, x509.Certificate]:
+    cert = x509.load_pem_x509_certificate(Path(cert_file).read_bytes())
+    password = key_password.encode() if key_password else None
+    key = serialization.load_pem_private_key(Path(key_file).read_bytes(), password=password)
+    wwdr = x509.load_pem_x509_certificate(Path(wwdr_file).read_bytes())
     return cert, key, wwdr
+
+
+def _apple_signer() -> tuple[x509.Certificate, Any, x509.Certificate]:
+    return _load_apple_signer(
+        settings.apple_pass_cert_file,
+        settings.apple_pass_key_file,
+        settings.apple_wwdr_cert_file,
+        settings.apple_pass_key_password,
+    )
+
+
+_apple_signer.cache_clear = _load_apple_signer.cache_clear  # type: ignore[attr-defined]
 
 
 def build_apple_pass(card: Card, business: Business) -> bytes:
@@ -159,10 +178,17 @@ def build_apple_pass(card: Card, business: Business) -> bytes:
 # --- Google Wallet (Save link) --------------------------------------------------------------
 
 
-@lru_cache(maxsize=1)
-def _google_account() -> dict[str, str]:
-    data: dict[str, str] = json.loads(Path(settings.google_wallet_service_account_file).read_text())
+@lru_cache(maxsize=2)
+def _load_google_account(sa_file: str) -> dict[str, str]:
+    data: dict[str, str] = json.loads(Path(sa_file).read_text())
     return data
+
+
+def _google_account() -> dict[str, str]:
+    return _load_google_account(settings.google_wallet_service_account_file)
+
+
+_google_account.cache_clear = _load_google_account.cache_clear  # type: ignore[attr-defined]
 
 
 def google_ids(card: Card, business: Business) -> tuple[str, str]:
