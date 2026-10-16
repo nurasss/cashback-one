@@ -77,7 +77,7 @@ it('home shows phone, balance, status, max cashback and hot offers', async () =>
   await waitFor(() => expect(screen.getByText('+7 705 834 43 26')).toBeTruthy());
   await waitFor(() => expect(screen.getByText(ru.hotOffers)).toBeTruthy());
   expect(screen.getByText('Не упустите до 12% баллов')).toBeTruthy();
-  expect(screen.getByText('0,00')).toBeTruthy();
+  expect(screen.getAllByText('0,00').length).toBeGreaterThanOrEqual(2);
   await waitFor(() => expect(screen.getByLabelText('Выиграй авто')).toBeTruthy());
   fireEvent.press(screen.getByLabelText('Скидка на хиты. Покупайте выгодно'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'o1' } });

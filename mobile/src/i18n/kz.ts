@@ -10,7 +10,6 @@ export const kz: Dictionary = {
   code: 'WhatsApp-тағы код', codeHint: 'Хабарламадағы 6 цифрды енгізіңіз', codeSent: 'Код WhatsApp-қа жіберілді, нөмір', verify: 'Кіру',
   resend: 'Кодты қайта жіберу', resendIn: 'Жаңа код', seconds: 'сек.', changePhone: 'Нөмірді өзгерту',
   sessionNote: 'Осы құрылғыда кіруді 14 күнге есте сақтаймыз.',
-  hello: 'Сәлеметсіз бе', helloName: 'Сәлеметсіз бе, {name}', yourPoints: 'Сіздің ұпайларыңыз', toNextStatus: '{level} мәртебесіне дейін тағы {amount} ₸',
   yourStatus: 'Сіздің мәртебеңіз', pointsSum: 'Ұпайлар сомасы', dontMiss: '{percent}% дейін ұпайды жіберіп алмаңыз', hotOffers: 'Ыстық ұсыныстар',
   noCardTitle: 'Адалдық картасын қосыңыз', noCardBody: 'Нөміріңізге тіркелген карталар автоматты түрде шығады. Картаны нөмірі арқылы да байлауға болады.',
   bind: 'Картаны байлау', noOffers: 'Ұсыныстар жақында пайда болады',

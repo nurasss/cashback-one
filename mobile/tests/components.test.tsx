@@ -4,7 +4,7 @@ import { TabBar } from '../src/components/TabBar';
 import { ErrorNotice } from '../src/components/ui';
 import { BindForm } from '../src/features/BindForm';
 import { DynamicQr } from '../src/features/DynamicQr';
-import { OfferCard, WalletCard } from '../src/features/home';
+import { OfferCard, StatusCard } from '../src/features/home';
 import { ru } from '../src/i18n/ru';
 import type { CardQr, Promotion } from '../src/types/api';
 
@@ -49,12 +49,11 @@ it('dynamic QR encodes the server token, never the barcode, and hides expired to
   expect(screen.getByText(ru.cardBlocked)).toBeTruthy();
 });
 
-it('wallet card shows balance, status and progress to the next one', () => {
+it('status card shows level and two-decimal balance like the design', () => {
   const onPress = jest.fn();
-  const screen = render(<WalletCard tier={{ level: 1, name: null, percent: '3', max_percent: '12', spend_total: '0', next_level: 2, next_threshold: '350000', remaining: '350000' }} balance="0.0000" onPress={onPress} />);
-  expect(screen.getByText('Статус 1 · 3%')).toBeTruthy();
+  const screen = render(<StatusCard tier={{ level: 1, name: null, percent: '3', max_percent: '12', spend_total: '0', next_level: 2, next_threshold: '350000', remaining: '350000' }} balance="0.0000" onPress={onPress} />);
+  expect(screen.getByText('1')).toBeTruthy();
   expect(screen.getByText('0,00')).toBeTruthy();
-  expect(screen.getByText('ещё 350 000 ₸ до статуса 2')).toBeTruthy();
   fireEvent.press(screen.getByRole('button'));
   expect(onPress).toHaveBeenCalled();
 });
