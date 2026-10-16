@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, EmptyState, Loading, ScreenHeader, styles } from '../../src/components/ui';
 import { useActiveCard } from '../../src/features/activeCard';
+import { LevelsSheet } from '../../src/features/LevelsSheet';
 import { StatusCoin } from '../../src/features/StatusCoin';
 import { useI18n } from '../../src/i18n';
 import { fonts, theme } from '../../src/theme';
@@ -12,6 +14,7 @@ export default function StatusScreen() {
   const { t } = useI18n();
   const { card, cards } = useActiveCard();
   const tier = card?.tier;
+  const [sheetOpen, setSheetOpen] = useState(false);
   const progress = tier?.next_threshold && tier.spend_total !== undefined
     ? Math.min(1, Math.max(0, Number(tier.spend_total ?? 0) / Number(tier.next_threshold))) : tier && !tier.next_level ? 1 : 0;
   return <SafeAreaView edges={['top']} style={styles.screen}>
@@ -35,10 +38,12 @@ export default function StatusScreen() {
             </View> : <Text style={local.progressText}>{t('maxStatus')}</Text>}
             <Text style={styles.muted}>{t('cashbackPercent', { percent: percentText(tier.percent) })}</Text>
           </> : <Text style={styles.muted}>{t('statusesSoon')}</Text>}
-          <Button label={t('accrualHistory')} secondary onPress={() => router.push('/history')} style={{ marginTop: 8 }} />
+          {tier?.levels && tier.levels.length > 0 && <Button label={t('howToRaise')} secondary onPress={() => setSheetOpen(true)} style={{ marginTop: 8 }} />}
+          <Button label={t('accrualHistory')} secondary onPress={() => router.push('/history')} style={{ marginTop: 0 }} />
         </View>
       </>}
     </ScrollView>
+    {sheetOpen && tier && <LevelsSheet tier={tier} onClose={() => setSheetOpen(false)} />}
   </SafeAreaView>;
 }
 

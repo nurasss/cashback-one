@@ -48,6 +48,19 @@ def _money(val: Decimal | None) -> str | None:
     return None if val is None else f"{val:.4f}"
 
 
+class LoyaltyLevel(BaseModel):
+    """One configured level of the business loyalty program."""
+
+    level: int
+    name: str | None = None
+    threshold: Decimal
+    percent: Decimal
+
+    @field_serializer("threshold", "percent")
+    def serialize_money(self, val: Decimal) -> str:
+        return f"{val:.4f}"
+
+
 class LoyaltyTierInfo(BaseModel):
     """Customer's loyalty level on a card and progress to the next level."""
 
@@ -59,6 +72,7 @@ class LoyaltyTierInfo(BaseModel):
     next_level: int | None = None
     next_threshold: Decimal | None = None
     remaining: Decimal | None = None
+    levels: list[LoyaltyLevel] = []
 
     @field_serializer("percent", "max_percent", "spend_total", "next_threshold", "remaining")
     def serialize_money(self, val: Decimal | None) -> str | None:

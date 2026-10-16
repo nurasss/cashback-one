@@ -29,8 +29,11 @@ const paths: Record<IconName, React.ReactNode> = {
   x: <><Path d="M18 6 6 18" /><Path d="m6 6 12 12" /></>,
 };
 
-export function Icon({ name, size = 24, color = theme.colors.text, strokeWidth = 2 }: { name: IconName; size?: number; color?: string; strokeWidth?: number }) {
+// `filled` paints the shape solid (active tab, as in the design); the inner detail of the house stays white.
+export function Icon({ name, size = 24, color = theme.colors.text, strokeWidth = 2, filled = false }: { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean }) {
   return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    {paths[name]}
+    {filled && name === 'home'
+      ? <><Path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" fill={color} /><Path d="M9.5 16h5" stroke="#FFFFFF" /></>
+      : paths[name]}
   </Svg>;
 }

@@ -2,7 +2,7 @@
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from app.schemas.wallet import LoyaltyTierInfo
+from app.schemas.wallet import LoyaltyLevel, LoyaltyTierInfo
 
 
 def parse_tiers(raw: list[dict[str, Any]] | None) -> list[tuple[int, str | None, Decimal, Decimal]]:
@@ -43,4 +43,5 @@ def tier_info(raw_tiers: list[dict[str, Any]] | None, spend_total: Decimal | Non
         next_level=next_tier[0] if next_tier else None,
         next_threshold=next_tier[2] if next_tier else None,
         remaining=max(next_tier[2] - spend, Decimal(0)) if next_tier else None,
+        levels=[LoyaltyLevel(level=lv, name=nm, threshold=th, percent=pc) for lv, nm, th, pc in tiers],
     )

@@ -273,6 +273,8 @@ Returns a deterministic cursor-paginated list of transactions mirrored from POSC
 
 Уровни задаются в админке у бизнеса (`loyalty_tiers`), прогресс считается по `spend_total` карты из ONE.
 
+`levels` содержит все уровни программы бизнеса по возрастанию порога (`level`, `name`, `threshold`, `percent`); по нему приложение рисует окно «Как повысить статус».
+
 ### 3.7. Dynamic QR — `GET /me/cards/{card_id}/qr`
 
 Возвращает `{token, expires_at, ttl_seconds}`. Токен `C1` + 48 символов base32, подписан сервером, живёт `QR_TOKEN_TTL_SECONDS` (60 с). Приложение обновляет его каждые `ttl/2`. Номер карты в QR не содержится; касса получает его через `POST /agent/qr/resolve`.

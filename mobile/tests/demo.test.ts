@@ -12,6 +12,7 @@ it('demo API serves tokens, a card with a level, history filters and a rotating 
   expect(await (await call(api, '/auth/refresh', { method: 'POST' })).json()).toEqual(demoTokens);
   const [card] = await (await call(api, '/me/cards')).json();
   expect(card.tier.next_level).toBe(2);
+  expect(card.tier.levels.map((l: { percent: string }) => Number(l.percent))).toEqual([3, 5, 8, 12]);
   const accruals = await (await call(api, `/me/cards/${card.id}/transactions?limit=20&type=accrual`)).json();
   expect(accruals.items.length).toBeGreaterThan(0);
   expect(accruals.items.every((t: { type: string }) => t.type === 'accrual')).toBe(true);
@@ -23,7 +24,7 @@ it('demo API serves tokens, a card with a level, history filters and a rotating 
 
 it('demo badges clear after opening promotions and reading notifications; profile edits persist in memory', async () => {
   const api = createDemoApi();
-  expect(await (await call(api, '/me/badges')).json()).toEqual({ promotions_new: true, notifications_unread: 2 });
+  expect(await (await call(api, '/me/badges')).json()).toEqual({ promotions_new: true, notifications_unread: 4 });
   expect((await call(api, '/me/promotions/seen', { method: 'POST' })).status).toBe(204);
   expect((await call(api, '/me/notifications/read', { method: 'POST' })).status).toBe(204);
   expect(await (await call(api, '/me/badges')).json()).toEqual({ promotions_new: false, notifications_unread: 0 });

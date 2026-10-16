@@ -36,7 +36,7 @@ export function TabBar({ active, onSelect, badges }: {
       return <Pressable key={tab.route} accessibilityRole="tab" accessibilityState={{ selected }}
         accessibilityLabel={hasNew ? `${label}. ${tr('newBadge')}` : label} onPress={() => onSelect(tab.route)} style={styles.item}>
         <View>
-          <Icon name={tab.icon} size={28} color={color} strokeWidth={1.8} />
+          <Icon name={tab.icon} size={28} color={color} strokeWidth={1.8} filled={selected && tab.route === 'index'} />
           {hasNew && <NewDot style={styles.dot} />}
         </View>
         <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.label, { color: selected ? t.colors.primary : t.colors.muted }]}>{label}</Text>

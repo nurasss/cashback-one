@@ -185,6 +185,11 @@ async def test_card_tier_progress(client: AsyncClient, db_session: AsyncSession)
     assert tier["next_level"] == 2
     assert Decimal(tier["remaining"]) == Decimal(350000)
     assert Decimal(tier["max_percent"]) == Decimal(12)
+    assert [(lv["level"], lv["name"], Decimal(lv["threshold"]), Decimal(lv["percent"])) for lv in tier["levels"]] == [
+        (1, "Base", Decimal(0), Decimal(3)),
+        (2, "Silver", Decimal(500000), Decimal(7)),
+        (3, "Gold", Decimal(1500000), Decimal(12)),
+    ]
 
 
 @pytest.mark.asyncio

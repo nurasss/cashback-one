@@ -14,7 +14,13 @@ export function createDemoApi() {
   const card: Card = {
     id: 'demo-card', barcode: '0123456789012', balance: '2450.0000', is_blocked: false, updated_at: daysAgo(0), bound_at: daysAgo(30), bind_method: 'phone_auto',
     business: { id: 'demo-business', name: 'POSCENTER Маркет', branding: null },
-    tier: { level: 1, name: 'Базовый', percent: '3.0000', max_percent: '12.0000', spend_total: '180000.0000', next_level: 2, next_threshold: '350000.0000', remaining: '170000.0000' },
+    tier: {
+      level: 1, name: 'Статус 1', percent: '3.0000', max_percent: '12.0000', spend_total: '0.0000', next_level: 2, next_threshold: '350000.0000', remaining: '350000.0000',
+      levels: [
+        { level: 1, name: null, threshold: '0.0000', percent: '3.0000' }, { level: 2, name: null, threshold: '350000.0000', percent: '5.0000' },
+        { level: 3, name: null, threshold: '800000.0000', percent: '8.0000' }, { level: 4, name: null, threshold: '1500000.0000', percent: '12.0000' },
+      ],
+    },
   };
   const transactions: Transaction[] = [
     { id: 't5', external_id: 'e5', type: 'accrual', amount: '2450.0000', balance_after: '2450.0000', occurred_at: daysAgo(0, 9), receipt_ref: null, store: 'Магазин №2' },
@@ -28,23 +34,25 @@ export function createDemoApi() {
   });
   const promotions: Promotions = {
     banners: [
-      { ...offer('b1', 'Выиграй авто', ''), kind: 'banner', subtitle: 'и другие ценные призы', badge: null, image_url: `${IMG}banner1.jpg` },
-      { ...offer('b2', 'Двойные баллы', ''), kind: 'banner', subtitle: 'на всё по выходным', badge: null },
-      { ...offer('b3', 'Подарки за покупки', ''), kind: 'banner', subtitle: 'каждый день', badge: null },
+      { ...offer('b1', 'Выиграй авто', ''), kind: 'banner', subtitle: 'и другие ценные призы', badge: null, image_url: `${IMG}suv.jpg` },
+      { ...offer('b2', 'Кэшбэк до 12%', ''), kind: 'banner', subtitle: 'за каждую покупку', badge: null, image_url: `${IMG}card.jpg` },
+      { ...offer('b3', 'Подарки за покупки', ''), kind: 'banner', subtitle: 'каждый день', badge: null, image_url: `${IMG}gifts.jpg` },
     ],
     offers: [
-      offer('o1', 'Покупайте выгодно', 'Скидка на хиты', { image_url: `${IMG}offer1.png`, body: 'Скидки до 30% на популярные товары каждую неделю.' }),
-      offer('o2', 'Товары по лучшим ценам', 'Акция недели', { image_url: `${IMG}offer2.png`, ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), body: 'Специальные цены на товары недели.' }),
-      offer('o3', 'Больше бонусов', 'Выгодно с картой', { image_url: `${IMG}offer3.png`, body: 'Оплачивайте картой и получайте повышенный кешбэк.' }),
-      offer('o4', 'Свежие продукты', 'Суперцена', { image_url: `${IMG}offer4.png` }),
+      offer('o1', 'Покупайте выгодно', 'Скидка на хиты', { image_url: `${IMG}basket.jpg`, body: 'Скидки до 30% на популярные товары каждую неделю.' }),
+      offer('o2', 'Товары по лучшим ценам', 'Акция недели', { image_url: `${IMG}tag.jpg`, ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), body: 'Специальные цены на товары недели.' }),
+      offer('o3', 'Больше бонусов', 'Выгодно с картой', { image_url: `${IMG}card.jpg`, body: 'Оплачивайте картой и получайте повышенный кешбэк.' }),
+      offer('o4', 'Свежие продукты', 'Суперцена', { image_url: `${IMG}produce.jpg` }),
     ],
     has_new: true,
   };
   let promotionsSeen = false;
   let notificationsRead = false;
   const notifications = [
-    { id: 'n2', kind: 'accrual', title: 'Начислено 2 450 баллов', body: 'POSCENTER Маркет. Баланс: 2 450 баллов.', created_at: daysAgo(0, 9) },
-    { id: 'n1', kind: 'info', title: 'Добро пожаловать!', body: 'Копите баллы ONE и получайте до 12% кешбэка.', created_at: daysAgo(30) },
+    { id: 'n4', kind: 'accrual', title: 'Чек 15 000 ₸', body: '450,00 баллов начислено по статусу 3%.', created_at: daysAgo(0, 9) },
+    { id: 'n3', kind: 'info', title: 'Добро пожаловать в ONE', body: 'QR-код готов. Покажите его кассиру — баллы начислятся после каждой покупки.', created_at: daysAgo(2) },
+    { id: 'n2', kind: 'info', title: 'Хиты недели в зале', body: 'Красные ценники: молоко, хлеб и овощи. Не пропустите купон.', created_at: daysAgo(3) },
+    { id: 'n1', kind: 'info', title: '2-й статус от 350 000 ₸', body: 'Сейчас 3%. На 4-м статусе каждая покупка даёт 12%.', created_at: daysAgo(4) },
   ];
   let profile: Profile = { phone: '+77058344326', language: 'ru', first_name: null, last_name: null, email: null, gender: null, city: null, address: null, birth_date: null, iin: null, company: null };
 

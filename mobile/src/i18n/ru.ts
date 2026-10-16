@@ -19,7 +19,10 @@ export const ru = {
   cardBlocked: 'Карта заблокирована',
   // Status
   myStatus: 'Мой статус', untilStatus: 'до статуса {level}', moreToSpend: 'ещё {amount} ₸', maxStatus: 'У вас максимальный статус',
-  statusesSoon: 'Статусы лояльности скоро появятся', accrualHistory: 'История начислений', cashbackPercent: 'Кешбэк {percent}%',
+  statusesSoon: 'Статусы лояльности скоро появятся',
+  howToRaise: 'Как повысить статус', howToLead: 'Процент зависит от статуса. На кассе чек проводит кассир по QR — здесь можно прикинуть, сколько баллов придёт.',
+  statusN: 'Статус {level}', fromAmount: 'от {amount} ₸', currentStatusLine: 'Сейчас статус {level} — {percent}% от суммы', calcLabel: 'Сумма чека',
+  calcResult: 'Придёт примерно {points} баллов', calcHint: 'Введите сумму от 100 ₸', calcDisclaimer: 'Расчёт ориентировочный: баллы начисляет касса.', close: 'Закрыть', accrualHistory: 'История начислений', cashbackPercent: 'Кешбэк {percent}%',
   // History
   filterAll: 'Все', filterAccrual: 'Начисления', filterRedemption: 'Списания', noHistory: 'Операций пока нет',
   accrual: 'Начисление', redemption: 'Списание', balanceAfter: 'Баланс', lastLoaded: 'Обновлено',

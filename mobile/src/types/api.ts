@@ -3,6 +3,7 @@ export interface CodeRequestResult { status: string; expires_in: number }
 export interface Tier {
   level: number; name: string | null; percent: string; max_percent: string; spend_total: string | null;
   next_level: number | null; next_threshold: string | null; remaining: string | null;
+  levels?: { level: number; name: string | null; threshold: string; percent: string }[];
 }
 export interface Card {
   id: string; barcode: string; balance: string; is_blocked: boolean; updated_at: string; bound_at: string; bind_method: string;
