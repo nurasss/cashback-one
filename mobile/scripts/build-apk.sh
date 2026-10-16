@@ -17,7 +17,7 @@ trap cleanup EXIT
 
 API_BASE_URL="${API_BASE_URL:-https://api.cashback-qr.poscenter.kz}"
 KEYS_DIR="${KEYS_DIR:-$HOME/.cashback-one-keys}"
-ABIS="${ABIS:-arm64-v8a,armeabi-v7a}"
+ABIS="${ABIS:-arm64-v8a}"
 if [ -z "${JAVA_HOME:-}" ]; then JAVA_HOME="$(ls -d "$HOME"/.jdks/zulu17*/Contents/Home 2>/dev/null | head -1)"; fi
 export JAVA_HOME
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
