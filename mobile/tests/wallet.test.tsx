@@ -8,7 +8,7 @@ import { I18nProvider } from '../src/i18n';
 import { ru, errorMessages } from '../src/i18n/ru';
 import type { Card } from '../src/types/api';
 import { ApiError } from '../src/api/errors';
-import { requestWalletLink, useRequestWalletLink, useWalletLink } from '../src/api/app';
+import { requestWalletLink } from '../src/api/app';
 
 const mockRequest = jest.fn();
 jest.mock('../src/auth/provider', () => ({
@@ -199,13 +199,7 @@ it('displays ErrorNotice when requestWalletLink rejects without crashing', async
   screen.unmount();
 });
 
-it('requestWalletLink throws when api is not passed or undefined', async () => {
-  await expect(
-    requestWalletLink('card-123', 'apple')
-  ).rejects.toThrow('ApiClient is required to request wallet link');
-});
-
-it('useRequestWalletLink and useWalletLink correctly invoke api.request', async () => {
+it('requestWalletLink correctly invokes api.request', async () => {
   const dummyApi = { request: jest.fn().mockResolvedValue({ url: 'https://test.link' }) };
   const res = await requestWalletLink(dummyApi, 'card-999', 'apple');
   expect(res.url).toBe('https://test.link');
@@ -213,5 +207,23 @@ it('useRequestWalletLink and useWalletLink correctly invoke api.request', async 
     '/me/cards/card-999/wallet',
     expect.objectContaining({ method: 'POST', auth: true, body: { platform: 'apple' } }),
   );
-  expect(useWalletLink).toBe(useRequestWalletLink);
+});
+
+it('does not request /me/wallet when platform is web', async () => {
+  Platform.OS = 'web';
+  mockRequest.mockClear();
+  mockRequest.mockImplementation((path: string) => {
+    if (path === '/me/cards') return Promise.resolve([testCard]);
+    if (path.startsWith('/me/cards/card-123/qr')) {
+      return Promise.resolve({ token: 'C1TESTTOKEN', expires_at: new Date(Date.now() + 60_000).toISOString(), ttl_seconds: 60 });
+    }
+    return Promise.resolve({});
+  });
+
+  const { screen } = mountScreen(<QrScreen />);
+  await waitFor(() => expect(screen.getByText(ru.showToCashier)).toBeTruthy());
+  expect(mockRequest).not.toHaveBeenCalledWith('/me/wallet', expect.anything());
+
+  Platform.OS = 'ios';
+  screen.unmount();
 });

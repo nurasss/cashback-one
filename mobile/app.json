@@ -24,7 +24,10 @@
       }
     },
     "android": {
-      "package": "kz.cashbackone.mobile"
+      "package": "kz.cashbackone.mobile",
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "web": {
       "bundler": "metro",

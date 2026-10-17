@@ -13,11 +13,11 @@ import { useI18n } from '../../../src/i18n';
 import { fonts } from '../../../src/theme';
 
 export default function QrScreen() {
-  const { t: tr } = useI18n();
+  const { t } = useI18n();
   const { api } = useSession();
   const { card, cards, select } = useActiveCard();
   const qr = useCardQr(card && !card.is_blocked ? card.id : undefined);
-  const wallet = useWalletAvailability();
+  const wallet = useWalletAvailability({ enabled: Platform.OS !== 'web' });
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<unknown | null>(null);
 
@@ -43,13 +43,13 @@ export default function QrScreen() {
     }
   };
 
-  const walletButtonLabel = platform === 'apple' ? tr('addToAppleWallet') : tr('addToGoogleWallet');
+  const walletButtonLabel = platform === 'apple' ? t('addToAppleWallet') : t('addToGoogleWallet');
 
   return <SafeAreaView edges={['top']} style={styles.screen}>
-    <ScreenHeader title={tr('tabQr')} back onBack={() => router.navigate('/')} />
+    <ScreenHeader title={t('tabQr')} back onBack={() => router.navigate('/')} />
     <ScrollView contentContainerStyle={[styles.content, { paddingTop: 96 }]}>
-      {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={tr('noCardTitle')} body={tr('noCardBody')}>
-        <Button label={tr('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
+      {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
+        <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
       </EmptyState> : <>
         <FadeIn><DynamicQr qr={qr.data} loading={qr.isPending || qr.isFetching} failed={qr.isError} blocked={card.is_blocked} /></FadeIn>
         {isWalletAvailable && !card.is_blocked && (
