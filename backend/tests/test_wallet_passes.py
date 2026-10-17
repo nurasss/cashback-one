@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import logging
 import subprocess
 import uuid
 import zipfile
@@ -30,7 +31,9 @@ def _generate_test_certs(tmp_path: Path) -> dict[str, str]:
     """Generates test RSA keys and certificates for Apple Wallet pass signing."""
     # CA / WWDR cert
     ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Apple Worldwide Developer Relations CA")])
+    ca_name = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "Apple Worldwide Developer Relations CA")]
+    )
     now = datetime.now(UTC)
     ca_cert = (
         x509.CertificateBuilder()
@@ -46,7 +49,9 @@ def _generate_test_certs(tmp_path: Path) -> dict[str, str]:
 
     # Pass signer cert (signed by WWDR CA)
     signer_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    signer_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Pass Type ID: pass.kz.cashbackone.card")])
+    signer_name = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "Pass Type ID: pass.kz.cashbackone.card")]
+    )
     signer_cert = (
         x509.CertificateBuilder()
         .subject_name(signer_name)
@@ -101,7 +106,9 @@ def _generate_test_google_sa(tmp_path: Path) -> tuple[rsa.RSAPrivateKey, str]:
 
 
 @pytest.mark.asyncio
-async def test_wallet_availability_disabled_without_settings(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_wallet_availability_disabled_without_settings(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
     _, headers = await customer(db_session, "+77011000001")
     wallet_passes._apple_signer.cache_clear()
     wallet_passes._google_account.cache_clear()
@@ -136,6 +143,49 @@ async def test_wallet_availability_enabled_with_settings(
     res = await client.get("/me/wallet", headers=headers)
     assert res.status_code == 200
     assert res.json() == {"apple": True, "google": True}
+
+
+def test_wallet_startup_warnings_when_files_unreadable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    non_existent_cert = str(tmp_path / "missing_cert.pem")
+    unreadable_key = tmp_path / "unreadable_key.pem"
+    unreadable_key.write_text("dummy key")
+    try:
+        unreadable_key.chmod(0o000)
+    except OSError:
+        pass
+
+    monkeypatch.setattr(settings, "wallet_public_base_url", "https://api.test.kz")
+    monkeypatch.setattr(settings, "apple_pass_type_id", "pass.kz.cashbackone.card")
+    monkeypatch.setattr(settings, "apple_team_id", "TEAM123456")
+    monkeypatch.setattr(settings, "apple_pass_cert_file", non_existent_cert)
+    monkeypatch.setattr(settings, "apple_pass_key_file", str(unreadable_key))
+    monkeypatch.setattr(settings, "apple_wwdr_cert_file", "")
+    monkeypatch.setattr(settings, "google_wallet_issuer_id", "3388000000022")
+    monkeypatch.setattr(
+        settings, "google_wallet_service_account_file", str(tmp_path / "missing_sa.json")
+    )
+
+    with caplog.at_level(logging.WARNING):
+        warnings = wallet_passes.check_wallet_files_at_startup(force=True)
+
+    assert len(warnings) >= 3
+    assert any("apple_pass_cert_file" in w and "is not readable" in w for w in warnings)
+    assert any("apple_pass_key_file" in w and "is not readable" in w for w in warnings)
+    assert any("apple_wwdr_cert_file" in w and "not set" in w for w in warnings)
+    assert any(
+        "google_wallet_service_account_file" in w and "is not readable" in w for w in warnings
+    )
+
+    assert not wallet_passes.apple_enabled()
+    assert not wallet_passes.google_enabled()
+
+    # Second run without force does not produce duplicate warnings (runs once)
+    caplog.clear()
+    dup_warnings = wallet_passes.check_wallet_files_at_startup(force=False)
+    assert len(dup_warnings) == 0
+    assert len(caplog.records) == 0
 
 
 # --- Token and Link tests -------------------------------------------------------------------
@@ -175,17 +225,23 @@ async def test_card_wallet_link_errors(
     _, card = await business_with_card(db_session, user1, barcode="0123456789010")
 
     # Card not owned -> 404
-    res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers2)
+    res = await client.post(
+        f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers2
+    )
     assert res.status_code == 404
     assert res.json()["error"]["code"] == "CARD_NOT_FOUND"
 
     # Hidden card -> 404
-    user_card = (await db_session.execute(
-        select(UserCard).where(UserCard.user_id == user1.id, UserCard.card_id == card.id)
-    )).scalar_one()
+    user_card = (
+        await db_session.execute(
+            select(UserCard).where(UserCard.user_id == user1.id, UserCard.card_id == card.id)
+        )
+    ).scalar_one()
     user_card.hidden_at = utcnow()
     await db_session.commit()
-    res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers1)
+    res = await client.post(
+        f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers1
+    )
     assert res.status_code == 404
     assert res.json()["error"]["code"] == "CARD_NOT_FOUND"
     user_card.hidden_at = None
@@ -194,18 +250,24 @@ async def test_card_wallet_link_errors(
     # Wallet unconfigured -> 503
     monkeypatch.setattr(settings, "apple_pass_type_id", "")
     monkeypatch.setattr(settings, "google_wallet_issuer_id", "")
-    res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers1)
+    res = await client.post(
+        f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers1
+    )
     assert res.status_code == 503
     assert res.json()["error"]["code"] == "WALLET_UNAVAILABLE"
 
-    res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "google"}, headers=headers1)
+    res = await client.post(
+        f"/me/cards/{card.id}/wallet", json={"platform": "google"}, headers=headers1
+    )
     assert res.status_code == 503
     assert res.json()["error"]["code"] == "WALLET_UNAVAILABLE"
 
     # Blocked card -> 409
     card.is_blocked = True
     await db_session.commit()
-    res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers1)
+    res = await client.post(
+        f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers1
+    )
     assert res.status_code == 409
     assert res.json()["error"]["code"] == "CARD_BLOCKED"
 
@@ -218,7 +280,9 @@ async def test_apple_pass_generation_download_and_signature(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     user, headers = await customer(db_session, "+77011000005")
-    _, card = await business_with_card(db_session, user, name="POSCENTER Маркет", barcode="2000000000012")
+    _, card = await business_with_card(
+        db_session, user, name="POSCENTER Маркет", barcode="2000000000012"
+    )
     card.balance = Decimal("15000.50")
     await db_session.commit()
 
@@ -233,7 +297,9 @@ async def test_apple_pass_generation_download_and_signature(
     wallet_passes._apple_signer.cache_clear()
 
     # 1. Request Apple Wallet link
-    res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers)
+    res = await client.post(
+        f"/me/cards/{card.id}/wallet", json={"platform": "apple"}, headers=headers
+    )
     assert res.status_code == 200
     data = res.json()
     assert "url" in data
@@ -292,22 +358,57 @@ async def test_apple_pass_generation_download_and_signature(
         loaded_certs = pkcs7.load_der_pkcs7_certificates(sig)
         assert len(loaded_certs) >= 2  # signer cert + WWDR cert
 
-        # Verify signature with OpenSSL
+        # Verify signature cryptographically with OpenSSL and the test CA
         sig_file = tmp_path / "sig.der"
         manifest_file = tmp_path / "manifest.json"
+        tampered_manifest_file = tmp_path / "tampered_manifest.json"
         sig_file.write_bytes(sig)
         manifest_file.write_bytes(zf.read("manifest.json"))
+        tampered_manifest_file.write_bytes(b'{"corrupted": true}')
+
         openssl_check = subprocess.run(  # noqa: ASYNC221
             [
-                "openssl", "smime", "-verify", "-noverify",
-                "-inform", "DER", "-in", str(sig_file),
-                "-content", str(manifest_file),
+                "openssl",
+                "smime",
+                "-verify",
+                "-inform",
+                "DER",
+                "-binary",
+                "-content",
+                str(manifest_file),
+                "-CAfile",
+                certs["apple_wwdr_cert_file"],
+                "-in",
+                str(sig_file),
             ],
             capture_output=True,
             text=True,
             check=False,
         )
         assert openssl_check.returncode == 0, f"OpenSSL smime verify failed: {openssl_check.stderr}"
+        assert "Verification successful" in openssl_check.stderr
+
+        # Ensure cryptographic check rejects tampered content
+        tampered_check = subprocess.run(  # noqa: ASYNC221
+            [
+                "openssl",
+                "smime",
+                "-verify",
+                "-inform",
+                "DER",
+                "-binary",
+                "-content",
+                str(tampered_manifest_file),
+                "-CAfile",
+                certs["apple_wwdr_cert_file"],
+                "-in",
+                str(sig_file),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert tampered_check.returncode != 0
 
 
 @pytest.mark.asyncio
@@ -353,7 +454,9 @@ async def test_google_save_url_payload_and_jwt(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     user, headers = await customer(db_session, "+77011000006")
-    biz, card = await business_with_card(db_session, user, name="POSCENTER Супермаркет", barcode="9990000000001")
+    biz, card = await business_with_card(
+        db_session, user, name="POSCENTER Супермаркет", barcode="9990000000001"
+    )
 
     sa_key, sa_path = _generate_test_google_sa(tmp_path)
     monkeypatch.setattr(settings, "wallet_public_base_url", "https://api.cashback-qr.poscenter.kz")
@@ -362,7 +465,9 @@ async def test_google_save_url_payload_and_jwt(
     monkeypatch.setattr(settings, "wallet_organization_name", "POSCENTER ONE")
     wallet_passes._google_account.cache_clear()
 
-    res = await client.post(f"/me/cards/{card.id}/wallet", json={"platform": "google"}, headers=headers)
+    res = await client.post(
+        f"/me/cards/{card.id}/wallet", json={"platform": "google"}, headers=headers
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["expires_at"] is None

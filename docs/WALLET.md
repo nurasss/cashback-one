@@ -82,21 +82,31 @@
 ## 4. Размещение на VPS и настройка Docker
 
 ### 4.1. Каталог секретов на сервере
-На VPS `/opt/cashback-one` создайте каталог секретов с ограниченными правами доступа:
+Контейнер бэкенда (`cashback-backend`) запускается от непривилегированного пользователя `appuser` с `uid/gid 10001`. Поэтому каталог секретов и файлы внутри должны принадлежать пользователю `10001:10001` с правами доступа `750` на каталог и `640` на файлы:
 
 ```bash
-mkdir -p /opt/cashback-one/secrets
-chmod 700 /opt/cashback-one/secrets
+sudo mkdir -p /opt/cashback-one/secrets
+sudo chown -R 10001:10001 /opt/cashback-one/secrets
+sudo chmod 750 /opt/cashback-one/secrets
 ```
 
 Скопируйте в `/opt/cashback-one/secrets/` полученные файлы:
 - `apple_pass_cert.pem` — сертификат Pass Type ID.
-- `apple_pass_key.pem` — приватный ключ Pass Type ID (права `600`).
+- `apple_pass_key.pem` — приватный ключ Pass Type ID.
 - `apple_wwdr.pem` — промежуточный сертификат Apple WWDR G4.
-- `google_sa.json` — JSON-ключ сервисного аккаунта Google (права `600`).
+- `google_sa.json` — JSON-ключ сервисного аккаунта Google.
+
+Убедитесь, что все файлы внутри принадлежат пользователю `10001:10001` и имеют права `640`:
 
 ```bash
-chmod 600 /opt/cashback-one/secrets/*
+sudo chown -R 10001:10001 /opt/cashback-one/secrets
+sudo chmod 750 /opt/cashback-one/secrets
+sudo chmod 640 /opt/cashback-one/secrets/*
+```
+
+Проверить доступность каталога изнутри контейнера можно командой:
+```bash
+docker exec cashback-backend ls -la /app/secrets
 ```
 
 ### 4.2. Проброс в Docker через compose.yml

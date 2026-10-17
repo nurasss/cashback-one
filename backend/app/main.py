@@ -25,6 +25,9 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    from app.services.wallet_passes import check_wallet_files_at_startup
+
+    check_wallet_files_at_startup()
     if settings.app_env.lower() != "test" and settings.redis_url:
         app.state.redis = get_redis_client()
     yield
@@ -36,7 +39,9 @@ app = FastAPI(
     version=settings.app_version,
     docs_url="/docs" if settings.app_env.lower() != "production" or settings.debug else None,
     redoc_url="/redoc" if settings.app_env.lower() != "production" or settings.debug else None,
-    openapi_url="/openapi.json" if settings.app_env.lower() != "production" or settings.debug else None,
+    openapi_url="/openapi.json"
+    if settings.app_env.lower() != "production" or settings.debug
+    else None,
     lifespan=lifespan,
 )
 register_error_handlers(app)
