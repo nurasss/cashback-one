@@ -33,6 +33,17 @@ export function useAgents(business_id: string | undefined, page: PageQuery) {
   return useQuery({ queryKey: [...privateKey, 'agents', business_id, page], queryFn: ({ signal }) => session.api.request<Page<Agent>>(`/admin/agents?${query}`, { signal }) });
 }
 
+export function useCards(business_id: string | undefined, page: PageQuery, enabled = true) {
+  const { session } = useAdminSession();
+  const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
+  if (business_id) query.set('business_id', business_id);
+  return useQuery({
+    queryKey: [...privateKey, 'cards', business_id, page],
+    enabled,
+    queryFn: ({ signal }) => session.api.request<Page<Card>>(`/admin/cards?${query}`, { signal }),
+  });
+}
+
 export function useCardSearch(filters: { barcode?: string; phone?: string; business_id?: string }, page: PageQuery, enabled: boolean) {
   const { session } = useAdminSession();
   return useQuery({

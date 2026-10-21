@@ -49,7 +49,7 @@ export function Pagination({ page, onChange }: { page: { limit: number; offset: 
     <span>Страница {Math.floor(page.offset / page.limit) + 1}</span>
     <div className="pagination-actions">
       <button className="button button-secondary" type="button" disabled={page.offset === 0} onClick={() => onChange(Math.max(0, page.offset - page.limit))}>Назад</button>
-      <button className="button button-secondary" type="button" disabled={!page.has_more} onClick={() => onChange(page.offset + page.limit)}>Дальше</button>
+      <button className="button button-secondary" type="button" disabled={!page.has_more} onClick={() => onChange(page.offset + page.limit)}>Далее</button>
     </div>
   </div>;
 }

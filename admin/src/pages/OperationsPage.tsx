@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { useAdminSession } from '../auth/provider';
-import { privateKey, useBusinesses, useCard, useCardSearch, useUser, useUserSearch } from '../api/queries';
+import { privateKey, useBusinesses, useCard, useCards, useCardSearch, useUser, useUserSearch } from '../api/queries';
 import type { AdminUser, Card, CardUnbindResult, PageQuery } from '../api/types';
 import { DataTable } from '../components/DataTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
@@ -16,54 +16,229 @@ export function OperationsPage() {
   const [raw, setRaw] = useState('');
   const [businessId, setBusinessId] = useState('');
   const [criteria, setCriteria] = useState<{ barcode?: string; phone?: string; business_id?: string } | null>(null);
-  const [cardPage, setCardPage] = usePage();
-  const [userPage, setUserPage] = usePage();
-  const businesses = useBusinesses({ limit: 100, offset: 0 }, view.status === 'authenticated' && view.admin.role === 'superadmin');
-  const cardSearch = useCardSearch(criteria ?? {}, cardPage, criteria !== null && mode === 'barcode');
-  const userSearch = useUserSearch({ phone: criteria?.phone ?? '', ...(criteria?.business_id ? { business_id: criteria.business_id } : {}) }, userPage, criteria !== null && mode === 'phone');
+  const [cardListPage, setCardListPage] = usePage(25);
+  const [cardSearchPage, setCardSearchPage] = usePage(25);
+  const [userPage, setUserPage] = usePage(25);
+
+  const businesses = useBusinesses(
+    { limit: 100, offset: 0 },
+    view.status === 'authenticated' && view.admin.role === 'superadmin',
+  );
+
+  const isSearchActive = criteria !== null;
+  const isCardListActive = !isSearchActive && mode === 'barcode';
+
+  const cardList = useCards(
+    businessId || undefined,
+    cardListPage,
+    isCardListActive,
+  );
+
+  const cardSearch = useCardSearch(
+    criteria ?? {},
+    cardSearchPage,
+    isSearchActive && mode === 'barcode',
+  );
+
+  const userSearch = useUserSearch(
+    { phone: criteria?.phone ?? '', ...(criteria?.business_id ? { business_id: criteria.business_id } : {}) },
+    userPage,
+    isSearchActive && mode === 'phone',
+  );
 
   const search = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const term = raw.trim();
     if (!term) return;
-    if (mode === 'barcode' && !/^[0-9]{13}$/.test(term)) return;
+    if (mode === 'barcode' && !/^[0-9]{6,15}$/.test(term)) return;
     if (mode === 'phone' && term.replace(/\D/g, '').length < 7) return;
     const next = {
       ...(mode === 'barcode' ? { barcode: term } : { phone: term }),
       ...(businessId ? { business_id: businessId } : {}),
     };
     setCriteria(next);
-    setCardPage(0);
+    setCardSearchPage(0);
     setUserPage(0);
   };
 
-  const errors = mode === 'barcode' ? cardSearch.error : userSearch.error;
-  const pending = mode === 'barcode' ? cardSearch.isFetching : userSearch.isFetching;
-  const didSearch = criteria !== null;
-  return <div className="page-stack"><PageHeading eyebrow="ПОИСК ПО ДАННЫМ" title="Карты и клиенты" subtitle={view.status === 'authenticated' && view.admin.business ? `Область поиска: «${view.admin.business.name}».` : 'Поиск использует только данные Cloud Backend.'} />
-    <section className="search-panel surface-card">
-      <div className="search-tabs" role="tablist" aria-label="Тип поиска">
-        <button className={mode === 'barcode' ? 'search-tab selected' : 'search-tab'} type="button" role="tab" aria-selected={mode === 'barcode'} onClick={() => { setMode('barcode'); setRaw(''); setCriteria(null); }}>По номеру карты</button>
-        <button className={mode === 'phone' ? 'search-tab selected' : 'search-tab'} type="button" role="tab" aria-selected={mode === 'phone'} onClick={() => { setMode('phone'); setRaw(''); setCriteria(null); }}>По телефону</button>
-      </div>
-      <form className="search-form" onSubmit={search}>
-        <label className="form-control search-input"><span>{mode === 'barcode' ? '13-значный номер штрихкода' : 'Телефон клиента'}</span>
-          <input aria-label={mode === 'barcode' ? 'Штрихкод карты' : 'Телефон клиента'} autoComplete="off" spellCheck={false}
-            inputMode={mode === 'barcode' ? 'numeric' : 'tel'} maxLength={mode === 'barcode' ? 64 : 32} value={raw} onChange={event => setRaw(event.target.value)}
-            placeholder={mode === 'barcode' ? 'Например, 0123456789012' : 'Например, +7 701 123 45 67'} />
-        </label>
-        {view.status === 'authenticated' && view.admin.role === 'superadmin' && <label className="form-control"><span>Бизнес</span>
-          <select aria-label="Бизнес поиска" value={businessId} onChange={event => setBusinessId(event.target.value)}><option value="">Все бизнесы</option>{businesses.data?.items.map(business => <option key={business.id} value={business.id}>{business.name}</option>)}</select>
-        </label>}
-        <button className="button button-primary" type="submit" disabled={pending || !raw.trim()}>{pending ? 'Ищем…' : 'Найти'}</button>
-      </form>
-      <p className="search-hint">Barcode ищется точным совпадением строки, начальные нули сохраняются. Телефон нормализует сервер.</p>
-    </section>
-    {errors && didSearch && <ErrorNotice error={errors} retry={() => { if (mode === 'barcode') void cardSearch.refetch(); else void userSearch.refetch(); }} />}
-    {!didSearch ? <EmptyState title="Начните поиск" detail={mode === 'barcode' ? 'Введите полный 13-значный номер карты.' : 'Введите телефон, чтобы найти профиль и видимые вам карты.'} /> :
-      mode === 'barcode' ? <CardResults page={cardPage} setPage={setCardPage} rows={cardSearch.data?.items ?? []} hasMore={cardSearch.data?.has_more ?? false} /> :
-        <UserResults page={userPage} setPage={setUserPage} rows={userSearch.data?.items ?? []} hasMore={userSearch.data?.has_more ?? false} />}
-  </div>;
+  const handleReset = () => {
+    setMode('barcode');
+    setRaw('');
+    setCriteria(null);
+    setCardListPage(0);
+    setCardSearchPage(0);
+    setUserPage(0);
+  };
+
+  const handleBusinessChange = (newBusId: string) => {
+    setBusinessId(newBusId);
+    setCardListPage(0);
+    setCardSearchPage(0);
+    setUserPage(0);
+    if (criteria !== null) {
+      setCriteria(prev => (prev ? { ...prev, business_id: newBusId || undefined } : null));
+    }
+  };
+
+  const handleTabChange = (newMode: 'barcode' | 'phone') => {
+    setMode(newMode);
+    setRaw('');
+    setCriteria(null);
+    setCardListPage(0);
+    setCardSearchPage(0);
+    setUserPage(0);
+  };
+
+  const isSearching = isSearchActive && (mode === 'barcode' ? cardSearch.isFetching : userSearch.isFetching);
+  const searchError = isSearchActive ? (mode === 'barcode' ? cardSearch.error : userSearch.error) : null;
+
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow="КАРТЫ И КЛИЕНТЫ"
+        title="Карты и клиенты"
+        subtitle={
+          view.status === 'authenticated' && view.admin.business
+            ? `Область доступа: «${view.admin.business.name}».`
+            : 'Полный список карт и поиск по облачной базе данных.'
+        }
+      />
+      <section className="search-panel surface-card">
+        <div className="search-tabs" role="tablist" aria-label="Тип поиска">
+          <button
+            className={mode === 'barcode' ? 'search-tab selected' : 'search-tab'}
+            type="button"
+            role="tab"
+            aria-selected={mode === 'barcode'}
+            onClick={() => handleTabChange('barcode')}
+          >
+            По номеру карты
+          </button>
+          <button
+            className={mode === 'phone' ? 'search-tab selected' : 'search-tab'}
+            type="button"
+            role="tab"
+            aria-selected={mode === 'phone'}
+            onClick={() => handleTabChange('phone')}
+          >
+            По телефону
+          </button>
+        </div>
+        <form className="search-form" onSubmit={search}>
+          <label className="form-control search-input">
+            <span>{mode === 'barcode' ? 'Номер штрихкода (6–15 цифр)' : 'Телефон клиента'}</span>
+            <input
+              aria-label={mode === 'barcode' ? 'Штрихкод карты' : 'Телефон клиента'}
+              autoComplete="off"
+              spellCheck={false}
+              inputMode={mode === 'barcode' ? 'numeric' : 'tel'}
+              maxLength={mode === 'barcode' ? 64 : 32}
+              value={raw}
+              onChange={event => setRaw(event.target.value)}
+              placeholder={mode === 'barcode' ? 'Например, 0123456789012' : 'Например, +7 701 123 45 67'}
+            />
+          </label>
+          {view.status === 'authenticated' && view.admin.role === 'superadmin' && (
+            <label className="form-control">
+              <span>Бизнес</span>
+              <select
+                aria-label="Бизнес поиска"
+                value={businessId}
+                onChange={event => handleBusinessChange(event.target.value)}
+              >
+                <option value="">Все бизнесы</option>
+                {businesses.data?.items.map(business => (
+                  <option key={business.id} value={business.id}>
+                    {business.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button className="button button-primary" type="submit" disabled={isSearching || !raw.trim()}>
+            {isSearching ? 'Ищем…' : 'Найти'}
+          </button>
+          {(isSearchActive || raw.trim().length > 0) && (
+            <button className="button button-secondary" type="button" onClick={handleReset}>
+              Сбросить
+            </button>
+          )}
+        </form>
+        <p className="search-hint">
+          {isSearchActive
+            ? 'Показаны результаты поиска. Нажмите «Сбросить», чтобы вернуться к общему списку карт.'
+            : 'Barcode ищется точным совпадением строки, начальные нули сохраняются. Телефон нормализует сервер.'}
+        </p>
+      </section>
+
+      {/* SEARCH ACTIVE */}
+      {isSearchActive && (
+        <>
+          {searchError && (
+            <ErrorNotice
+              error={searchError}
+              retry={() => {
+                if (mode === 'barcode') void cardSearch.refetch();
+                else void userSearch.refetch();
+              }}
+            />
+          )}
+          {mode === 'barcode' ? (
+            cardSearch.isPending ? (
+              <LoadingPage label="Ищем карты…" />
+            ) : cardSearch.data?.items.length === 0 && cardSearchPage.offset === 0 ? (
+              <EmptyState title="Карты не найдены" detail="По вашему запросу не найдено ни одной карты." />
+            ) : cardSearch.data ? (
+              <CardResults
+                page={cardSearchPage}
+                setPage={setCardSearchPage}
+                rows={cardSearch.data.items}
+                hasMore={cardSearch.data.has_more}
+              />
+            ) : null
+          ) : (
+            userSearch.isPending ? (
+              <LoadingPage label="Ищем клиентов…" />
+            ) : userSearch.data?.items.length === 0 && userPage.offset === 0 ? (
+              <EmptyState title="Клиент не найден" detail="Клиент с указанным номером телефона не найден." />
+            ) : userSearch.data ? (
+              <UserResults
+                page={userPage}
+                setPage={setUserPage}
+                rows={userSearch.data.items}
+                hasMore={userSearch.data.has_more}
+              />
+            ) : null
+          )}
+        </>
+      )}
+
+      {/* NO SEARCH ACTIVE: GENERAL CARDS LIST (or PHONE PROMPT) */}
+      {!isSearchActive && (
+        mode === 'barcode' ? (
+          cardList.isPending ? (
+            <LoadingPage label="Загружаем карты…" />
+          ) : cardList.isError ? (
+            <ErrorNotice error={cardList.error} retry={() => { void cardList.refetch(); }} />
+          ) : cardList.data?.items.length === 0 && cardListPage.offset === 0 ? (
+            <EmptyState title="Карт пока нет" detail="В базе пока нет карт для отображения." />
+          ) : cardList.data ? (
+            <CardResults
+              page={cardListPage}
+              setPage={setCardListPage}
+              rows={cardList.data.items}
+              hasMore={cardList.data.has_more}
+            />
+          ) : null
+        ) : (
+          <EmptyState
+            title="Поиск клиента по телефону"
+            detail="Введите телефон (не менее 7 цифр), чтобы найти профиль клиента и связанные карты."
+          />
+        )
+      )}
+    </div>
+  );
 }
 
 function CardResults({ page, setPage, rows, hasMore }: { page: PageQuery; setPage: (offset: number) => void; rows: Card[]; hasMore: boolean }) {
@@ -108,6 +283,7 @@ export function CardDetailPage() {
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'card', card.id] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'user'] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'card-search'] }),
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'cards'] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'user-search'] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'business', card.business_id] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'dashboard'] }),
@@ -147,7 +323,7 @@ export function UserDetailPage() {
     <section className="surface-card"><div className="section-heading"><h2>Карты в области доступа</h2></div>
       {user.cards.items.length === 0 ? <p className="table-empty">Карт не найдено.</p> : <div className="table-wrap"><table><thead><tr><th>КАРТА</th><th>БИЗНЕС</th><th>БАЛАНС</th><th>ПРИВЯЗКА</th><th>СТАТУС</th></tr></thead>
         <tbody>{user.cards.items.map(card => <tr key={card.id}><td><Link className="text-link mono-value" to={`/cards/${encodeURIComponent(card.id)}`}>{card.barcode}</Link></td><td>{card.business_name}</td><td>{formatBalance(card.balance)}</td><td>{card.bind_method ?? '—'}</td><td>{card.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</td></tr>)}</tbody></table></div>}
-      {user.cards.items.length > 0 && <div className="pagination"><span>Карты постранично</span><div className="pagination-actions"><button className="button button-secondary" disabled={page.offset === 0} onClick={() => setPage(Math.max(0, page.offset - page.limit))}>Назад</button><button className="button button-secondary" disabled={!user.cards.has_more} onClick={() => setPage(page.offset + page.limit)}>Дальше</button></div></div>}
+      {user.cards.items.length > 0 && <div className="pagination"><span>Карты постранично</span><div className="pagination-actions"><button className="button button-secondary" disabled={page.offset === 0} onClick={() => setPage(Math.max(0, page.offset - page.limit))}>Назад</button><button className="button button-secondary" disabled={!user.cards.has_more} onClick={() => setPage(page.offset + page.limit)}>Далее</button></div></div>}
     </section>
   </div>;
 }
