@@ -5,6 +5,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
+from app.schemas.common import BARCODE_REGEX
+
 
 class QrResolveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -20,7 +22,7 @@ class QrResolveResponse(BaseModel):
 class RedemptionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    barcode: str | None = Field(default=None, pattern=r"^\d{13}$")
+    barcode: str | None = Field(default=None, pattern=BARCODE_REGEX)
     qr_token: str | None = Field(default=None, min_length=4, max_length=64)
     amount: Decimal = Field(..., gt=0, decimal_places=4, max_digits=18)
 

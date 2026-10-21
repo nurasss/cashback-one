@@ -131,8 +131,19 @@ def test_card_search_is_exact_and_never_defaults_to_an_unbounded_dump() -> None:
     with pytest.raises(ValidationError):
         CardSearchRequest()
     assert CardSearchRequest(barcode=" 0123456789012 ").barcode == "0123456789012"
+    assert CardSearchRequest(barcode="012345").barcode == "012345"
+    assert CardSearchRequest(barcode="12345678901").barcode == "12345678901"
+    assert CardSearchRequest(barcode="000123456789012").barcode == "000123456789012"
+    with pytest.raises(ValidationError) as exc_5:
+        CardSearchRequest(barcode="12345")
+    assert "barcode must contain 6 to 15 digits" in str(exc_5.value)
+    with pytest.raises(ValidationError) as exc_16:
+        CardSearchRequest(barcode="1234567890123456")
+    assert "barcode must contain 6 to 15 digits" in str(exc_16.value)
     with pytest.raises(ValidationError):
-        CardSearchRequest(barcode="123456789012")
+        CardSearchRequest(barcode="12345a")
+    with pytest.raises(ValidationError):
+        CardSearchRequest(barcode="123 456")
     assert CardSearchRequest(phone="+7 (700) 123-45-67").phone == "+77001234567"
 
 

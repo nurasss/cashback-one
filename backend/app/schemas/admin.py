@@ -16,6 +16,7 @@ from pydantic import (
 )
 
 from app.core.admin_types import AdminRole
+from app.schemas.common import BARCODE_ERROR_MSG, BARCODE_REGEX
 
 T = TypeVar("T")
 BusinessStatus = Literal["active", "inactive"]
@@ -241,6 +242,11 @@ class PaginationParams(BaseModel):
     offset: int = Field(default=0, ge=0, le=100_000)
 
 
+class CardListPaginationParams(BaseModel):
+    limit: int = Field(default=25, ge=1, le=30)
+    offset: int = Field(default=0, ge=0, le=100_000)
+
+
 class Page(BaseModel, Generic[T]):
     items: list[T]
     limit: int
@@ -343,8 +349,8 @@ class CardSearchRequest(BaseModel):
         if value is None:
             return None
         cleaned = value.strip()
-        if not re.fullmatch(r"[0-9]{13}", cleaned):
-            raise ValueError("barcode must be exactly 13 digits")
+        if not re.fullmatch(BARCODE_REGEX, cleaned):
+            raise ValueError(BARCODE_ERROR_MSG)
         return cleaned
 
     @field_validator("phone")

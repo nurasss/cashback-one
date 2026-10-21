@@ -293,6 +293,26 @@ async def get_agent(
     return _agent_item((row[0], row[1]), row[2])
 
 
+async def list_cards(
+    db: AsyncSession,
+    scope: AdminScope,
+    business_id: uuid.UUID | None,
+    limit: int,
+    offset: int,
+) -> Page[CardListItem]:
+    query = (
+        select(Card, Business, UserCard)
+        .join(Business, Business.id == Card.business_id)
+        .outerjoin(UserCard, UserCard.card_id == Card.id)
+        .where(scope.predicate(Card.business_id, business_id))
+        .order_by(Card.updated_at.desc(), Card.id.desc())
+        .limit(limit + 1)
+        .offset(offset)
+    )
+    rows = (await db.execute(query)).all()
+    return _page(list(rows), limit, offset, _card_item)
+
+
 async def search_cards(
     db: AsyncSession,
     scope: AdminScope,

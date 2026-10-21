@@ -24,6 +24,7 @@ from app.schemas.admin import (
     BusinessUpdateRequest,
     CardDetail,
     CardListItem,
+    CardListPaginationParams,
     CardSearchRequest,
     CardUnbindResponse,
     CardUnbindStatus,
@@ -62,6 +63,7 @@ from app.services.admin_queries import (
     list_agents,
     list_audit_logs,
     list_businesses,
+    list_cards,
     search_cards,
     search_users,
 )
@@ -202,6 +204,16 @@ async def admin_request_full_resync(
     return AgentCommandResponse(
         command_id=command.id, status=cast(AgentCommandStatus, command.status)
     )
+
+
+@router.get("/cards", response_model=Page[CardListItem])
+async def admin_cards(
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    page: Annotated[CardListPaginationParams, Depends()],
+    business_id: uuid.UUID | None = None,
+) -> Page[CardListItem]:
+    return await list_cards(db, scope, business_id, page.limit, page.offset)
 
 
 @router.post("/cards/search", response_model=Page[CardListItem])

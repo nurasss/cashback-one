@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 
+from app.schemas.common import BARCODE_ERROR_MSG, BARCODE_REGEX
+
 
 class BindCardRequest(BaseModel):
     """Request payload for manual card binding via barcode/QR."""
@@ -19,8 +21,8 @@ class BindCardRequest(BaseModel):
         if not isinstance(val, str):
             raise ValueError("Barcode must be a string")  # noqa: TRY004
         cleaned = val.strip()
-        if not re.fullmatch(r"^\d{13}$", cleaned):
-            raise ValueError("Barcode must be exactly 13 digits")
+        if not re.fullmatch(BARCODE_REGEX, cleaned):
+            raise ValueError(BARCODE_ERROR_MSG)
         return cleaned
 
 
