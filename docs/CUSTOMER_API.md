@@ -91,7 +91,7 @@ Returns all active (non-hidden) loyalty cards belonging to the authenticated cus
 
 *Notes:*
 - `balance` is strictly formatted as a 4-decimal numeric string (e.g. `"1250.5000"`), avoiding floating point precision artifacts.
-- `barcode` is a 13-digit string preserving any leading zeros (e.g. `"0123456789012"`, EAN-13 compatible).
+- `barcode` is a 6 to 15 digit string preserving any leading zeros (e.g. `"012345"`, `"0123456789012"`).
 - `updated_at` reflects the latest mirror snapshot timestamp from POSCENTER ONE for this `Card`. Customer API is strictly read-only relative to the loyalty mirror: customer operations never alter `cards.updated_at`.
 
 ---
@@ -134,9 +134,9 @@ Retrieves details for a single active loyalty card owned by the customer.
 ### 3.3. Manual Card Binding (Barcode / QR)
 **`POST /me/cards/bind`**
 
-Binds an existing loyalty card mirrored from POSCENTER ONE to the authenticated customer using a 13-digit barcode or scanned QR code.
+Binds an existing loyalty card mirrored from POSCENTER ONE to the authenticated customer using a 6 to 15 digit barcode or scanned QR code.
 
-> **QR Scanner Architecture**: QR scanning is performed by the mobile client. Backend receives the decoded 13-digit barcode.
+> **QR Scanner Architecture**: QR scanning is performed by the mobile client. Backend receives the decoded barcode (6 to 15 digits).
 >
 > **Activation Requirement**: Cashier/activation-code verification for cards without a phone is not implemented yet.
 
@@ -150,7 +150,7 @@ Binds an existing loyalty card mirrored from POSCENTER ONE to the authenticated 
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `barcode` | string | Yes | 13-digit EAN-13 string (`^\d{13}$`), preserves leading zeros. |
+| `barcode` | string | Yes | 6 to 15 digit string (`^\d{6,15}$`), preserves leading zeros. |
 | `business_id` | UUID | No | Optional tenant business ID to disambiguate identical barcodes across retailers. |
 
 #### Business & Prefix Resolution

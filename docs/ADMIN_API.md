@@ -22,6 +22,7 @@ Invalid login, password and inactive-account cases all return `401 INVALID_CREDE
 | `/admin/businesses/{business_id}` | GET | UUID | Superadmin only |
 | `/admin/agents` | GET | `limit`, `offset`, optional `business_id` | Manager SQL-scoped to own business |
 | `/admin/agents/{agent_id}` | GET | UUID | Manager receives own-business rows only |
+| `/admin/cards` | GET | `limit` 1–30 (default 25), `offset` ≤100,000, optional `business_id` | Manager SQL-scoped to own business |
 | `/admin/cards/search` | POST | `{barcode?, phone?, business_id?}`, `limit`, `offset` | Manager SQL-scoped to own business |
 | `/admin/cards/{card_id}` | GET | UUID | Manager receives own-business rows only |
 | `/admin/users/search` | POST | `{phone, business_id?}`, `limit`, `offset` | Manager's users must be linked to own-business card(s) |

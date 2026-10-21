@@ -85,3 +85,17 @@ dump.rdb
 mobile/android/
 mobile/ios/
 mobile/dist/
+
+# Generated Windows installers and diagnostic binaries
+agent/packaging/output/
+
+# Local synchronization markers and imported chat notes
+.stfolder/
+richtext_converted_to_markdown*.md
+
+# Signing credentials and database backup archives
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.dump
