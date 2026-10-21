@@ -26,6 +26,7 @@
     "android": {
       "package": "kz.cashbackone.mobile",
       "versionCode": 2,
+      "softwareKeyboardLayoutMode": "resize",
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW"
       ]

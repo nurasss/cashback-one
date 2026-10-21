@@ -1,10 +1,19 @@
-import { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { BackHandler, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '../components/icons';
 import { useI18n } from '../i18n';
 import { fonts, theme as t } from '../theme';
 import type { Tier } from '../types/api';
 import { amountText, percentText } from '../utils/format';
+
+function useSafeInsets() {
+  try {
+    return useSafeAreaInsets();
+  } catch {
+    return { top: 0, bottom: 0, left: 0, right: 0 };
+  }
+}
 
 export const MIN_CHECK = 100;
 
@@ -17,50 +26,82 @@ export function estimatePoints(amountDigits: string, percent: string): string | 
 
 export function LevelsSheet({ tier, onClose }: { tier: Tier; onClose: () => void }) {
   const { t: tr } = useI18n();
+  const insets = useSafeInsets();
   const [amount, setAmount] = useState('');
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const digits = amount.replace(/\D/g, '');
   const points = useMemo(() => estimatePoints(digits, tier.percent), [digits, tier.percent]);
   const levels = tier.levels ?? [];
-  return <Modal transparent animationType="slide" onRequestClose={onClose}>
-    <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={tr('close')} />
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.wrap}>
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <View style={styles.titleRow}>
-          <Text accessibilityRole="header" style={styles.title}>{tr('howToRaise')}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={tr('close')} hitSlop={12} onPress={onClose}><Icon name="x" size={26} /></Pressable>
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (keyboardVisible) {
+        Keyboard.dismiss();
+        return true;
+      }
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [keyboardVisible, onClose]);
+
+  const handleRequestClose = () => {
+    if (keyboardVisible) {
+      Keyboard.dismiss();
+      return;
+    }
+    onClose();
+  };
+
+  return <Modal transparent animationType="slide" onRequestClose={handleRequestClose} statusBarTranslucent>
+    <View style={styles.modalOverlay}>
+      <Pressable style={styles.backdrop} onPress={handleRequestClose} accessibilityLabel={tr('close')} />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.wrap}>
+        <View style={[styles.sheet, { paddingBottom: Math.max(28, insets.bottom + 16) }]}>
+          <View style={styles.handle} />
+          <View style={styles.titleRow}>
+            <Text accessibilityRole="header" style={styles.title}>{tr('howToRaise')}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={tr('close')} hitSlop={12} onPress={onClose}><Icon name="x" size={26} /></Pressable>
+          </View>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
+            <Text style={styles.lead}>{tr('howToLead')}</Text>
+            {levels.map(level => {
+              const current = level.level === tier.level;
+              return <View key={level.level} style={[styles.level, current && styles.levelCurrent]} accessibilityState={{ selected: current }}>
+                <View style={{ gap: 2 }}>
+                  <Text style={styles.levelName}>{tr('statusN', { level: level.level })}</Text>
+                  <Text style={styles.levelFrom}>{tr('fromAmount', { amount: amountText(level.threshold) })}</Text>
+                </View>
+                <Text style={[styles.levelPercent, current && { color: t.colors.primary }]}>{percentText(level.percent)}%</Text>
+              </View>;
+            })}
+            <Text style={styles.current}>{tr('currentStatusLine', { level: tier.level, percent: percentText(tier.percent) })}</Text>
+            <Text style={styles.fieldLabel}>{tr('calcLabel')}</Text>
+            <TextInput accessibilityLabel={tr('calcLabel')} value={amount} onChangeText={value => setAmount(value.replace(/\D/g, '').slice(0, 9))}
+              keyboardType="number-pad" placeholder="0" placeholderTextColor={t.colors.placeholder} style={styles.input} />
+            <View style={styles.quick}>{[5000, 15000, 40000, 120000].map(value => <Pressable key={value} accessibilityRole="button" onPress={() => setAmount(String(value))} style={styles.quickChip}>
+              <Text style={styles.quickText}>{amountText(String(value))}</Text></Pressable>)}</View>
+            {points ? <Text accessibilityLiveRegion="polite" style={styles.result}>{tr('calcResult', { points })}</Text>
+              : <Text style={styles.hint}>{tr('calcHint')}</Text>}
+            <Text style={styles.disclaimer}>{tr('calcDisclaimer')}</Text>
+          </ScrollView>
         </View>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
-          <Text style={styles.lead}>{tr('howToLead')}</Text>
-          {levels.map(level => {
-            const current = level.level === tier.level;
-            return <View key={level.level} style={[styles.level, current && styles.levelCurrent]} accessibilityState={{ selected: current }}>
-              <View style={{ gap: 2 }}>
-                <Text style={styles.levelName}>{tr('statusN', { level: level.level })}</Text>
-                <Text style={styles.levelFrom}>{tr('fromAmount', { amount: amountText(level.threshold) })}</Text>
-              </View>
-              <Text style={[styles.levelPercent, current && { color: t.colors.primary }]}>{percentText(level.percent)}%</Text>
-            </View>;
-          })}
-          <Text style={styles.current}>{tr('currentStatusLine', { level: tier.level, percent: percentText(tier.percent) })}</Text>
-          <Text style={styles.fieldLabel}>{tr('calcLabel')}</Text>
-          <TextInput accessibilityLabel={tr('calcLabel')} value={amount} onChangeText={value => setAmount(value.replace(/\D/g, '').slice(0, 9))}
-            keyboardType="number-pad" placeholder="0" placeholderTextColor={t.colors.placeholder} style={styles.input} />
-          <View style={styles.quick}>{[5000, 15000, 40000, 120000].map(value => <Pressable key={value} accessibilityRole="button" onPress={() => setAmount(String(value))} style={styles.quickChip}>
-            <Text style={styles.quickText}>{amountText(String(value))}</Text></Pressable>)}</View>
-          {points ? <Text accessibilityLiveRegion="polite" style={styles.result}>{tr('calcResult', { points })}</Text>
-            : <Text style={styles.hint}>{tr('calcHint')}</Text>}
-          <Text style={styles.disclaimer}>{tr('calcDisclaimer')}</Text>
-        </ScrollView>
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </View>
   </Modal>;
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-  wrap: { position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '88%' },
-  sheet: { backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 28, gap: 12 },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
+  wrap: { width: '100%', maxHeight: '88%' },
+  sheet: { backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 10, gap: 12 },
   handle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: t.colors.border },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontFamily: fonts.extrabold, fontSize: 22, color: t.colors.text },

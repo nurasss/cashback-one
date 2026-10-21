@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError } from '../src/api/errors';
 import { useSession } from '../src/auth/provider';
@@ -61,9 +61,23 @@ export default function Login() {
             keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} autoFocus />
           {expired && <ErrorNotice error={new ApiError('OTP_EXPIRED')} />}
           <Button label={t('verify')} disabled={busy || !/^\d{6}$/.test(code) || expired} onPress={() => { void verify(); }} />
-          <Button label={resendIn > 0 ? `${t('resendIn')} ${resendIn} ${t('seconds')}` : t('resend')} secondary disabled={busy || resendIn > 0}
-            onPress={() => { void requestCode(sentPhone); }} />
           <Button label={t('changePhone')} secondary disabled={busy} onPress={() => { setSentPhone(''); setCode(''); setError(null); }} />
+          {resendIn > 0 ? (
+            <Text style={local.resendCountdown}>
+              {`${t('resendIn')} ${resendIn} ${t('seconds')}`}
+            </Text>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('resend')}
+              disabled={busy}
+              onPress={() => { void requestCode(sentPhone); }}
+              hitSlop={10}
+              style={({ pressed }) => [local.resendLinkWrap, pressed && { opacity: 0.6 }]}
+            >
+              <Text style={local.resendLinkText}>{t('resend')}</Text>
+            </Pressable>
+          )}
         </View>}
         {error !== null && <ErrorNotice error={error} />}
         <Text style={[styles.muted, { textAlign: 'center' }]}>{t('sessionNote')}</Text>
@@ -78,4 +92,7 @@ const local = StyleSheet.create({
   brandText: { fontFamily: fonts.extrabold, fontSize: 16, color: theme.colors.onPrimary, letterSpacing: 0.4 },
   title: { fontFamily: fonts.bold, fontSize: 26, lineHeight: 32, color: theme.colors.text },
   form: { gap: 14, backgroundColor: theme.colors.surface, borderRadius: 22, padding: 20, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
+  resendCountdown: { fontFamily: fonts.medium, fontSize: 14, color: theme.colors.muted, textAlign: 'center', paddingVertical: 8 },
+  resendLinkWrap: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 12 },
+  resendLinkText: { fontFamily: fonts.semibold, fontSize: 14, color: theme.colors.primary, textAlign: 'center', textDecorationLine: 'underline' },
 });
