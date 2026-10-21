@@ -11,9 +11,17 @@ import ssl
 import sys
 from pathlib import Path
 
-EXPECTED_APK_SIZE = 51154339
-EXPECTED_APK_SHA256 = "ddc176bc3c800d97ecacb289faa3c493ca03ca327be1996ef9fd28070a068127"
-DEFAULT_APK_PATH = Path("C:/cb-out/cashback-one-1.0.1.apk")
+APK_SPECS = {
+    "cashback-one-1.0.1.apk": {
+        "size": 51154339,
+        "sha256": "ddc176bc3c800d97ecacb289faa3c493ca03ca327be1996ef9fd28070a068127",
+    },
+    "cashback-one-1.0.2.apk": {
+        "size": 51156475,
+        "sha256": "155e67309df145fcbe59a752d85849a1f0b16bbcddc2742955d906cf7badd6fc",
+    },
+}
+DEFAULT_APK_PATH = Path("C:/cb-out/cashback-one-1.0.2.apk")
 
 
 def load_env(env_path: Path) -> dict:
@@ -48,16 +56,24 @@ def main():
         print(f"ERROR: Local APK not found at {apk_path}", file=sys.stderr)
         return 1
 
+    spec = APK_SPECS.get(apk_path.name)
+    if not spec:
+        print(f"ERROR: Unknown APK {apk_path.name}, no spec registered in APK_SPECS", file=sys.stderr)
+        return 1
+
+    expected_size = spec["size"]
+    expected_hash = spec["sha256"]
+
     local_size = apk_path.stat().st_size
     print(f"Checking local APK: {apk_path}")
-    print(f"  Size: {local_size} bytes (expected {EXPECTED_APK_SIZE})")
-    if local_size != EXPECTED_APK_SIZE:
+    print(f"  Size: {local_size} bytes (expected {expected_size})")
+    if local_size != expected_size:
         print("ERROR: Local APK size mismatch!", file=sys.stderr)
         return 1
 
     local_hash = compute_sha256(apk_path)
     print(f"  SHA-256: {local_hash}")
-    if local_hash != EXPECTED_APK_SHA256:
+    if local_hash != expected_hash:
         print("ERROR: Local APK SHA-256 mismatch!", file=sys.stderr)
         return 1
 
