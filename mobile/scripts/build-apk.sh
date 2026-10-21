@@ -32,7 +32,7 @@ npx expo prebuild --platform android --no-install --clean
 git checkout -- package.json 2>/dev/null || true
 
 echo "=== Patching android/app/build.gradle for release signing ==="
-python3 - android/app/build.gradle <<'PY'
+"${PYTHON:-python3}" - android/app/build.gradle <<'PY'
 import sys
 import re
 

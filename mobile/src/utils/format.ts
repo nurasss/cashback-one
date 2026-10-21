@@ -1,6 +1,6 @@
 import { translate, type Language } from '../i18n';
 
-export const isBarcode = (value: string): boolean => /^[0-9]{13}$/.test(value);
+export const isBarcode = (value: string): boolean => /^[0-9]{6,15}$/.test(value);
 
 const group = (whole: string) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
