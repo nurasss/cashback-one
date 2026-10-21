@@ -116,11 +116,26 @@ class POSCENTERLoyaltyAgentService(BaseServiceClass):  # type: ignore[valid-type
                 )
 
 
-def handle_service_command(argv: list[str]) -> None:
+if getattr(sys, "frozen", False):
+    POSCENTERLoyaltyAgentService._exe_name_ = sys.executable
+    POSCENTERLoyaltyAgentService._exe_args_ = "service-run"
+
+
+def handle_service_command(argv: list[str]) -> int:
     """Entrypoint to install, update, remove, debug, start, or stop Windows Service."""
     if sys.platform != "win32":
         raise WindowsServicePlatformError("Windows Service command-line management is only supported on Windows.")
 
     import win32serviceutil  # type: ignore[import-untyped]
 
-    win32serviceutil.HandleCommandLine(POSCENTERLoyaltyAgentService, argv=argv)
+    prog = sys.argv[0] if sys.argv else "poscenter-loyalty-agent"
+    if not argv:
+        full_argv = [prog]
+    elif argv[0] == prog or argv[0] == sys.executable:
+        full_argv = list(argv)
+    else:
+        full_argv = [prog] + list(argv)
+
+    err = win32serviceutil.HandleCommandLine(POSCENTERLoyaltyAgentService, argv=full_argv)
+    return int(err or 0)
+

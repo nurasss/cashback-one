@@ -120,3 +120,41 @@ def test_agent_sync_routes_match_backend_contract() -> None:
     assert CARDS_SYNC_PATH == "/agent/sync/cards"
     assert TRANSACTIONS_SYNC_PATH == "/agent/sync/transactions"
     assert HEARTBEAT_PATH == "/agent/heartbeat"
+
+
+def test_barcode_validation_contract() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
+
+    # Valid barcodes: 6, 11, 15 digits, leading zeroes preserved
+    valid_barcodes = ["012345", "77011234567", "000000000000001", "123456789012345"]
+    for bc in valid_barcodes:
+        card = CardSyncItem(barcode=bc, balance=Decimal("0"), updated_at=now)
+        assert card.barcode == bc
+        tx = TransactionSyncItem(
+            external_id="tx-1",
+            barcode=bc,
+            type="accrual",
+            amount=Decimal("10"),
+            balance_after=Decimal("10"),
+            occurred_at=now,
+        )
+        assert tx.barcode == bc
+
+    # Invalid barcodes: 5, 16 digits, letters, spaces
+    invalid_barcodes = ["12345", "1234567890123456", "12345A", " 123456 ", "", "abcdef"]
+    for bc in invalid_barcodes:
+        with pytest.raises(ValidationError):
+            CardSyncItem(barcode=bc, balance=Decimal("0"), updated_at=now)
+        with pytest.raises(ValidationError):
+            TransactionSyncItem(
+                external_id="tx-1",
+                barcode=bc,
+                type="accrual",
+                amount=Decimal("10"),
+                balance_after=Decimal("10"),
+                occurred_at=now,
+            )
+

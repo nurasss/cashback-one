@@ -6,7 +6,7 @@ import logging
 import sys
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from poscenter_loyalty_agent.config import AgentSettings, get_settings
 
@@ -29,6 +29,8 @@ class VerificationFlags(BaseModel):
 class EnvironmentCheckResult(BaseModel):
     """Result of Stage 0 environment readiness inspection."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     platform: str
     is_windows: bool
     pywin32_available: bool
@@ -38,6 +40,14 @@ class EnvironmentCheckResult(BaseModel):
     metadata_access_available: bool
     verification_flags: VerificationFlags
     details: list[str] = Field(default_factory=list)
+    active_connection: Any = Field(default=None, exclude=True)
+
+    def release_connection(self) -> None:
+        """Explicitly release the preflight COM connection if still held."""
+        if self.active_connection is not None:
+            self.active_connection = None
+            import gc
+            gc.collect()
 
     def format_console(self) -> str:
         """Render a clean, secret-free summary for terminal output."""
@@ -156,6 +166,7 @@ def check_environment(settings: AgentSettings | None = None) -> EnvironmentCheck
         )
 
     # Attempt read-only connection
+    active_connection: Any = None
     try:
         connection = connector.Connect(settings.one_connection_string)
         one_connection_successful = True
@@ -164,6 +175,7 @@ def check_environment(settings: AgentSettings | None = None) -> EnvironmentCheck
         # Test metadata access
         if hasattr(connection, "Metadata"):
             metadata_access_available = True
+            active_connection = connection
             # Metadata discovery is verified ONLY after full inventory probe, not on preflight check
             details.append("1C infobase connection established; Metadata root object is accessible.")
         else:
@@ -182,4 +194,5 @@ def check_environment(settings: AgentSettings | None = None) -> EnvironmentCheck
         metadata_access_available=metadata_access_available,
         verification_flags=flags,
         details=details,
+        active_connection=active_connection,
     )

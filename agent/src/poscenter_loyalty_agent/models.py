@@ -7,6 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 T = TypeVar("T")
 
 
+BARCODE_REGEX = r"^\d{6,15}$"
+BARCODE_ERROR_MSG = "barcode must contain 6 to 15 digits"
+
+
 def ensure_timezone_aware(dt: datetime | None) -> datetime | None:
     """Ensure datetime is timezone-aware."""
     if dt is None:
@@ -24,8 +28,8 @@ class CardSyncItem(BaseModel):
     barcode: Annotated[
         str,
         Field(
-            pattern=r"^\d{13}$",
-            description="13-digit card barcode (preserved with leading zeroes)",
+            pattern=BARCODE_REGEX,
+            description="Card barcode containing 6 to 15 digits (preserved with leading zeroes)",
         ),
     ]
     phone: str | None = Field(default=None, max_length=32)
@@ -70,8 +74,8 @@ class TransactionSyncItem(BaseModel):
     barcode: Annotated[
         str,
         Field(
-            pattern=r"^\d{13}$",
-            description="13-digit card barcode",
+            pattern=BARCODE_REGEX,
+            description="Card barcode containing 6 to 15 digits",
         ),
     ]
     type: str = Field(..., min_length=1, max_length=32, description="accrual, redemption, etc.")

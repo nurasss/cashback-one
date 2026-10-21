@@ -271,3 +271,127 @@ def test_record_heartbeat(tmp_path: Path) -> None:
 
     status = store.get_status()
     assert status.last_heartbeat_at == hb_time
+
+
+def test_v1_to_v2_migration(tmp_path: Path) -> None:
+    """A valid v1 database migrates to v2, preserving checkpoint data and creating new tables."""
+    db_file = tmp_path / "v1_legacy.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute(
+        """
+        CREATE TABLE agent_checkpoint (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            cards_committed_cursor TEXT,
+            transactions_committed_cursor TEXT,
+            last_successful_sync_at TEXT,
+            last_error TEXT,
+            last_error_at TEXT,
+            last_heartbeat_at TEXT,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO agent_checkpoint (id, cards_committed_cursor, transactions_committed_cursor, updated_at) "
+        "VALUES (1, 'c1_prev', 't1_prev', '2026-10-01T00:00:00Z');"
+    )
+    conn.execute("PRAGMA user_version = 1;")
+    conn.commit()
+    conn.close()
+
+    # Open with StateStore -> upgrades to v2
+    store = StateStore(db_file)
+    assert store.get_cursor("cards") == "c1_prev"
+    assert store.get_cursor("transactions") == "t1_prev"
+
+    conn = sqlite3.connect(str(db_file))
+    ver = conn.execute("PRAGMA user_version;").fetchone()[0]
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+    conn.close()
+
+    assert ver == 2
+    assert {"card_hashes", "tx_ledger", "pending_cards", "pending_tx"}.issubset(tables)
+
+
+def test_card_hashes_staging_and_ack_commit(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "cards_state.db")
+
+    # Initially empty
+    assert store.get_card_hashes() == {}
+
+    # Stage pending page 1
+    session_id = "sess_001"
+    cards_p1 = [
+        ("uuid-1", "hash-aaa", "2026-10-19T10:00:00Z"),
+        ("uuid-2", "hash-bbb", "2026-10-19T10:00:00Z"),
+    ]
+    store.record_pending_cards(session_id, page=1, cards=cards_p1)
+
+    # Not yet committed to card_hashes!
+    assert store.get_card_hashes() == {}
+
+    # Stage pending page 2
+    cards_p2 = [
+        ("uuid-3", "hash-ccc", "2026-10-19T10:00:00Z"),
+    ]
+    store.record_pending_cards(session_id, page=2, cards=cards_p2)
+
+    # ACK received for page 1 -> commit page 1 only
+    committed = store.commit_pending_cards(session_id, page=1)
+    assert committed == 2
+    hashes = store.get_card_hashes()
+    assert "uuid-1" in hashes
+    assert "uuid-2" in hashes
+    assert "uuid-3" not in hashes
+
+    # ACK received for page 2 -> commit remaining
+    committed = store.commit_pending_cards(session_id, page=2)
+    assert committed == 1
+    assert "uuid-3" in store.get_card_hashes()
+
+
+def test_tx_ledger_staging_and_ack_commit(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / "tx_state.db")
+
+    # Stage transactions under a token
+    token = "t1_token_123"
+    txs = [
+        ("doc-1:1", "2026-10-18T12:00:00Z"),
+        ("doc-1:2", "2026-10-18T12:00:00Z"),
+    ]
+    store.record_pending_tx(token, txs)
+
+    # Not yet committed
+    assert store.get_known_tx_ids() == set()
+
+    # Commit upon ACK
+    committed = store.commit_pending_tx(token)
+    assert committed == 2
+    assert store.get_known_tx_ids() == {"doc-1:1", "doc-1:2"}
+
+    # Pruning older transactions
+    pruned = store.prune_tx_ledger("2026-10-18T15:00:00Z")
+    assert pruned == 2
+    assert store.get_known_tx_ids() == set()
+
+
+def test_hmac_state_key_generation_and_hashing(tmp_path: Path) -> None:
+    from poscenter_loyalty_agent.state_store import compute_card_hmac, get_or_create_state_key
+
+    key_file = tmp_path / "agent.key"
+    key1 = get_or_create_state_key(key_file)
+    assert len(key1) == 32
+    assert key_file.exists()
+
+    # Re-reading returns identical key
+    key2 = get_or_create_state_key(key_file)
+    assert key1 == key2
+
+    # Deterministic HMAC
+    h1 = compute_card_hmac(key1, "card-data-sample")
+    h2 = compute_card_hmac(key1, "card-data-sample")
+    h3 = compute_card_hmac(key1, "card-data-different")
+    assert h1 == h2
+    assert h1 != h3
+    assert len(h1) == 64
+

@@ -91,12 +91,17 @@ def write_inventory_reports(inventory: TargetedMetadataInventory, output_dir: Pa
     lines.append("")
     for obj in inventory.objects:
         syn = f" ({obj.synonym})" if obj.synonym else ""
-        lines.append(f"### `{obj.category}.{obj.name}`{syn}")
+        kind_str = f" [{obj.register_kind}]" if obj.register_kind else ""
+        lines.append(f"### `{obj.category}.{obj.name}`{syn}{kind_str}")
+        if obj.catalog_props:
+            props_str = ", ".join(f"{k}: `{v}`" for k, v in obj.catalog_props.items())
+            lines.append(f"**Catalog Properties:** {props_str}")
+            lines.append("")
         if obj.fields:
             lines.append("| Field Name | Synonym | Type | Kind |")
             lines.append("|---|---|---|---|")
             for f in obj.fields:
-                kind = "Dimension" if f.is_dimension else ("Resource" if f.is_resource else "Attribute")
+                kind = f.kind or ("Dimension" if f.is_dimension else ("Resource" if f.is_resource else "Attribute"))
                 f_syn = f.synonym or "-"
                 lines.append(f"| `{f.name}` | {f_syn} | `{f.type_desc}` | {kind} |")
         if obj.tabular_sections:

@@ -19,7 +19,7 @@ class AgentSettings(BaseSettings):
     """Runtime configuration for POSCENTER Loyalty Agent."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", str(get_default_data_dir() / "config" / ".env.service")),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -118,6 +118,42 @@ class AgentSettings(BaseSettings):
         default="",
         description="Connection string for V83.COMConnector (treated as secret)",
     )
+    agent_one_timezone: str = Field(
+        default="Asia/Almaty",
+        description="Timezone of 1C infobase (default: Asia/Almaty)",
+    )
+    agent_one_lookback_days: int = Field(
+        default=3,
+        ge=1,
+        le=30,
+        description="Sliding lookback window in days for transactions",
+    )
+    agent_one_initial_history_days: int = Field(
+        default=0,
+        ge=0,
+        description="Initial history window in days for transactions (0 = all history from 1990-01-01)",
+    )
+    agent_one_max_window_rows: int = Field(
+        default=300_000,
+        ge=1,
+        description="Maximum allowed rows in transaction window query",
+    )
+    agent_clamp_negative_balance: bool = Field(
+        default=False,
+        description="отправлять в облако max(0, баланс); по умолчанию False (отрицательные остатки передаются как есть); настоящий отрицательный остаток остаётся в 1С",
+    )
+    one_mapping_path: Path | None = Field(
+        default=None,
+        description="Path to Stage 0 verified mapping JSON file",
+    )
+    one_state_key_path: Path | None = Field(
+        default=None,
+        description="Path to local HMAC secret key file for card content hashing",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Dry-run execution mode without mutating cloud state",
+    )
     log_max_bytes: int = Field(
         default=10_485_760,
         ge=1024,
@@ -175,10 +211,6 @@ class AgentSettings(BaseSettings):
         if self.one_adapter_mode == "fake" and self.agent_env != "test":
             raise ValueError("ONE_ADAPTER_MODE='fake' is strictly forbidden outside AGENT_ENV=test")
 
-        if self.one_adapter_mode == "com" and self.agent_env == "production":
-            if not self.one_connection_string.strip():
-                raise ValueError("ONE_CONNECTION_STRING is required when ONE_ADAPTER_MODE='com' in production")
-
         # Validate backoff bounds
         if self.agent_sync_backoff_max_seconds < self.agent_sync_backoff_initial_seconds:
             raise ValueError(
@@ -192,8 +224,38 @@ class AgentSettings(BaseSettings):
             self.agent_state_db_path = base_dir / "state" / "agent_state.db"
         if self.agent_log_dir is None:
             self.agent_log_dir = base_dir / "logs"
+        if self.one_mapping_path is None:
+            self.one_mapping_path = base_dir / "mapping" / "stage0_mapping.json"
+        if self.one_state_key_path is None:
+            self.one_state_key_path = base_dir / "state" / "agent_state.key"
+
+        if self.one_adapter_mode == "com" and self.agent_env == "production":
+            if not self.one_connection_string.strip():
+                raise ValueError("ONE_CONNECTION_STRING is required when ONE_ADAPTER_MODE='com' in production")
+            if not self.one_mapping_path.exists():
+                raise ValueError(
+                    f"Valid ONE_MAPPING_PATH pointing to existing file is required when ONE_ADAPTER_MODE='com' in production: {self.one_mapping_path}"
+                )
 
         return self
+
+    @property
+    def mapping_path(self) -> Path:
+        assert self.one_mapping_path is not None
+        return self.one_mapping_path
+
+    @property
+    def state_key_path(self) -> Path:
+        assert self.one_state_key_path is not None
+        return self.one_state_key_path
+
+    @property
+    def lookback_days(self) -> int:
+        return self.agent_one_lookback_days
+
+    @property
+    def one_timezone(self) -> str:
+        return self.agent_one_timezone
 
     @property
     def state_db_path(self) -> Path:

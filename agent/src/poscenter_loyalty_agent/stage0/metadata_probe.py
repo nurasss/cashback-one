@@ -29,6 +29,7 @@ PROBED_LOYALTY_CATEGORIES = (
     "AccumulationRegisters",
     "InformationRegisters",
     "Documents",
+    "Enums",
 )
 
 UNPROBED_METADATA_CATEGORIES = (
@@ -37,7 +38,6 @@ UNPROBED_METADATA_CATEGORIES = (
     "ChartsOfCharacteristicTypes",
     "BusinessProcesses",
     "Tasks",
-    "Enums",
     "Reports",
     "DataProcessors",
     "Constants",
@@ -56,6 +56,10 @@ class MetadataField(BaseModel):
     type_desc: str = Field(default="Unknown", description="Type representation string")
     is_dimension: bool = Field(default=False, description="True for register dimensions")
     is_resource: bool = Field(default=False, description="True for register resources")
+    kind: str | None = Field(
+        default=None,
+        description="Field kind (e.g. StandardAttribute, Dimension, Resource, Attribute)",
+    )
 
 
 class MetadataObject(BaseModel):
@@ -63,11 +67,16 @@ class MetadataObject(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    category: str = Field(description="Category (e.g. Catalogs, AccumulationRegisters, Documents)")
+    category: str = Field(description="Category (e.g. Catalogs, AccumulationRegisters, Documents, Enums)")
     name: str = Field(description="Internal object name")
     synonym: str | None = Field(default=None, description="Synonym / display name")
+    register_kind: str | None = Field(default=None, description="Register kind or periodicity")
     fields: list[MetadataField] = Field(default_factory=list)
     tabular_sections: list[str] = Field(default_factory=list)
+    catalog_props: dict[str, str] | None = Field(
+        default=None,
+        description="Catalog properties (e.g. CodeLength, CodeType, DescriptionLength, Hierarchical)",
+    )
 
 
 class CandidateMatch(BaseModel):
@@ -257,12 +266,19 @@ class FakeMetadataProvider:
                     MetadataField(name="SyntheticFieldBarcode", synonym="Barcode", type_desc="String(13)"),
                     MetadataField(name="SyntheticFieldPhone", synonym="Phone", type_desc="String(32)"),
                     MetadataField(name="SyntheticFieldStatus", synonym="Status", type_desc="Boolean"),
+                    MetadataField(
+                        name="SyntheticTabularA.SyntheticTabAttr",
+                        synonym="TabularAttribute",
+                        type_desc="String(50)",
+                    ),
                 ],
+                tabular_sections=["SyntheticTabularA"],
             ),
             MetadataObject(
                 category="AccumulationRegisters",
                 name="SyntheticRegisterA",
                 synonym="BonusRegisterSynonym",
+                register_kind="Balances",
                 fields=[
                     MetadataField(
                         name="SyntheticDimCard",
@@ -276,6 +292,15 @@ class FakeMetadataProvider:
                         type_desc="Number(15,2)",
                         is_resource=True,
                     ),
+                ],
+            ),
+            MetadataObject(
+                category="Enums",
+                name="SyntheticEnumA",
+                synonym="EnumSynonym",
+                fields=[
+                    MetadataField(name="Active", synonym="ActiveStatus", type_desc="EnumValue"),
+                    MetadataField(name="Blocked", synonym="BlockedStatus", type_desc="EnumValue"),
                 ],
             ),
         ]
@@ -307,8 +332,16 @@ class ComMetadataProvider:
     - Safely guards against non-Windows platforms.
     """
 
-    def __init__(self, connection_string: str) -> None:
-        self.connector = OneComConnector(connection_string=connection_string)
+    def __init__(self, connection_string: str, existing_connection: Any = None) -> None:
+        self.connector = OneComConnector(connection_string=connection_string, existing_connection=existing_connection)
+
+    @staticmethod
+    def _type_to_str(conn: Any, type_obj: Any) -> str:
+        """Safely convert a 1C TypeDescription object to string via conn.String()."""
+        try:
+            return str(conn.String(type_obj))
+        except Exception:
+            return "Unknown"
 
     def check_env(self) -> EnvironmentCheckResult:
         return check_environment()
@@ -331,10 +364,13 @@ class ComMetadataProvider:
             self.connector.disconnect()
 
     def discover_metadata(self) -> TargetedMetadataInventory:
-        """Extract metadata inventory across Catalogs, Registers, and Documents."""
+        """Extract metadata inventory across Catalogs, Registers, Documents, and Enums."""
+        logger.debug("discover_metadata: calling self.connector.connect()...")
         conn = self.connector.connect()
+        logger.debug("discover_metadata: got conn, accessing Metadata root...")
         try:
             meta = conn.Metadata
+            logger.debug("discover_metadata: got conn.Metadata, reading ConfigurationIdentity...")
             conf_identity = ConfigurationIdentity(
                 configuration_name=str(getattr(meta, "Name", "Unknown")),
                 configuration_version=str(getattr(meta, "Version", "0.0.0")),
@@ -342,6 +378,7 @@ class ComMetadataProvider:
                 platform_version="NOT_AVAILABLE",
                 platform_version_state="NOT_STARTED",
             )
+            logger.debug("Connected to 1C: %s v%s", conf_identity.configuration_name, conf_identity.configuration_version)
 
             discovered_objects: list[MetadataObject] = []
             categories_to_probe = [
@@ -349,82 +386,173 @@ class ComMetadataProvider:
                 ("AccumulationRegisters", getattr(meta, "AccumulationRegisters", None)),
                 ("InformationRegisters", getattr(meta, "InformationRegisters", None)),
                 ("Documents", getattr(meta, "Documents", None)),
+                ("Enums", getattr(meta, "Enums", None)),
             ]
 
             for cat_name, collection in categories_to_probe:
                 if collection is None:
                     continue
                 count = int(getattr(collection, "Count", lambda: 0)())
+                logger.debug("Probing category %s: %d objects", cat_name, count)
                 for i in range(count):
                     obj_meta = collection.Get(i)
                     obj_name = str(getattr(obj_meta, "Name", f"Obj_{i}"))
                     obj_synonym = str(getattr(obj_meta, "Synonym", "")) or None
 
                     fields: list[MetadataField] = []
-                    # Read Attributes / Requisites
-                    attrs = getattr(obj_meta, "Attributes", None)
-                    if attrs is not None:
-                        attr_count = int(getattr(attrs, "Count", lambda: 0)())
-                        for j in range(attr_count):
-                            attr = attrs.Get(j)
-                            fields.append(
-                                MetadataField(
-                                    name=str(getattr(attr, "Name", f"Attr_{j}")),
-                                    synonym=str(getattr(attr, "Synonym", "")) or None,
-                                    type_desc=str(getattr(attr, "Type", "Unknown")),
-                                )
-                            )
+                    register_kind: str | None = None
+                    catalog_props: dict[str, str] | None = None
 
-                    # Read Dimensions (Registers)
-                    dims = getattr(obj_meta, "Dimensions", None)
-                    if dims is not None:
-                        dim_count = int(getattr(dims, "Count", lambda: 0)())
-                        for j in range(dim_count):
-                            dim = dims.Get(j)
-                            fields.append(
-                                MetadataField(
-                                    name=str(getattr(dim, "Name", f"Dim_{j}")),
-                                    synonym=str(getattr(dim, "Synonym", "")) or None,
-                                    type_desc=str(getattr(dim, "Type", "Unknown")),
-                                    is_dimension=True,
+                    if cat_name == "Enums":
+                        enum_values = getattr(obj_meta, "EnumValues", None)
+                        if enum_values is not None:
+                            ev_count = int(getattr(enum_values, "Count", lambda: 0)())
+                            for k in range(ev_count):
+                                ev = enum_values.Get(k)
+                                fields.append(
+                                    MetadataField(
+                                        name=str(getattr(ev, "Name", f"Value_{k}")),
+                                        synonym=str(getattr(ev, "Synonym", "")) or None,
+                                        type_desc="EnumValue",
+                                    )
                                 )
-                            )
+                    else:
+                        if cat_name == "AccumulationRegisters":
+                            reg_type = getattr(obj_meta, "RegisterType", None)
+                            if reg_type is not None:
+                                try:
+                                    register_kind = str(conn.String(reg_type))
+                                except Exception:
+                                    register_kind = "Unknown"
+                        elif cat_name == "InformationRegisters":
+                            periodicity = getattr(obj_meta, "InformationRegisterPeriodicity", None)
+                            if periodicity is not None:
+                                try:
+                                    register_kind = str(conn.String(periodicity))
+                                except Exception:
+                                    register_kind = "Unknown"
 
-                    # Read Resources (Registers)
-                    res = getattr(obj_meta, "Resources", None)
-                    if res is not None:
-                        res_count = int(getattr(res, "Count", lambda: 0)())
-                        for j in range(res_count):
-                            r = res.Get(j)
-                            fields.append(
-                                MetadataField(
-                                    name=str(getattr(r, "Name", f"Res_{j}")),
-                                    synonym=str(getattr(r, "Synonym", "")) or None,
-                                    type_desc=str(getattr(r, "Type", "Unknown")),
-                                    is_resource=True,
+                        # Read StandardAttributes (Catalogs, Documents)
+                        if cat_name in ("Catalogs", "Documents"):
+                            try:
+                                std_attrs = getattr(obj_meta, "StandardAttributes", None)
+                                if std_attrs is not None:
+                                    for s, s_attr in enumerate(std_attrs):
+                                        fields.append(
+                                            MetadataField(
+                                                name=str(getattr(s_attr, "Name", f"StdAttr_{s}")),
+                                                synonym=str(getattr(s_attr, "Synonym", "")) or None,
+                                                type_desc=self._type_to_str(conn, getattr(s_attr, "Type", None)),
+                                                kind="StandardAttribute",
+                                            )
+                                        )
+                            except Exception as e:
+                                logger.debug("Failed reading StandardAttributes for %s: %s", obj_name, e)
+                                if catalog_props is None:
+                                    catalog_props = {}
+                                catalog_props["standard_attributes"] = f"unavailable: {type(e).__name__}"
+
+                        # Read Attributes / Requisites
+                        attrs = getattr(obj_meta, "Attributes", None)
+                        if attrs is not None:
+                            attr_count = int(getattr(attrs, "Count", lambda: 0)())
+                            for j in range(attr_count):
+                                attr = attrs.Get(j)
+                                fields.append(
+                                    MetadataField(
+                                        name=str(getattr(attr, "Name", f"Attr_{j}")),
+                                        synonym=str(getattr(attr, "Synonym", "")) or None,
+                                        type_desc=self._type_to_str(conn, getattr(attr, "Type", None)),
+                                    )
                                 )
-                            )
+
+                        # Read Dimensions (Registers)
+                        dims = getattr(obj_meta, "Dimensions", None)
+                        if dims is not None:
+                            dim_count = int(getattr(dims, "Count", lambda: 0)())
+                            for j in range(dim_count):
+                                dim = dims.Get(j)
+                                fields.append(
+                                    MetadataField(
+                                        name=str(getattr(dim, "Name", f"Dim_{j}")),
+                                        synonym=str(getattr(dim, "Synonym", "")) or None,
+                                        type_desc=self._type_to_str(conn, getattr(dim, "Type", None)),
+                                        is_dimension=True,
+                                    )
+                                )
+
+                        # Read Resources (Registers)
+                        res = getattr(obj_meta, "Resources", None)
+                        if res is not None:
+                            res_count = int(getattr(res, "Count", lambda: 0)())
+                            for j in range(res_count):
+                                r = res.Get(j)
+                                fields.append(
+                                    MetadataField(
+                                        name=str(getattr(r, "Name", f"Res_{j}")),
+                                        synonym=str(getattr(r, "Synonym", "")) or None,
+                                        type_desc=self._type_to_str(conn, getattr(r, "Type", None)),
+                                        is_resource=True,
+                                    )
+                                )
 
                     # Read TabularSections
                     tabular_sections: list[str] = []
-                    tabs = getattr(obj_meta, "TabularSections", None)
-                    if tabs is not None:
-                        tab_count = int(getattr(tabs, "Count", lambda: 0)())
-                        for j in range(tab_count):
-                            tab = tabs.Get(j)
-                            tabular_sections.append(str(getattr(tab, "Name", f"Tab_{j}")))
+                    if cat_name != "Enums":
+                        tabs = getattr(obj_meta, "TabularSections", None)
+                        if tabs is not None:
+                            tab_count = int(getattr(tabs, "Count", lambda: 0)())
+                            for j in range(tab_count):
+                                tab = tabs.Get(j)
+                                tab_name = str(getattr(tab, "Name", f"Tab_{j}"))
+                                tabular_sections.append(tab_name)
+
+                                if cat_name in ("Documents", "Catalogs"):
+                                    tab_attrs = getattr(tab, "Attributes", None)
+                                    if tab_attrs is not None:
+                                        tab_attr_count = int(getattr(tab_attrs, "Count", lambda: 0)())
+                                        for k in range(tab_attr_count):
+                                            t_attr = tab_attrs.Get(k)
+                                            fields.append(
+                                                MetadataField(
+                                                    name=f"{tab_name}.{getattr(t_attr, 'Name', f'Attr_{k}')}",
+                                                    synonym=str(getattr(t_attr, "Synonym", "")) or None,
+                                                    type_desc=self._type_to_str(conn, getattr(t_attr, "Type", None)),
+                                                )
+                                            )
+
+                    if cat_name == "Catalogs":
+                        if catalog_props is None:
+                            catalog_props = {}
+                        try:
+                            for prop_name in ("CodeLength", "CodeType", "DescriptionLength", "Hierarchical"):
+                                val = getattr(obj_meta, prop_name, None)
+                                if val is not None:
+                                    try:
+                                        catalog_props[prop_name] = str(conn.String(val))
+                                    except Exception:
+                                        catalog_props[prop_name] = str(val)
+                                else:
+                                    catalog_props[prop_name] = "None"
+                        except Exception as e:
+                            logger.debug("Failed reading catalog_props for %s: %s", obj_name, e)
+                            catalog_props["catalog_props_error"] = f"unavailable: {type(e).__name__}"
 
                     discovered_objects.append(
                         MetadataObject(
                             category=cat_name,
                             name=obj_name,
                             synonym=obj_synonym,
+                            register_kind=register_kind,
                             fields=fields,
                             tabular_sections=tabular_sections,
+                            catalog_props=catalog_props,
                         )
                     )
 
+            logger.debug("Discovered %d objects total. Running heuristic analysis...", len(discovered_objects))
             cards, txs, regs = CandidateDiscoveryHeuristic.analyze(discovered_objects)
+            logger.debug("Heuristic analysis finished.")
             return TargetedMetadataInventory(
                 configuration=conf_identity,
                 discovered_at=datetime.now(UTC).isoformat(),

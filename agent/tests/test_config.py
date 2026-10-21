@@ -21,6 +21,7 @@ def test_default_settings() -> None:
     assert settings.lock_file_path.name == "agent.lock"
     assert settings.log_file_path.name == "agent.log"
     assert settings.cloud_api_verify_ssl is True
+    assert settings.agent_clamp_negative_balance is False
 
 
 def test_tls_verification_across_all_environments() -> None:
@@ -138,3 +139,41 @@ def test_custom_paths() -> None:
     assert settings.state_db_path == db_path
     assert settings.lock_file_path == Path("/tmp/agent.lock")
     assert settings.log_file_path == log_dir / "agent.log"
+
+
+def test_one_adapter_config(tmp_path: Path) -> None:
+    settings = AgentSettings(agent_api_key="test-api-key-123456")
+    assert settings.agent_one_timezone == "Asia/Almaty"
+    assert settings.one_timezone == "Asia/Almaty"
+    assert settings.agent_one_lookback_days == 3
+    assert settings.lookback_days == 3
+    assert settings.dry_run is False
+    assert settings.mapping_path.name == "stage0_mapping.json"
+    assert settings.state_key_path.name == "agent_state.key"
+
+
+def test_com_mode_in_production_requires_valid_mapping(tmp_path: Path) -> None:
+    # Missing mapping file
+    with pytest.raises(ValidationError, match="Valid ONE_MAPPING_PATH"):
+        AgentSettings(
+            agent_env="production",
+            agent_cloud_base_url="https://cloud.example.com",
+            agent_api_key="a" * 20,
+            one_adapter_mode="com",
+            one_connection_string="Srvr=1c;Ref=base;",
+            one_mapping_path=tmp_path / "nonexistent.json",
+        )
+
+    # Existing mapping file
+    valid_file = tmp_path / "mapping.json"
+    valid_file.write_text("{}", encoding="utf-8")
+    settings = AgentSettings(
+        agent_env="production",
+        agent_cloud_base_url="https://cloud.example.com",
+        agent_api_key="a" * 20,
+        one_adapter_mode="com",
+        one_connection_string="Srvr=1c;Ref=base;",
+        one_mapping_path=valid_file,
+    )
+    assert settings.mapping_path == valid_file
+

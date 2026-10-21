@@ -9,7 +9,10 @@ Guarantees:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
+import os
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,7 +23,7 @@ from poscenter_loyalty_agent.models import AgentStatus
 
 logger = logging.getLogger(__name__)
 
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 VALID_STREAMS = ("cards", "transactions")
 
 
@@ -107,6 +110,48 @@ class StateStore:
                             last_error_at TEXT,
                             last_heartbeat_at TEXT,
                             updated_at TEXT NOT NULL
+                        );
+                        """
+                    )
+                    conn.execute(
+                        """
+                        CREATE TABLE card_hashes (
+                            card_ref_uuid TEXT PRIMARY KEY,
+                            content_hash TEXT NOT NULL,
+                            last_updated_at TEXT NOT NULL
+                        );
+                        """
+                    )
+                    conn.execute("CREATE INDEX idx_card_hashes_updated ON card_hashes(last_updated_at);")
+                    conn.execute(
+                        """
+                        CREATE TABLE tx_ledger (
+                            external_id TEXT PRIMARY KEY,
+                            period_utc TEXT NOT NULL,
+                            committed_at TEXT NOT NULL
+                        );
+                        """
+                    )
+                    conn.execute("CREATE INDEX idx_tx_ledger_period ON tx_ledger(period_utc);")
+                    conn.execute(
+                        """
+                        CREATE TABLE pending_cards (
+                            session_id TEXT NOT NULL,
+                            page INTEGER NOT NULL,
+                            card_ref_uuid TEXT NOT NULL,
+                            content_hash TEXT NOT NULL,
+                            last_updated_at TEXT NOT NULL,
+                            PRIMARY KEY (session_id, card_ref_uuid)
+                        );
+                        """
+                    )
+                    conn.execute(
+                        """
+                        CREATE TABLE pending_tx (
+                            token TEXT NOT NULL,
+                            external_id TEXT NOT NULL,
+                            period_utc TEXT NOT NULL,
+                            PRIMARY KEY (token, external_id)
                         );
                         """
                     )
@@ -197,10 +242,54 @@ class StateStore:
                     (now_iso,),
                 )
 
-                # If migrating from valid legacy v0, stamp version 1
+                # Phase 2 tables migration: create card_hashes, tx_ledger, pending tables
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS card_hashes (
+                        card_ref_uuid TEXT PRIMARY KEY,
+                        content_hash TEXT NOT NULL,
+                        last_updated_at TEXT NOT NULL
+                    );
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_card_hashes_updated ON card_hashes(last_updated_at);")
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS tx_ledger (
+                        external_id TEXT PRIMARY KEY,
+                        period_utc TEXT NOT NULL,
+                        committed_at TEXT NOT NULL
+                    );
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_ledger_period ON tx_ledger(period_utc);")
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_cards (
+                        session_id TEXT NOT NULL,
+                        page INTEGER NOT NULL,
+                        card_ref_uuid TEXT NOT NULL,
+                        content_hash TEXT NOT NULL,
+                        last_updated_at TEXT NOT NULL,
+                        PRIMARY KEY (session_id, card_ref_uuid)
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_tx (
+                        token TEXT NOT NULL,
+                        external_id TEXT NOT NULL,
+                        period_utc TEXT NOT NULL,
+                        PRIMARY KEY (token, external_id)
+                    );
+                    """
+                )
+
+                # Stamp version
                 if current_ver < STATE_SCHEMA_VERSION:
                     conn.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION};")
-                    logger.info("Upgraded legacy v0 agent_state.db schema to version %d", STATE_SCHEMA_VERSION)
+                    logger.info("Upgraded agent_state.db schema to version %d", STATE_SCHEMA_VERSION)
         except sqlite3.DatabaseError as exc:
             raise StateDbCorruptedError(f"STATE_DB_CORRUPTED: Failed updating agent schema: {exc}") from exc
         finally:
@@ -323,3 +412,156 @@ class StateStore:
                 last_error_at=_parse_dt(row["last_error_at"]),
                 last_heartbeat_at=_parse_dt(row["last_heartbeat_at"]),
             )
+
+    # --- Card Hashes & Pending Cards API (Principle: "Фиксация по ACK") ---
+
+    def get_card_hashes(self) -> dict[str, tuple[str, str]]:
+        """Return all persisted card hashes: {card_ref_uuid: (content_hash, last_updated_at)}."""
+        with self._get_connection() as conn:
+            cur = conn.execute("SELECT card_ref_uuid, content_hash, last_updated_at FROM card_hashes;")
+            return {row["card_ref_uuid"]: (row["content_hash"], row["last_updated_at"]) for row in cur.fetchall()}
+
+    def record_pending_cards(self, session_id: str, page: int, cards: list[tuple[str, str, str]]) -> None:
+        """Stage pending cards issued in a batch.
+
+        CRITICAL ARCHITECTURAL GUARANTEE:
+        These staged hashes are NOT committed to card_hashes until the next fetch
+        proves that the caller successfully received and ACKed this page.
+        """
+        if not cards:
+            return
+        with self._get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO pending_cards (session_id, page, card_ref_uuid, content_hash, last_updated_at)
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                [(session_id, page, ref, ch, lu) for ref, ch, lu in cards],
+            )
+            conn.commit()
+
+    def commit_pending_cards(self, session_id: str, page: int | None = None) -> int:
+        """Promote staged pending cards to card_hashes upon receiving cursor proof of Cloud ACK.
+
+        Uncompleted pending entries from prior crashes are safely applied if the cursor proves
+        the batch was ACKed, or dropped if a new scan cycle starts.
+        """
+        with self._get_connection() as conn:
+            if page is not None:
+                cur = conn.execute(
+                    "SELECT card_ref_uuid, content_hash, last_updated_at FROM pending_cards WHERE session_id = ? AND page <= ?;",
+                    (session_id, page),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT card_ref_uuid, content_hash, last_updated_at FROM pending_cards WHERE session_id = ?;",
+                    (session_id,),
+                )
+            rows = cur.fetchall()
+            if not rows:
+                return 0
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO card_hashes (card_ref_uuid, content_hash, last_updated_at)
+                VALUES (?, ?, ?);
+                """,
+                [(r["card_ref_uuid"], r["content_hash"], r["last_updated_at"]) for r in rows],
+            )
+            if page is not None:
+                conn.execute("DELETE FROM pending_cards WHERE session_id = ? AND page <= ?;", (session_id, page))
+            else:
+                conn.execute("DELETE FROM pending_cards WHERE session_id = ?;", (session_id,))
+            conn.commit()
+            return len(rows)
+
+    def clear_pending_cards(self, session_id: str | None = None) -> None:
+        """Clear unconfirmed pending cards (e.g. after crash or when a new scan starts)."""
+        with self._get_connection() as conn:
+            if session_id:
+                conn.execute("DELETE FROM pending_cards WHERE session_id = ?;", (session_id,))
+            else:
+                conn.execute("DELETE FROM pending_cards;")
+            conn.commit()
+
+    # --- Transaction Ledger & Pending Tx API ---
+
+    def get_known_tx_ids(self, since_period_utc: str | None = None) -> set[str]:
+        """Return set of external_ids that have already been confirmed in Cloud."""
+        with self._get_connection() as conn:
+            if since_period_utc:
+                cur = conn.execute("SELECT external_id FROM tx_ledger WHERE period_utc >= ?;", (since_period_utc,))
+            else:
+                cur = conn.execute("SELECT external_id FROM tx_ledger;")
+            return {row["external_id"] for row in cur.fetchall()}
+
+    def record_pending_tx(self, token: str, txs: list[tuple[str, str]]) -> None:
+        """Stage pending transactions issued in a batch.
+
+        Transactions are NOT marked as committed in tx_ledger until the caller's next
+        cursor proves that Cloud accepted this batch.
+        """
+        if not txs:
+            return
+        with self._get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO pending_tx (token, external_id, period_utc)
+                VALUES (?, ?, ?);
+                """,
+                [(token, ext_id, period) for ext_id, period in txs],
+            )
+            conn.commit()
+
+    def commit_pending_tx(self, token: str, committed_at: datetime | None = None) -> int:
+        """Promote staged transactions to tx_ledger upon receiving cursor proof of Cloud ACK.
+
+        Uncompleted pending entries from prior crashes are safely applied if the cursor matches,
+        or pruned during sliding window maintenance.
+        """
+        committed_iso = (committed_at or datetime.now(UTC)).isoformat()
+        with self._get_connection() as conn:
+            cur = conn.execute("SELECT external_id, period_utc FROM pending_tx WHERE token = ?;", (token,))
+            rows = cur.fetchall()
+            if not rows:
+                return 0
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO tx_ledger (external_id, period_utc, committed_at)
+                VALUES (?, ?, ?);
+                """,
+                [(r["external_id"], r["period_utc"], committed_iso) for r in rows],
+            )
+            conn.execute("DELETE FROM pending_tx WHERE token = ?;", (token,))
+            conn.commit()
+            return len(rows)
+
+    def prune_tx_ledger(self, before_period_utc: str) -> int:
+        """Prune records older than the sliding lookback window to prevent unbounded growth."""
+        with self._get_connection() as conn:
+            cur = conn.execute("DELETE FROM tx_ledger WHERE period_utc < ?;", (before_period_utc,))
+            conn.execute("DELETE FROM pending_tx WHERE period_utc < ?;", (before_period_utc,))
+            conn.commit()
+            return cur.rowcount
+
+
+def get_or_create_state_key(key_path: Path) -> bytes:
+    """Retrieve existing 256-bit secret key or generate and securely persist a new one.
+
+    Key bytes and path contents are strictly secret and must never be logged.
+    """
+    if key_path.exists():
+        data = key_path.read_bytes()
+        if len(data) >= 32:
+            return data[:32]
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key = os.urandom(32)
+    tmp_path = key_path.with_suffix(".tmp")
+    tmp_path.write_bytes(key)
+    tmp_path.replace(key_path)
+    return key
+
+
+def compute_card_hmac(key: bytes, message: str) -> str:
+    """Compute HMAC-SHA256 hex digest for card state payload without leaking PII."""
+    return hmac.new(key, message.encode("utf-8"), hashlib.sha256).hexdigest()
+

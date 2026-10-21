@@ -9,7 +9,7 @@ Includes:
 from __future__ import annotations
 
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from poscenter_loyalty_agent.config import AgentSettings
 from poscenter_loyalty_agent.models import CardSyncItem, SourceBatch, TransactionSyncItem
@@ -176,9 +176,25 @@ class FakeLoyaltySource:
         self.is_closed = True
 
 
-def get_loyalty_source(settings: AgentSettings) -> LoyaltySource:
+def get_loyalty_source(
+    settings: AgentSettings,
+    state_store: Any = None,
+    mapping_config: Any = None,
+    com_connector: Any = None,
+) -> LoyaltySource:
     """Factory creating the appropriate LoyaltySource based on configuration."""
     if settings.one_adapter_mode == "fake":
         return FakeLoyaltySource()
+    if settings.one_adapter_mode == "com":
+        from poscenter_loyalty_agent.one_com_source import OneComLoyaltySource
+        from poscenter_loyalty_agent.one_mapping import load_one_mapping
+        from poscenter_loyalty_agent.state_store import StateStore
+
+        store = state_store or StateStore(settings.state_db_path)
+        cfg = mapping_config or load_one_mapping(
+            settings.mapping_path, require_verified=(settings.agent_env == "production")
+        )
+        return OneComLoyaltySource(settings, store, cfg, com_connector=com_connector)
     # Default to StubLoyaltySource
     return StubLoyaltySource()
+

@@ -17,8 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Run the agent in foreground console mode."""
+    """Run the agent in foreground console mode or execute standalone dry-run."""
     settings = get_settings()
+    if getattr(args, "dry_run", False) or settings.dry_run:
+        from poscenter_loyalty_agent.dry_run import run_dry_run_cli
+
+        return run_dry_run_cli(settings)
     configure_logging(
         log_level=settings.log_level,
         log_file_path=settings.log_file_path,
@@ -99,22 +103,26 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_service(args: argparse.Namespace) -> int:
     """Manage Windows Service (install, remove, start, stop, debug)."""
     try:
-        handle_service_command(args.service_args)
-        return 0
+        rc = handle_service_command(args.service_args)
+        return int(rc or 0)
     except Exception as exc:
         print(f"ERROR: Windows Service operation failed: {exc}", file=sys.stderr)
         return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from poscenter_loyalty_agent import __version__
+
     parser = argparse.ArgumentParser(
         prog="poscenter-loyalty-agent",
         description="POSCENTER Loyalty Agent - Background Sync Service for POSCENTER ONE",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # run
     p_run = subparsers.add_parser("run", help="Run the sync agent in foreground")
+    p_run.add_argument("--dry-run", action="store_true", dest="dry_run", help="Execute standalone inspection dry-run")
     p_run.set_defaults(func=cmd_run)
 
     # check-config
