@@ -1,7 +1,8 @@
+import { useKeyboardLift } from '../../src/components/useKeyboardLift';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { Animated, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError } from '../../src/api/errors';
 import { walletKey } from '../../src/api/wallet';
@@ -13,6 +14,7 @@ import { useI18n } from '../../src/i18n';
 import type { Card } from '../../src/types/api';
 
 export default function Bind() {
+  const lift = useKeyboardLift();
   const { t } = useI18n();
   const { api } = useSession();
   const { select } = useActiveCard();
@@ -29,9 +31,9 @@ export default function Bind() {
     },
   });
   const choices = mutation.error instanceof ApiError ? mutation.error.businesses : [];
-  return <SafeAreaView edges={['top']} style={styles.screen}>
+  return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
     <ScreenHeader title={t('bind')} back />
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <Animated.View ref={lift.ref} collapsable={false} onLayout={lift.onLayout} style={[{ flex: 1 }, lift.style]}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: 0 }]}>
         <View style={styles.panel}><BindForm pending={mutation.isPending} submit={value => { setBarcode(value); mutation.mutate({ value }); }} /></View>
         {mutation.isError && <ErrorNotice error={mutation.error} />}
@@ -39,6 +41,6 @@ export default function Bind() {
           {choices.map(business => <Button key={business.id} label={business.name} secondary disabled={mutation.isPending}
             onPress={() => mutation.mutate({ value: barcode, business: business.id })} />)}</View>}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </Animated.View>
   </SafeAreaView>;
 }

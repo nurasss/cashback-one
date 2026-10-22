@@ -1,5 +1,6 @@
+import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNotifications } from '../../../src/api/app';
 import { Icon } from '../../../src/components/icons';
 import { FadeIn } from '../../../src/components/motion';
@@ -10,12 +11,13 @@ import { fonts, theme } from '../../../src/theme';
 import { dateText } from '../../../src/utils/format';
 
 export default function NotificationsScreen() {
+  const insets = useSafeAreaInsets();
   const { t, language } = useI18n();
   const notifications = useNotifications();
   useMarkSeen('/me/notifications/read', (notifications.data?.unread_count ?? 0) > 0);
   return <SafeAreaView edges={['top']} style={styles.screen}>
     <ScreenHeader title={t('notifications')} />
-    <FlatList data={notifications.data?.items ?? []} keyExtractor={item => item.id} contentContainerStyle={[styles.content, { paddingTop: 0, gap: 12 }]}
+    <FlatList data={notifications.data?.items ?? []} keyExtractor={item => item.id} contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16, paddingTop: 0, gap: 12 }]}
       refreshing={notifications.isRefetching} onRefresh={() => { void notifications.refetch(); }}
       ListHeaderComponent={notifications.isPending ? <Loading /> : notifications.isError ? <ErrorNotice error={notifications.error} retry={() => { void notifications.refetch(); }} /> : null}
       ListEmptyComponent={notifications.isSuccess ? <EmptyState icon="bell" title={t('noNotifications')} /> : null}

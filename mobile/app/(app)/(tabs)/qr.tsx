@@ -1,7 +1,8 @@
+import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { requestWalletLink, useCardQr, useWalletAvailability } from '../../../src/api/app';
 import { useSession } from '../../../src/auth/provider';
 import { Button, Chip, EmptyState, ErrorNotice, Loading, ScreenHeader, styles } from '../../../src/components/ui';
@@ -13,6 +14,7 @@ import { useI18n } from '../../../src/i18n';
 import { fonts } from '../../../src/theme';
 
 export default function QrScreen() {
+  const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const { api } = useSession();
   const { card, cards, select } = useActiveCard();
@@ -47,7 +49,7 @@ export default function QrScreen() {
 
   return <SafeAreaView edges={['top']} style={styles.screen}>
     <ScreenHeader title={t('tabQr')} back onBack={() => router.navigate('/')} />
-    <ScrollView contentContainerStyle={[styles.content, { paddingTop: 96 }]}>
+    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16, paddingTop: 96 }]}>
       {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
         <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
       </EmptyState> : <>

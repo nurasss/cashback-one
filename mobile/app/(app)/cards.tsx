@@ -27,7 +27,7 @@ export default function CardsScreen() {
   });
   const confirmHide = (card: Card) => Alert.alert(t('hideTitle'), t('hideBody'), [{ text: t('cancel'), style: 'cancel' },
     { text: t('hide'), style: 'destructive', onPress: () => hide.mutate(card.id) }]);
-  return <SafeAreaView edges={['top']} style={styles.screen}>
+  return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
     <ScreenHeader title={t('myCards')} back />
     <FlatList data={cards.data ?? []} keyExtractor={item => item.id} contentContainerStyle={[styles.content, { paddingTop: 0, gap: 12 }]}
       refreshing={cards.isRefetching} onRefresh={() => { void cards.refetch(); }}

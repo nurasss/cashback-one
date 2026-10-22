@@ -21,7 +21,7 @@ export default function StatusScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const progress = tier?.next_threshold && tier.spend_total !== undefined
     ? Math.min(1, Math.max(0, Number(tier.spend_total ?? 0) / Number(tier.next_threshold))) : tier && !tier.next_level ? 1 : 0;
-  return <SafeAreaView edges={['top']} style={styles.screen}>
+  return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
     <ScreenHeader title={t('myStatus')} back />
     <ScrollView contentContainerStyle={[styles.content, { alignItems: 'stretch', paddingTop: 0, gap: 16 }]}>
       {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')} /> : <>

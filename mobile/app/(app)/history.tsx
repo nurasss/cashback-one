@@ -17,7 +17,7 @@ export default function HistoryScreen() {
   const history = useHistory(card?.id, filter);
   const rows = history.data?.pages.flatMap(page => page.items) ?? [];
   const filters: [HistoryFilter, string][] = [['all', t('filterAll')], ['accrual', t('filterAccrual')], ['redemption', t('filterRedemption')]];
-  return <SafeAreaView edges={['top']} style={styles.screen}>
+  return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
     <ScreenHeader title={t('accrualHistory')} back />
     <FlatList data={rows} keyExtractor={row => row.id} contentContainerStyle={[styles.content, { paddingTop: 0, gap: 10 }]}
       refreshing={history.isRefetching && !history.isFetchingNextPage} onRefresh={() => { void history.refetch(); }}

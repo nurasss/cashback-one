@@ -1,15 +1,18 @@
+import { useKeyboardLift } from '../../../src/components/useKeyboardLift';
+import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Animated, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { keys, useProfile } from '../../../src/api/app';
 import { useSession } from '../../../src/auth/provider';
 import { Button, ErrorNotice, Loading, ScreenHeader, styles } from '../../../src/components/ui';
 import { Avatar, FieldSheet, LanguageSwitch, ProfileRow } from '../../../src/features/profile';
 import { useI18n, type Language } from '../../../src/i18n';
 import { fonts, theme } from '../../../src/theme';
-import type { Gender, Profile } from '../../../src/types/api';
+import type { Profile } from '../../../src/types/api';
+import { cityOptions } from '../../../src/features/cities';
 import { birthDateToApi, birthDateToUi, initials } from '../../../src/utils/format';
 
 type Form = { first_name: string; last_name: string; email: string; gender: string; city: string; address: string; birth_date: string; iin: string; company: string };
@@ -20,6 +23,8 @@ const toForm = (p: Profile): Form => ({
 });
 
 export default function ProfileScreen() {
+  const lift = useKeyboardLift();
+  const insets = useSafeAreaInsets();
   const { t, language, setLanguage } = useI18n();
   const { api, session } = useSession();
   const query = useQueryClient();
@@ -59,11 +64,11 @@ export default function ProfileScreen() {
 
   const genderLabel = (value: string) => value === 'male' ? t('male') : value === 'female' ? t('female') : '';
   const sheets: Record<SheetField, { title: string; hint?: string; placeholder?: string; keyboardType?: 'default' | 'email-address' | 'number-pad'; maxLength?: number;
-    options?: { value: Gender; label: string }[]; validate?: (value: string) => string | null }> = {
+    options?: { value: string; label: string }[]; validate?: (value: string) => string | null }> = {
     email: { title: t('email'), placeholder: t('emailPh'), keyboardType: 'email-address', maxLength: 255,
       validate: value => !value || /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(value) ? null : t('invalidEmail') },
     gender: { title: t('gender'), options: [{ value: 'male', label: t('male') }, { value: 'female', label: t('female') }] },
-    city: { title: t('city'), maxLength: 100 },
+    city: { title: t('city'), options: cityOptions(t, form?.city ?? '') },
     address: { title: t('address'), maxLength: 255 },
     birth_date: { title: t('birthDate'), placeholder: t('birthDatePh'), keyboardType: 'number-pad', maxLength: 10,
       validate: value => birthDateToApi(value) === undefined ? t('invalidDate') : null },
@@ -74,8 +79,8 @@ export default function ProfileScreen() {
   return <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.colors.surface }]}>
     <ScreenHeader title={t('myProfile')} back onBack={() => router.navigate('/')}
       right={<LanguageSwitch value={language} onChange={changeLanguage} disabled={!profile.data} />} />
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: 8, gap: 6 }]}>
+    <Animated.View ref={lift.ref} collapsable={false} onLayout={lift.onLayout} style={[{ flex: 1 }, lift.style]}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16, paddingTop: 8, gap: 6 }]}>
         {profile.isPending || !form ? (profile.isError ? <ErrorNotice error={profile.error} retry={() => { void profile.refetch(); }} /> : <Loading />) : <>
           <Avatar initials={initials(form.first_name, form.last_name)} />
           <View style={{ gap: 12 }}>
@@ -86,7 +91,7 @@ export default function ProfileScreen() {
           <View>
             <ProfileRow label={t('email')} value={form.email} placeholder={t('emailPh')} onPress={() => setSheet('email')} />
             <ProfileRow label={t('gender')} value={genderLabel(form.gender)} onPress={() => setSheet('gender')} />
-            <ProfileRow label={t('city')} value={form.city} onPress={() => setSheet('city')} />
+            <ProfileRow label={t('city')} value={cityOptions(t, form.city).find(option => option.value === form.city)?.label} onPress={() => setSheet('city')} />
             <ProfileRow label={t('address')} value={form.address} onPress={() => setSheet('address')} />
             <ProfileRow label={t('birthDate')} value={form.birth_date} onPress={() => setSheet('birth_date')} />
             <ProfileRow label={t('iin')} value={form.iin} onPress={() => setSheet('iin')} />
@@ -102,7 +107,7 @@ export default function ProfileScreen() {
           </View>
         </>}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </Animated.View>
     {sheet && form && <FieldSheet {...sheets[sheet]} initial={form[sheet]} onClose={() => setSheet(null)}
       onDone={value => { update(sheet, value); setSheet(null); }} />}
   </SafeAreaView>;

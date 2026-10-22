@@ -1,6 +1,7 @@
+import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProfile, usePromotions } from '../../../src/api/app';
 import { Icon } from '../../../src/components/icons';
 import { FadeIn } from '../../../src/components/motion';
@@ -12,6 +13,7 @@ import { fonts, theme } from '../../../src/theme';
 import { percentText, phoneText } from '../../../src/utils/format';
 
 export default function Home() {
+  const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const { card, cards } = useActiveCard();
   const profile = useProfile();
@@ -20,7 +22,7 @@ export default function Home() {
   const openPromotion = (id: string) => router.push({ pathname: '/promotion/[id]', params: { id } });
 
   return <SafeAreaView edges={['top']} style={styles.screen}>
-    <View style={local.page}>
+    <View style={[local.page, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16 }]}>
       <FadeIn style={local.topSheet}>
         <BalanceHeader phone={phoneText(profile.data?.phone)} balance={card?.balance ?? '0'} />
         <BannerCarousel banners={promotions.data?.banners ?? []} open={openPromotion} />

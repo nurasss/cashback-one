@@ -13,7 +13,7 @@ export default function PromotionDetail() {
   const { t, language } = useI18n();
   const promotion = usePromotion(id);
   const item = promotion.data;
-  return <SafeAreaView edges={['top']} style={styles.screen}>
+  return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
     <ScreenHeader title={t('promotion')} back />
     <ScrollView contentContainerStyle={[styles.content, { paddingTop: 0 }]}>
       {promotion.isPending ? <Loading /> : !item ? <ErrorNotice error={promotion.error} retry={() => { void promotion.refetch(); }} /> : <>

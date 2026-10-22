@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { BackHandler, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useKeyboardLift } from '../components/useKeyboardLift';
+import { useRef, useState } from 'react';
+import { Keyboard, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, type IconName } from '../components/icons';
 import { Button } from '../components/ui';
@@ -51,29 +52,13 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
   const { t: tr } = useI18n();
   const insets = useSafeInsets();
   const [value, setValue] = useState(initial);
+  const selectedY = useRef(0);
   const [error, setError] = useState<string | null>(null);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
-
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (keyboardVisible) {
-        Keyboard.dismiss();
-        return true;
-      }
-      onClose();
-      return true;
-    });
-    return () => sub.remove();
-  }, [keyboardVisible, onClose]);
+  const lift = useKeyboardLift();
+  const scroll = useRef<ScrollView>(null);
 
   const handleRequestClose = () => {
-    if (keyboardVisible) {
+    if (lift.keyboardVisible.current) {
       Keyboard.dismiss();
       return;
     }
@@ -81,21 +66,22 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
   };
 
   const finish = (next: string) => {
-    const problem = validate?.(next.trim()) ?? null;
+    const result = options ? next : next.trim();
+    const problem = validate?.(result) ?? null;
     if (problem) { setError(problem); return; }
-    onDone(next.trim());
+    onDone(result);
   };
 
   return <Modal transparent animationType="slide" onRequestClose={handleRequestClose} statusBarTranslucent>
     <View style={styles.modalOverlay}>
-      <Pressable style={styles.backdrop} onPress={handleRequestClose} accessibilityLabel={tr('cancel')} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap}>
-        <View style={[styles.sheet, { paddingBottom: Math.max(32, insets.bottom + 20) }]}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={tr('cancel')} />
+      <Animated.View ref={lift.ref} collapsable={false} onLayout={lift.onLayout} pointerEvents="box-none" style={[styles.sheetWrap, lift.style]}>
+        <View style={[styles.sheet, { maxHeight: lift.maxHeight ?? '88%', paddingBottom: Math.max(32, insets.bottom + 20) }]}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>{title}</Text>
           {hint && <Text style={styles.sheetHint}>{hint}</Text>}
-          <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
-            {options ? options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ selected: value === option.value }}
+          <ScrollView ref={scroll} style={{ flexShrink: 1 }} onContentSizeChange={() => { if (options) scroll.current?.scrollTo({ y: selectedY.current, animated: false }); }} bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
+            {options ? options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected: value === option.value }} onLayout={event => { if (value === option.value) { selectedY.current = event.nativeEvent.layout.y; scroll.current?.scrollTo({ y: selectedY.current, animated: false }); } }}
               onPress={() => finish(option.value)} style={styles.option}>
               <Text style={styles.optionText}>{option.label}</Text>
               {value === option.value && <Icon name="check" size={22} color={t.colors.primary} />}
@@ -104,11 +90,12 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
                 placeholderTextColor={t.colors.placeholder} keyboardType={keyboardType} maxLength={maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
                 style={[styles.input, error ? { borderWidth: 1, borderColor: t.colors.error } : null]} onSubmitEditing={() => finish(value)} />
               {error && <Text style={styles.error}>{error}</Text>}
-              <Button label={tr('done')} onPress={() => finish(value)} />
+
             </View>}
           </ScrollView>
+          {!options && <Button label={tr('done')} onPress={() => finish(value)} />}
         </View>
-      </KeyboardAvoidingView>
+      </Animated.View>
     </View>
   </Modal>;
 }
@@ -126,8 +113,8 @@ const styles = StyleSheet.create({
   rowValue: { flex: 1, textAlign: 'right', fontFamily: fonts.regular, fontSize: 14, color: t.colors.muted },
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
-  sheetWrap: { width: '100%', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 16, gap: 16, maxHeight: '85%' },
+  sheetWrap: { flex: 1, width: '100%', justifyContent: 'flex-end' },
+  sheet: { flexShrink: 1, maxHeight: '88%', backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 16, gap: 16 },
   sheetContent: { gap: 12, paddingBottom: 4 },
   inputWrap: { gap: 16 },
   sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: t.colors.border },

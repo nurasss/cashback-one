@@ -1,5 +1,6 @@
+import { useKeyboardLift } from '../src/components/useKeyboardLift';
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError } from '../src/api/errors';
 import { useSession } from '../src/auth/provider';
@@ -14,6 +15,7 @@ import { phoneText } from '../src/utils/format';
 const RESEND_SECONDS = 30;
 
 export default function Login() {
+  const lift = useKeyboardLift();
   const { api, session } = useSession();
   const { t } = useI18n();
   const [phone, setPhone] = useState('+7');
@@ -44,7 +46,7 @@ export default function Login() {
   });
 
   return <SafeAreaView style={styles.screen}>
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <Animated.View ref={lift.ref} collapsable={false} onLayout={lift.onLayout} style={[styles.screen, lift.style]}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={local.content}>
         <FadeIn style={{ gap: 12 }}>
           <View style={local.brand}><Text style={local.brandText}>{t('bonusCurrency')}</Text></View>
@@ -82,7 +84,7 @@ export default function Login() {
         {error !== null && <ErrorNotice error={error} />}
         <Text style={[styles.muted, { textAlign: 'center' }]}>{t('sessionNote')}</Text>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </Animated.View>
   </SafeAreaView>;
 }
 

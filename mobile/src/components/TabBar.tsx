@@ -6,6 +6,9 @@ import { Icon, type IconName } from './icons';
 import { PressScale } from './motion';
 import { NewDot } from './ui';
 
+// Panel height excluding the system bottom inset: top padding + items + bottom padding.
+export const TAB_BAR_HEIGHT = 10 + 56 + 16;
+
 export type TabRoute = 'index' | 'promotions' | 'qr' | 'notifications' | 'profile';
 const tabs: { route: TabRoute; icon: IconName; label: 'tabHome' | 'tabPromotions' | 'tabQr' | 'tabNotifications' | 'tabProfile' }[] = [
   { route: 'index', icon: 'home', label: 'tabHome' },
@@ -20,7 +23,7 @@ export function TabBar({ active, onSelect, badges }: {
 }) {
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
-  return <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+  return <View style={[styles.bar, { paddingBottom: insets.bottom + 16 }]}>
     {tabs.map(tab => {
       const selected = tab.route === active;
       const label = tr(tab.label);

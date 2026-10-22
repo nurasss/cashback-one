@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
+import { TextInput } from 'react-native';
 import Home from '../app/(app)/(tabs)/index';
 import NotificationsScreen from '../app/(app)/(tabs)/notifications';
 import ProfileScreen from '../app/(app)/(tabs)/profile';
@@ -11,6 +12,7 @@ import Login from '../app/login';
 import { ActiveCardProvider } from '../src/features/activeCard';
 import { I18nProvider } from '../src/i18n';
 import { ru } from '../src/i18n/ru';
+import { kz } from '../src/i18n/kz';
 import type { Card, Profile } from '../src/types/api';
 
 const mockRequest = jest.fn();
@@ -54,6 +56,36 @@ function serve(routes: Record<string, unknown>) {
   });
 }
 beforeEach(() => { jest.clearAllMocks(); mockRequest.mockReset(); });
+
+it('saves the canonical Russian city selected using a Kazakh label', async () => {
+  serve({ '/me/profile': profile });
+  const { screen } = mountWith(<ProfileScreen />);
+  await waitFor(() => expect(screen.getByLabelText(ru.city)).toBeTruthy());
+  mockRequest.mockResolvedValueOnce({ ...profile, language: 'kz' });
+  await act(async () => { fireEvent.press(screen.getByRole('radio', { name: ru.langKz })); });
+  fireEvent.press(screen.getByLabelText(kz.city));
+  expect(screen.UNSAFE_getAllByType(TextInput)).toHaveLength(2);
+  fireEvent.press(screen.getByRole('radio', { name: kz.cityOption3 }));
+  mockRequest.mockResolvedValueOnce({ ...profile, city: ru.cityOption3, language: 'kz' });
+  await act(async () => { fireEvent.press(screen.getByRole('button', { name: kz.save })); });
+  expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { city: ru.cityOption3 } });
+  screen.unmount();
+});
+
+it('keeps a saved legacy city as a selected option and does not clear it on save', async () => {
+  const legacy = 'Тестовый старый город';
+  serve({ '/me/profile': { ...profile, city: legacy } });
+  const { screen } = mountWith(<ProfileScreen />);
+  await waitFor(() => expect(screen.getByLabelText(`${ru.city}: ${legacy}`)).toBeTruthy());
+  fireEvent.press(screen.getByLabelText(`${ru.city}: ${legacy}`));
+  expect(screen.getByRole('radio', { name: legacy }).props.accessibilityState.selected).toBe(true);
+  fireEvent.press(screen.getByRole('radio', { name: legacy }));
+  fireEvent.changeText(screen.getByLabelText(ru.firstName), 'Тест');
+  mockRequest.mockResolvedValueOnce({ ...profile, first_name: 'Тест', city: legacy });
+  await act(async () => { fireEvent.press(screen.getByRole('button', { name: ru.save })); });
+  expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { first_name: 'Тест' } });
+  screen.unmount();
+});
 
 it('logs in with a one-time WhatsApp code', async () => {
   const tokens = { access_token: 'a', refresh_token: 'r', expires_in: 900, token_type: 'bearer' };
