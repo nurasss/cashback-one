@@ -48,7 +48,11 @@ describe('Public Landing Isolation', () => {
     // Ссылка на скачивание APK
     const downloadLinks = screen.getAllByRole('link', { name: /Скачать для Android/i });
     expect(downloadLinks.length).toBeGreaterThanOrEqual(1);
-    expect(downloadLinks[0]).toHaveAttribute('href', '/app/cashback-one-1.0.2.apk');
+    for (const link of downloadLinks) {
+      expect(link).toHaveAttribute('href', '/app/cashback-one-1.0.3.apk');
+    }
+    expect(screen.queryByRole('link', { name: 'Конфиденциальность' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Условия' })).not.toBeInTheDocument();
 
     // Ссылка на вход для бизнеса
     const loginLinks = screen.getAllByRole('link', { name: /Вход для бизнеса/i });
@@ -81,7 +85,7 @@ describe('Public Landing Isolation', () => {
     expect(window.location.pathname).toBe('/');
   });
 
-  it('renders /privacy and /terms pages without API calls', () => {
+  it('keeps unapproved legal drafts unpublished without API calls', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
@@ -90,8 +94,8 @@ describe('Public Landing Isolation', () => {
         <AppRoutes />
       </MemoryRouter>
     );
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Политика конфиденциальности/i);
-    expect(screen.getByText(/файлов cookie/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Страница не найдена');
+    expect(screen.queryByText(/Категории обрабатываемых данных/i)).not.toBeInTheDocument();
     privacyView.unmount();
 
     const termsView = render(
@@ -99,8 +103,8 @@ describe('Public Landing Isolation', () => {
         <AppRoutes />
       </MemoryRouter>
     );
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Условия использования/i);
-    expect(screen.getByText(/Правила возврата товаров/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Страница не найдена');
+    expect(screen.queryByText(/Правила возврата товаров/i)).not.toBeInTheDocument();
     termsView.unmount();
 
     expect(fetchMock).not.toHaveBeenCalled();

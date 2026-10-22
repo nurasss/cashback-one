@@ -51,7 +51,7 @@ export function LandingPage() {
 
               <div className="landing-hero-actions">
                 <a
-                  href="/app/cashback-one-1.0.2.apk"
+                  href="/app/cashback-one-1.0.3.apk"
                   className="landing-btn landing-btn-primary landing-btn-lg"
                   download
                 >
@@ -69,7 +69,7 @@ export function LandingPage() {
               </div>
 
               <div className="landing-version-note">
-                <span>Android · APK 1.0.2</span>
+                <span>Android · APK 1.0.3</span>
               </div>
 
               {/* Утвержденный текст — заметно на первом экране */}
@@ -372,7 +372,7 @@ export function LandingPage() {
 
               <div className="landing-cta-actions">
                 <a
-                  href="/app/cashback-one-1.0.2.apk"
+                  href="/app/cashback-one-1.0.3.apk"
                   className="landing-btn landing-btn-primary landing-btn-lg"
                   download
                 >
@@ -412,16 +412,10 @@ export function LandingPage() {
             <a href="#balance-sync">Синхронизация</a>
             <a href="#business">Для бизнеса</a>
             <a href="#faq">Вопросы</a>
-            <a href="/privacy">Конфиденциальность</a>
-            <a href="/terms">Условия</a>
             <a href="/admin/login">Кабинет</a>
           </div>
 
           <div className="landing-footer-copy">
-            <div style={{ marginBottom: '8px' }}>
-              <a href="/privacy" style={{ marginRight: '16px', color: '#94a3b8', fontSize: '13px', textDecoration: 'none' }}>Конфиденциальность</a>
-              <a href="/terms" style={{ color: '#94a3b8', fontSize: '13px', textDecoration: 'none' }}>Условия</a>
-            </div>
             <small>© Cashback One. Платформа лояльности для решений POSCENTER.</small>
           </div>
         </div>
@@ -479,10 +473,6 @@ export function PublicNotFoundPage() {
             <span><strong>Cashback One</strong> · POSCENTER</span>
           </div>
           <div className="landing-footer-copy">
-            <div style={{ marginBottom: '8px' }}>
-              <a href="/privacy" style={{ marginRight: '16px', color: '#94a3b8', fontSize: '13px', textDecoration: 'none' }}>Конфиденциальность</a>
-              <a href="/terms" style={{ color: '#94a3b8', fontSize: '13px', textDecoration: 'none' }}>Условия</a>
-            </div>
             <small>© Cashback One. Платформа лояльности для решений POSCENTER.</small>
           </div>
         </div>

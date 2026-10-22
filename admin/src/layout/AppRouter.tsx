@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useInRouterContext, useLocation } from 'react-router-dom';
 import { LandingPage, PublicNotFoundPage } from '../pages/LandingPage';
-import { PrivacyPolicyPage, TermsPage } from '../pages/LegalPages';
 import { LoadingPage } from '../components/Feedback';
 import { AdminErrorBoundary } from './AdminErrorBoundary';
 
@@ -19,8 +18,7 @@ export function AppRoutes() {
     <Routes>
       {/* Главная публичная страница */}
       <Route path="/" element={<LandingPage />} />
-      <Route path="/privacy" element={<PrivacyPolicyPage />} />
-      <Route path="/terms" element={<TermsPage />} />
+      {/* LegalPages.tsx remains a draft until the operator and texts are approved. */}
 
       {/* Административная изолированная ветка с внешним перехватом ошибок загрузки */}
       <Route
