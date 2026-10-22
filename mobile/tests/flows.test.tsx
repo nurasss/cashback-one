@@ -113,8 +113,10 @@ it('home shows phone, balance, status, max cashback and hot offers', async () =>
   expect(screen.getByText('Не упустите до 12% баллов')).toBeTruthy();
   expect(screen.getAllByText('0,00').length).toBeGreaterThanOrEqual(2);
   await waitFor(() => expect(screen.getAllByLabelText('Выиграй авто').length).toBeGreaterThan(0));
+  fireEvent.press(screen.getAllByLabelText('Выиграй авто')[0]!);
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'b1' } });
   fireEvent.press(screen.getByLabelText('Скидка на хиты. Покупайте выгодно'));
-  expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'o1' } });
+  expect(mockPush).toHaveBeenCalledWith('/promotions');
   fireEvent.press(screen.getByLabelText(/Ваш статус 1/));
   expect(mockPush).toHaveBeenCalledWith('/status');
   screen.unmount();

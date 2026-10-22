@@ -1,12 +1,14 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, type ImageSourcePropType, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Icon, type IconName } from '../components/icons';
 import { motionEnabled, PressScale, useCountUp } from '../components/motion';
 import { useI18n } from '../i18n';
 import { fonts, theme as t } from '../theme';
 import type { Promotion, Tier } from '../types/api';
 import { pointsText } from '../utils/format';
+import { LOCAL_BANNER, PERMANENT_OFFERS } from './promotionsArtwork';
 
 export function BalanceHeader({ phone, balance }: { phone: string; balance: string }) {
   const { t: tr } = useI18n();
@@ -19,9 +21,19 @@ export function BalanceHeader({ phone, balance }: { phone: string; balance: stri
   </View>;
 }
 
+type CarouselSlide =
+  | { kind: 'local'; id: string; image: ImageSourcePropType; label: string }
+  | { kind: 'remote'; id: string; banner: Promotion };
+
 // Banner = data-driven card: the opening word is highlighted, with campaign artwork on the right.
 // Looping carousel: neighbours are scaled down, autoplay pauses while the user drags, the active dot stretches into a pill.
-export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: (id: string) => void }) {
+export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[]; open: (id: string) => void; openAll?: () => void }) {
+  const { t: tr } = useI18n();
+  const handleOpenAll = openAll ?? (() => router.push('/promotions'));
+  const slides: CarouselSlide[] = [
+    { kind: 'local', id: LOCAL_BANNER.id, image: LOCAL_BANNER.image, label: tr(LOCAL_BANNER.labelKey) },
+    ...banners.map(banner => ({ kind: 'remote' as const, id: banner.id, banner })),
+  ];
   const [index, setIndex] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
@@ -29,16 +41,19 @@ export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: 
   const dragging = useRef(false);
   const cardWidth = Math.max(0, containerWidth - 72);
   const step = cardWidth + 12;
-  const count = banners.length;
+  const count = slides.length;
 
   const settle = useCallback((rawIndex: number) => {
+    if (count <= 1) return;
     if (rawIndex <= 0) scrollRef.current?.scrollTo({ x: step * count, animated: false });
     if (rawIndex >= count + 1) scrollRef.current?.scrollTo({ x: step, animated: false });
     setIndex(rawIndex <= 0 ? count - 1 : rawIndex > count ? 0 : rawIndex - 1);
   }, [step, count]);
 
   useEffect(() => {
-    if (cardWidth > 0) requestAnimationFrame(() => scrollRef.current?.scrollTo({ x: step, animated: false }));
+    if (cardWidth > 0 && count > 1) {
+      requestAnimationFrame(() => scrollRef.current?.scrollTo({ x: step, animated: false }));
+    }
   }, [cardWidth, step, count]);
 
   useEffect(() => {
@@ -53,30 +68,41 @@ export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: 
     return () => { clearInterval(timer); if (settleTimer) clearTimeout(settleTimer); };
   }, [index, count, cardWidth, step, settle]);
 
-  if (count === 0) return null;
-  const loopBanners = [banners[count - 1]!, ...banners, banners[0]!];
+  const loopSlides = count > 1 ? [slides[count - 1]!, ...slides, slides[0]!] : slides;
+  const initialOffset = count > 1 ? step : 0;
   return <View testID="banner-carousel" style={styles.carousel} onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}>
     {cardWidth > 0 && <Animated.ScrollView ref={scrollRef as never} horizontal showsHorizontalScrollIndicator={false} snapToInterval={step} decelerationRate="fast"
-      contentOffset={{ x: step, y: 0 }} scrollEventThrottle={16}
+      scrollEnabled={count > 1}
+      contentOffset={{ x: initialOffset, y: 0 }} scrollEventThrottle={16}
       contentContainerStyle={{ paddingHorizontal: 36, gap: 12 }}
+      nestedScrollEnabled
       onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: false })}
       onScrollBeginDrag={() => { dragging.current = true; }}
       onScrollEndDrag={() => { dragging.current = false; }}
       onMomentumScrollEnd={event => settle(Math.round(event.nativeEvent.contentOffset.x / step))}>
-      {loopBanners.map((banner, slot) => <Pressable key={`${banner.id}-${slot}`} accessibilityRole="button" accessibilityLabel={[banner.title, banner.subtitle].filter(Boolean).join('. ')}
-        onPress={() => open(banner.id)} style={[styles.banner, { width: cardWidth }]}>
-        {banner.image_url && <Image source={{ uri: banner.image_url }} style={styles.bannerImage} resizeMode="contain" accessibilityIgnoresInvertColors />}
-        <View style={styles.bannerText}>
-          <Text style={styles.bannerTitle} numberOfLines={2}>
-            <Text style={styles.bannerTitleAccent}>{banner.title.trim().split(/\s+/)[0]} </Text>
-            {banner.title.trim().split(/\s+/).slice(1).join(' ')}
-          </Text>
-          {banner.subtitle && <Text style={styles.bannerSubtitle} numberOfLines={3}>{banner.subtitle}</Text>}
-        </View>
-      </Pressable>)}
+      {loopSlides.map((slide, slot) => {
+        if (slide.kind === 'local') {
+          return <Pressable key={`${slide.id}-${slot}`} testID={`banner-slide-${slot}`} accessibilityRole="button" accessibilityLabel={slide.label}
+            onPress={handleOpenAll} style={[styles.banner, styles.bannerLocal, { width: cardWidth }]}>
+            <Image source={slide.image} style={styles.bannerFullImage} resizeMode="contain" accessibilityIgnoresInvertColors />
+          </Pressable>;
+        }
+        const banner = slide.banner;
+        return <Pressable key={`${banner.id}-${slot}`} testID={`banner-slide-${slot}`} accessibilityRole="button" accessibilityLabel={[banner.title, banner.subtitle].filter(Boolean).join('. ')}
+          onPress={() => open(banner.id)} style={[styles.banner, { width: cardWidth }]}>
+          {banner.image_url && <Image source={{ uri: banner.image_url }} style={styles.bannerImage} resizeMode="contain" accessibilityIgnoresInvertColors />}
+          <View style={styles.bannerText}>
+            <Text style={styles.bannerTitle} numberOfLines={2}>
+              <Text style={styles.bannerTitleAccent}>{banner.title.trim().split(/\s+/)[0]} </Text>
+              {banner.title.trim().split(/\s+/).slice(1).join(' ')}
+            </Text>
+            {banner.subtitle && <Text style={styles.bannerSubtitle} numberOfLines={3}>{banner.subtitle}</Text>}
+          </View>
+        </Pressable>;
+      })}
     </Animated.ScrollView>}
     {count > 1 && <View style={styles.dots} accessibilityElementsHidden>
-      {banners.map((banner, dot) => <Dot key={banner.id} dot={dot} count={count} step={step} scrollX={scrollX} />)}
+      {slides.map((slide, dot) => <Dot key={slide.id} dot={dot} count={count} step={step} scrollX={scrollX} />)}
     </View>}
   </View>;
 }
@@ -89,7 +115,7 @@ function Dot({ dot, count, step, scrollX }: { dot: number; count: number; step: 
   const full = (slot: number) => peaks.includes(slot);
   const width = scrollX.interpolate({ inputRange, outputRange: slots.map(slot => (full(slot) ? 18 : 6)), extrapolate: 'clamp' });
   const backgroundColor = scrollX.interpolate({ inputRange, outputRange: slots.map(slot => (full(slot) ? t.colors.primary : '#D9D9DD')), extrapolate: 'clamp' });
-  return <Animated.View style={[styles.pageDot, { width, backgroundColor }]} />;
+  return <Animated.View testID={`banner-dot-${dot}`} style={[styles.pageDot, { width, backgroundColor }]} />;
 }
 
 export function StatusCard({ tier, balance, onPress }: { tier: Tier | null | undefined; balance: string; onPress: () => void }) {
@@ -113,6 +139,23 @@ export function StatusCard({ tier, balance, onPress }: { tier: Tier | null | und
       </View>
     </LinearGradient>
   </PressScale>;
+}
+
+export function PermanentOffersGrid({ onOpenAll }: { onOpenAll?: () => void }) {
+  const { t: tr } = useI18n();
+  const handleOpenAll = onOpenAll ?? (() => router.push('/promotions'));
+  const rows = [
+    PERMANENT_OFFERS.slice(0, 2),
+    PERMANENT_OFFERS.slice(2, 4),
+  ];
+  return <View testID="permanent-offers-grid" style={styles.permanentGrid}>
+    {rows.map((row, r) => <View key={r} style={styles.permanentGridRow}>
+      {row.map(offer => <PressScale key={offer.id} testID={`permanent-card-${offer.id}`} accessibilityRole="button" accessibilityLabel={tr(offer.labelKey)}
+        onPress={handleOpenAll} style={styles.permanentGridCard}>
+        <Image source={offer.image} style={styles.permanentGridImage} resizeMode="contain" accessibilityIgnoresInvertColors />
+      </PressScale>)}
+    </View>)}
+  </View>;
 }
 
 const offerIcons: IconName[] = ['percent', 'gift', 'card', 'cart'];
@@ -139,6 +182,8 @@ const styles = StyleSheet.create({
   brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 13, color: t.colors.onPrimary, letterSpacing: 0.4 },
   carousel: { gap: 12, paddingBottom: 12 },
   banner: { aspectRatio: 2.4, borderRadius: 22, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
+  bannerLocal: { aspectRatio: 675 / 294, backgroundColor: 'transparent' },
+  bannerFullImage: { width: '100%', height: '100%' },
   bannerImage: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '49%', height: '90%' },
   bannerText: { width: '50%', paddingLeft: 18, gap: 6, zIndex: 1 },
   bannerTitle: { fontFamily: fonts.extrabold, fontSize: 17, lineHeight: 20, color: t.colors.text, textTransform: 'uppercase' },
@@ -152,6 +197,10 @@ const styles = StyleSheet.create({
   statusRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, minWidth: 0 },
   statusCaption: { fontFamily: fonts.semibold, fontSize: 11, color: 'rgba(17,17,17,0.6)', textTransform: 'uppercase', letterSpacing: 0.8 },
   statusValue: { fontFamily: fonts.extrabold, fontSize: 26, color: t.colors.text },
+  permanentGrid: { gap: 12, paddingHorizontal: 20 },
+  permanentGridRow: { flexDirection: 'row', gap: 12 },
+  permanentGridCard: { flex: 1, aspectRatio: 378 / 312, backgroundColor: 'transparent' },
+  permanentGridImage: { width: '100%', height: '100%' },
   offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 20, padding: 14, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 10, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
   offerPink: { backgroundColor: '#FCE9EC' },
   offerGray: { backgroundColor: '#F1F1F4' },
