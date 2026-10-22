@@ -243,7 +243,7 @@ export function OperationsPage() {
 
 function CardResults({ page, setPage, rows, hasMore }: { page: PageQuery; setPage: (offset: number) => void; rows: Card[]; hasMore: boolean }) {
   return <DataTable<Card> page={{ ...page, has_more: hasMore }} onPage={setPage} rows={rows} rowKey={row => row.id} columns={[
-    { key: 'barcode', title: 'КАРТА', render: row => <Link className="table-name mono-value" to={`/cards/${encodeURIComponent(row.id)}`}>{row.barcode}<span>{row.business_name}</span></Link> },
+    { key: 'barcode', title: 'КАРТА', render: row => <Link className="table-name mono-value" to={`/admin/cards/${encodeURIComponent(row.id)}`}>{row.barcode}<span>{row.business_name}</span></Link> },
     { key: 'balance', title: 'БАЛАНС', render: row => <span className="numeric-value">{formatBalance(row.balance)}</span>, align: 'right' },
     { key: 'status', title: 'СТАТУС', render: row => <StatusPill tone={row.is_blocked ? 'negative' : 'positive'}>{row.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</StatusPill> },
     { key: 'owner', title: 'КЛИЕНТ', render: row => row.bind_method && row.phone_masked ? <span>{row.phone_masked}</span> : <span className="muted-copy">Не привязана</span> },
@@ -253,7 +253,7 @@ function CardResults({ page, setPage, rows, hasMore }: { page: PageQuery; setPag
 
 function UserResults({ page, setPage, rows, hasMore }: { page: PageQuery; setPage: (offset: number) => void; rows: AdminUser[]; hasMore: boolean }) {
   return <DataTable<AdminUser> page={{ ...page, has_more: hasMore }} onPage={setPage} rows={rows} rowKey={row => row.id} columns={[
-    { key: 'phone', title: 'КЛИЕНТ', render: row => <Link className="table-name" to={`/users/${encodeURIComponent(row.id)}`}>{row.phone_masked ?? 'Телефон не указан'}<span>Язык: {row.language}</span></Link> },
+    { key: 'phone', title: 'КЛИЕНТ', render: row => <Link className="table-name" to={`/admin/users/${encodeURIComponent(row.id)}`}>{row.phone_masked ?? 'Телефон не указан'}<span>Язык: {row.language}</span></Link> },
     { key: 'cards', title: 'КАРТ В БИЗНЕСЕ', render: row => <span className="numeric-value">{row.business_cards_count}</span>, align: 'right' },
     { key: 'created', title: 'ЗАРЕГИСТРИРОВАН', render: row => <time dateTime={row.created_at}>{formatDate(row.created_at)}</time> },
   ]} />;
@@ -294,7 +294,7 @@ export function CardDetailPage() {
   };
   return <div className="page-stack"><PageHeading eyebrow="КАРТЫ / ПРОФИЛЬ" title={card.business_name} subtitle="Карта и привязка отображаются только для доступных вам бизнесов." actions={<>
       {canUnbind && <button className="button button-danger" type="button" disabled={unbindBusy || !card.bind_method} onClick={() => { void submitUnbind(); }}>{unbindBusy ? 'Отвязываем…' : 'Отвязать карту'}</button>}
-      <Link className="button button-secondary" to="/operations">К результатам поиска</Link>
+      <Link className="button button-secondary" to="/admin/operations">К результатам поиска</Link>
     </>} />
     {unbindError && <p className="form-error" role="alert">{unbindError}</p>}
     {unbindResult && <p className="success-copy" role="status">{unbindResult === 'unbound' ? 'Привязка удалена. Карта и баланс сохранены.' : 'Карта уже была отвязана.'}</p>}
@@ -318,11 +318,11 @@ export function UserDetailPage() {
   if (query.isPending) return <LoadingPage label="Загружаем клиента…" />;
   if (query.isError || !query.data) return <div className="page-stack"><ErrorNotice error={query.error} retry={() => { void query.refetch(); }} /></div>;
   const user = query.data;
-  return <div className="page-stack"><PageHeading eyebrow="КЛИЕНТЫ / ПРОФИЛЬ" title={user.phone ?? 'Клиент'} subtitle="Отображаются только карты, входящие в разрешённую область данных." actions={<Link className="button button-secondary" to="/operations">К поиску</Link>} />
+  return <div className="page-stack"><PageHeading eyebrow="КЛИЕНТЫ / ПРОФИЛЬ" title={user.phone ?? 'Клиент'} subtitle="Отображаются только карты, входящие в разрешённую область данных." actions={<Link className="button button-secondary" to="/admin/operations">К поиску</Link>} />
     <section className="surface-card"><dl className="detail-list"><Detail label="Телефон">{user.phone ?? 'Не указан'}</Detail><Detail label="Язык">{user.language}</Detail><Detail label="Создан"><time dateTime={user.created_at}>{formatDate(user.created_at)}</time></Detail></dl></section>
     <section className="surface-card"><div className="section-heading"><h2>Карты в области доступа</h2></div>
       {user.cards.items.length === 0 ? <p className="table-empty">Карт не найдено.</p> : <div className="table-wrap"><table><thead><tr><th>КАРТА</th><th>БИЗНЕС</th><th>БАЛАНС</th><th>ПРИВЯЗКА</th><th>СТАТУС</th></tr></thead>
-        <tbody>{user.cards.items.map(card => <tr key={card.id}><td><Link className="text-link mono-value" to={`/cards/${encodeURIComponent(card.id)}`}>{card.barcode}</Link></td><td>{card.business_name}</td><td>{formatBalance(card.balance)}</td><td>{card.bind_method ?? '—'}</td><td>{card.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</td></tr>)}</tbody></table></div>}
+        <tbody>{user.cards.items.map(card => <tr key={card.id}><td><Link className="text-link mono-value" to={`/admin/cards/${encodeURIComponent(card.id)}`}>{card.barcode}</Link></td><td>{card.business_name}</td><td>{formatBalance(card.balance)}</td><td>{card.bind_method ?? '—'}</td><td>{card.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</td></tr>)}</tbody></table></div>}
       {user.cards.items.length > 0 && <div className="pagination"><span>Карты постранично</span><div className="pagination-actions"><button className="button button-secondary" disabled={page.offset === 0} onClick={() => setPage(Math.max(0, page.offset - page.limit))}>Назад</button><button className="button button-secondary" disabled={!user.cards.has_more} onClick={() => setPage(page.offset + page.limit)}>Далее</button></div></div>}
     </section>
   </div>;

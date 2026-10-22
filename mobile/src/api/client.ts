@@ -37,9 +37,10 @@ export class ApiClient {
       });
       if (options.auth && generation !== this.hooks.generation()) throw new ApiError('SESSION_CHANGED');
       if (response.status === 204) return undefined as T;
+      // A body that is not JSON (captive portal, proxy) is a transport problem; only parsed-but-malformed tokens are INVALID_RESPONSE.
       let payload: unknown;
       try { payload = await response.json(); }
-      catch { throw new ApiError(controller.signal.aborted ? 'REQUEST_TIMEOUT' : response.ok ? 'INVALID_RESPONSE' : 'SERVER_UNAVAILABLE', response.status); }
+      catch { throw new ApiError(controller.signal.aborted ? 'REQUEST_TIMEOUT' : response.ok ? 'RESPONSE_UNREADABLE' : 'SERVER_UNAVAILABLE', response.status); }
       if (!response.ok) throw normalizeApiError(response.status, payload);
       return payload as T;
     } catch (error) {

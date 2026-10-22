@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Navigation } from '../features/Navigation';
-import { AdminProvider } from './provider';
 import { AppRouter } from '../layout/AppRouter';
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
@@ -14,7 +13,7 @@ beforeEach(() => {
   vi.stubEnv('VITE_ALLOW_INSECURE_HTTP', '0');
   vi.stubGlobal('fetch', vi.fn(async () => json(401, { error: { code: 'ADMIN_UNAUTHENTICATED', message: 'private backend detail' } })));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { cleanup(); window.history.pushState({}, '', '/'); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('role-aware admin navigation', () => {
   it('renders tenant Audit for managers while keeping Businesses superadmin-only', () => {
@@ -41,7 +40,8 @@ it('keeps one-time agent-key disclosure out of persistent browser and query stor
 
 it('keeps the SPA in a bootstrap state before revealing the sign-in form', async () => {
   const user = userEvent.setup();
-  render(<AdminProvider><AppRouter /></AdminProvider>);
+  window.history.pushState({}, '', '/admin/login');
+  render(<AppRouter />);
   expect(screen.getByText('Загружаем безопасную сессию…')).toBeInTheDocument();
   await screen.findByRole('heading', { name: 'Вход в систему' });
   expect(screen.getByLabelText('Логин')).toBeInTheDocument();
@@ -58,7 +58,8 @@ it('maps rejected credentials to generic copy without rendering the backend body
     return json(401, { error: { code: 'ADMIN_UNAUTHENTICATED' } });
   });
   const user = userEvent.setup();
-  render(<AdminProvider><AppRouter /></AdminProvider>);
+  window.history.pushState({}, '', '/admin/login');
+  render(<AppRouter />);
   await screen.findByRole('heading', { name: 'Вход в систему' });
   await user.type(screen.getByLabelText('Логин'), 'test.admin');
   await user.type(screen.getByLabelText('Пароль'), 'fixture-only-password');

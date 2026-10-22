@@ -36,6 +36,9 @@ export default function Home() {
               <Icon name="crown" size={18} color={theme.colors.primary} />
               <Text style={local.promoLineText}>{t('dontMiss', { percent: percentText(card.tier.max_percent) })}</Text>
             </View>}
+            <View style={local.balanceNote} accessible accessibilityRole="text">
+              <Text style={local.balanceNoteText}>{t('balanceDelayNote')}</Text>
+            </View>
           </> : <View style={styles.sheet}><EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
             <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
           </EmptyState></View>}
@@ -63,6 +66,8 @@ const local = StyleSheet.create({
   topSheet: { backgroundColor: theme.colors.surface, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, paddingBottom: 14 },
   section: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, gap: 10 },
   promoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  balanceNote: { backgroundColor: theme.colors.softPrimary, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
+  balanceNoteText: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: theme.colors.text },
   promoLineText: { fontFamily: fonts.semibold, fontSize: 13, color: theme.colors.primary },
   offersSheet: { flex: 1, minHeight: 0, backgroundColor: theme.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 18, paddingBottom: 14, gap: 12 },
   offersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20 },

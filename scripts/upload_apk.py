@@ -20,6 +20,10 @@ APK_SPECS = {
         "size": 51160387,
         "sha256": "a48a24d82c94cc0d0b1f88d1861a689c83e0e6a83f90aa6c79d974e51b7c27c7",
     },
+    "cashback-one-1.0.3.apk": {
+        "size": 51167439,
+        "sha256": "ac33efc647eb9f606cc6afba754214b33f870426b7c11fbc86472d076fe604ba",
+    },
 }
 DEFAULT_APK_PATH = Path("C:/cb-out/cashback-one-1.0.2.apk")
 

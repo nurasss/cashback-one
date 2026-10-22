@@ -125,7 +125,7 @@ export function DashboardPage() {
             <span className="panel-kicker">СИНХРОНИЗАЦИЯ</span>
             <h2>Состояние агентов</h2>
           </div>
-          <Link className="text-link" to="/agents">
+          <Link className="text-link" to="/admin/agents">
             К списку агентов <span aria-hidden="true">→</span>
           </Link>
         </div>

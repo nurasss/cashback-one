@@ -1,65 +1,75 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { useAdminSession } from '../auth/provider';
-import { RequireAdmin, RequireSuperadmin } from '../auth/RequireAdmin';
-import { LoginPage } from '../pages/LoginPage';
-import { DashboardPage } from '../pages/DashboardPage';
-import { BusinessesPage, BusinessDetailPage } from '../pages/BusinessesPage';
-import { AgentsPage, AgentDetailPage } from '../pages/AgentsPage';
-import { OperationsPage, CardDetailPage, UserDetailPage } from '../pages/OperationsPage';
-import { AuditPage } from '../pages/AuditPage';
-import { ContentPage } from '../pages/ContentPage';
-import { ErrorNotice, LoadingPage } from '../components/Feedback';
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useInRouterContext, useLocation } from 'react-router-dom';
+import { LandingPage, PublicNotFoundPage } from '../pages/LandingPage';
+import { PrivacyPolicyPage, TermsPage } from '../pages/LegalPages';
+import { LoadingPage } from '../components/Feedback';
+import { AdminErrorBoundary } from './AdminErrorBoundary';
 
-function ProtectedLayout() {
-  return <RequireAdmin />;
+const AdminRoutesLazy = lazy(() => import('./AdminRoutes'));
+
+function LegacyRedirect() {
+  const location = useLocation();
+  const cleanPath = location.pathname.replace(/\/+$/, '');
+  const destination = `/admin${cleanPath}${location.search}${location.hash}`;
+  return <Navigate to={destination} replace />;
 }
 
-function RouterState() {
-  const { session, view } = useAdminSession();
-  if (view.status === 'loading') return <LoadingPage />;
-  if (view.status === 'error') return <main className="center-screen"><div className="failure-panel">
-    <div className="brand-mark-wrap"><img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" /></div>
-    <h1>Нет соединения с Admin</h1>
-    <ErrorNotice error={view.error} retry={() => { void session.bootstrap(); }} />
-    <button className="button button-secondary" type="button" onClick={() => session.continueToLogin()}>Перейти ко входу</button>
-  </div></main>;
-  if (view.status === 'logout_error') return <main className="center-screen"><div className="failure-panel">
-    <div className="brand-mark-wrap"><img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" /></div>
-    <h1>Выход не подтверждён</h1>
-    <p className="error-copy">Браузер заблокировал доступ на этом устройстве. Сервер ещё не подтвердил отзыв сессии.</p>
-    <button className="button button-primary" type="button" onClick={() => { void session.logout(); }}>Повторить выход</button>
-  </div></main>;
-  if (view.status === 'signing_out') return <LoadingPage label="Выполняем выход…" />;
-  if (view.status === 'authenticating') return <Routes><Route path="/login" element={<LoginPage />} /><Route path="/admin/login" element={<LoginPage />} /><Route path="*" element={<LoadingPage />} /></Routes>;
-  return <Routes>
-    <Route path="/login" element={view.status === 'authenticated' ? <Navigate to="/" replace /> : <LoginPage />} />
-    <Route path="/admin/login" element={view.status === 'authenticated' ? <Navigate to="/" replace /> : <LoginPage />} />
-    <Route element={<ProtectedLayout />}>
-      <Route index element={<DashboardPage />} />
-      <Route path="businesses" element={<RequireSuperadmin><BusinessesPage /></RequireSuperadmin>} />
-      <Route path="businesses/:businessId" element={<RequireSuperadmin><BusinessDetailPage /></RequireSuperadmin>} />
-      <Route path="agents" element={<AgentsPage />} />
-      <Route path="agents/:agentId" element={<AgentDetailPage />} />
-      <Route path="operations" element={<OperationsPage />} />
-      <Route path="cards/:cardId" element={<CardDetailPage />} />
-      <Route path="users/:userId" element={<UserDetailPage />} />
-      <Route path="audit" element={<AuditPage />} />
-      <Route path="content" element={<ContentPage />} />
-      <Route path="admin" element={<DashboardPage />} />
-      <Route path="admin/businesses" element={<RequireSuperadmin><BusinessesPage /></RequireSuperadmin>} />
-      <Route path="admin/businesses/:businessId" element={<RequireSuperadmin><BusinessDetailPage /></RequireSuperadmin>} />
-      <Route path="admin/agents" element={<AgentsPage />} />
-      <Route path="admin/agents/:agentId" element={<AgentDetailPage />} />
-      <Route path="admin/operations" element={<OperationsPage />} />
-      <Route path="admin/cards/:cardId" element={<CardDetailPage />} />
-      <Route path="admin/users/:userId" element={<UserDetailPage />} />
-      <Route path="admin/audit" element={<AuditPage />} />
-      <Route path="admin/content" element={<ContentPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Route>
-  </Routes>;
+export function AppRoutes() {
+  return (
+    <Routes>
+      {/* Главная публичная страница */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+
+      {/* Административная изолированная ветка с внешним перехватом ошибок загрузки */}
+      <Route
+        path="/admin/*"
+        element={
+          <AdminErrorBoundary>
+            <Suspense
+              fallback={
+                <div className="admin-surface">
+                  <LoadingPage label="Загружаем безопасную сессию…" />
+                </div>
+              }
+            >
+              <AdminRoutesLazy />
+            </Suspense>
+          </AdminErrorBoundary>
+        }
+      />
+
+      {/* Legacy redirects с сохранением ID, query и hash */}
+      <Route path="/login" element={<LegacyRedirect />} />
+      <Route path="/login/*" element={<LegacyRedirect />} />
+      <Route path="/businesses" element={<LegacyRedirect />} />
+      <Route path="/businesses/*" element={<LegacyRedirect />} />
+      <Route path="/agents" element={<LegacyRedirect />} />
+      <Route path="/agents/*" element={<LegacyRedirect />} />
+      <Route path="/operations" element={<LegacyRedirect />} />
+      <Route path="/operations/*" element={<LegacyRedirect />} />
+      <Route path="/cards/*" element={<LegacyRedirect />} />
+      <Route path="/users/*" element={<LegacyRedirect />} />
+      <Route path="/audit" element={<LegacyRedirect />} />
+      <Route path="/audit/*" element={<LegacyRedirect />} />
+      <Route path="/content" element={<LegacyRedirect />} />
+      <Route path="/content/*" element={<LegacyRedirect />} />
+
+      {/* Неизвестные публичные адреса */}
+      <Route path="*" element={<PublicNotFoundPage />} />
+    </Routes>
+  );
 }
 
 export function AppRouter() {
-  return <BrowserRouter><RouterState /></BrowserRouter>;
+  const inRouter = useInRouterContext();
+  if (inRouter) {
+    return <AppRoutes />;
+  }
+  return (
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
+  );
 }

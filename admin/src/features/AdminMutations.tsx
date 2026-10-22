@@ -266,9 +266,12 @@ export function ManagerAccessDialog({ disclosure, title = 'Доступ клие
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState('');
 
+  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+  const loginUrl = `${origin}/admin/login`;
+
   const copyAll = async () => {
     setCopyError('');
-    const fullText = `Ссылка: ${disclosure.login_url}\nЛогин: ${disclosure.login}\nПароль: ${disclosure.password}`;
+    const fullText = `Ссылка: ${loginUrl}\nЛогин: ${disclosure.login}\nПароль: ${disclosure.password}`;
     try {
       await navigator.clipboard.writeText(fullText);
       setCopied(true);
@@ -281,7 +284,7 @@ export function ManagerAccessDialog({ disclosure, title = 'Доступ клие
     <div className="mutation-form">
       <p className="warning-copy" role="status">Пароль показан один раз и не сохраняется. Передайте клиенту безопасным способом.</p>
       <label htmlFor="disclosure-url">Ссылка для входа</label>
-      <code id="disclosure-url" className="secret-key" aria-label="Ссылка для входа">{disclosure.login_url}</code>
+      <code id="disclosure-url" className="secret-key" aria-label="Ссылка для входа">{loginUrl}</code>
       <label htmlFor="disclosure-login">Логин</label>
       <code id="disclosure-login" className="secret-key" aria-label="Логин менеджера">{disclosure.login}</code>
       <label htmlFor="disclosure-password">Пароль</label>

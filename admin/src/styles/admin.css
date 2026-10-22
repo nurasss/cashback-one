@@ -1,7 +1,4 @@
 :root{
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
-  color: #0f172a;
-  background: #f8fafc;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -44,38 +41,51 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: var(--surface-bg);
-  color: var(--ink);
   overflow-x: hidden;
 }
 
-button, input, select, textarea {
+/* Scoped to admin cabinet and admin error/loading screens */
+.admin-surface {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--surface-bg);
+  min-height: 100vh;
+}
+
+.admin-surface button,
+.admin-surface input,
+.admin-surface select,
+.admin-surface textarea {
   font: inherit;
 }
 
-button, a, input, select, textarea {
+.admin-surface button,
+.admin-surface a,
+.admin-surface input,
+.admin-surface select,
+.admin-surface textarea {
   -webkit-tap-highlight-color: transparent;
 }
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
+.admin-surface button:focus-visible,
+.admin-surface a:focus-visible,
+.admin-surface input:focus-visible,
+.admin-surface select:focus-visible,
+.admin-surface textarea:focus-visible {
   outline: 2px solid var(--emerald);
   outline-offset: 2px;
 }
 
-a {
+.admin-surface a {
   color: inherit;
   text-decoration: none;
 }
 
-button {
+.admin-surface button {
   cursor: pointer;
 }
 
-button:disabled {
+.admin-surface button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -757,13 +767,13 @@ button:disabled {
   overflow-x: auto;
 }
 
-table {
+.admin-surface table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
 }
 
-th {
+.admin-surface th {
   padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   background: #f8fafc;
@@ -775,7 +785,7 @@ th {
   white-space: nowrap;
 }
 
-td {
+.admin-surface td {
   padding: 14px 16px;
   border-bottom: 1px solid #f1f5f9;
   color: #334155;

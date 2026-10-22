@@ -13,7 +13,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
-  useEffect(() => { if (view.status === 'authenticated') navigate('/', { replace: true }); }, [view.status, navigate]);
+  useEffect(() => { if (view.status === 'authenticated') navigate('/admin', { replace: true }); }, [view.status, navigate]);
   if (view.status === 'loading') return <LoadingPage />;
   if (view.status === 'signing_out' || view.status === 'logout_error') return <section className="center-screen"><div className="failure-panel">
     <div className="brand-mark-wrap"><img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" /></div>
@@ -31,7 +31,7 @@ export function LoginPage() {
     try {
       await session.login(login, password);
       setPassword('');
-      navigate('/', { replace: true });
+      navigate('/admin', { replace: true });
     } catch (cause) {
       setPassword('');
       setError(cause instanceof ApiError ? cause : new ApiError('UNKNOWN_ERROR'));

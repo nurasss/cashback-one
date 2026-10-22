@@ -2,7 +2,7 @@ import { useKeyboardLift } from '../../../src/components/useKeyboardLift';
 import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { keys, useProfile } from '../../../src/api/app';
@@ -30,13 +30,16 @@ export default function ProfileScreen() {
   const query = useQueryClient();
   const profile = useProfile();
   const [form, setForm] = useState<Form | null>(null);
+  // Latest form for code that runs after an await; every write goes through writeForm so the ref never lags behind what is on screen.
+  const formRef = useRef<Form | null>(null);
+  const writeForm = (next: Form) => { formRef.current = next; setForm(next); };
   const [sheet, setSheet] = useState<SheetField | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [saved, setSaved] = useState(false);
-  useEffect(() => { if (profile.data && !form) setForm(toForm(profile.data)); }, [profile.data, form]);
+  useEffect(() => { if (profile.data && !formRef.current) writeForm(toForm(profile.data)); }, [profile.data]);
 
-  const update = (field: keyof Form, value: string) => { setForm(current => current ? { ...current, [field]: value } : current); setSaved(false); };
+  const update = (field: keyof Form, value: string) => { if (formRef.current) writeForm({ ...formRef.current, [field]: value }); setSaved(false); };
   const patch = async (body: Record<string, unknown>) => {
     const next = await api.request<Profile>('/me/profile', { method: 'PATCH', auth: true, body });
     query.setQueryData(keys.profile, next);
@@ -57,7 +60,29 @@ export default function ProfileScreen() {
     }
     if (Object.keys(body).length === 0) { setSaved(true); return; }
     setSaving(true); setError(null);
-    try { setForm(toForm(await patch(body))); setSaved(true); } catch (err) { setError(err); } finally { setSaving(false); }
+    // Remember what was sent: the answer is applied only to fields that still hold exactly this text.
+    const sent = Object.fromEntries(Object.keys(body).map(key => [key, form[key as keyof Form]])) as Partial<Form>;
+    try {
+      const fresh = toForm(await patch(body));
+      const current = formRef.current;
+      if (current) {
+        const next = { ...current };
+        for (const key of Object.keys(sent) as (keyof Form)[]) if (current[key] === sent[key]) next[key] = fresh[key];
+        writeForm(next);
+        // "Saved" only when nothing typed in the meantime (in these or any other fields) is still waiting for the server.
+        setSaved((Object.keys(next) as (keyof Form)[]).every(key => next[key] === fresh[key]));
+      }
+    } catch (err) { setError(err); } finally { setSaving(false); }
+  };
+  // A sheet saves just its own field. Errors propagate to the sheet, which keeps the input; other unsaved fields are not sent.
+  const commitField = async (field: SheetField, value: string) => {
+    if (!profile.data) return;
+    if (value !== toForm(profile.data)[field]) {
+      const next = await patch({ [field]: field === 'birth_date' ? birthDateToApi(value) : value.trim() || null });
+      const fresh = toForm(next);
+      if (formRef.current) writeForm({ ...formRef.current, [field]: fresh[field] });
+    }
+    setSheet(null);
   };
   const logout = () => Alert.alert(t('logoutConfirm'), undefined, [{ text: t('cancel'), style: 'cancel' }, { text: t('logout'), style: 'destructive',
     onPress: () => { void session.logout().then(failed => { if (failed) Alert.alert(t('logout'), t('revokeFailed')); }); } }]);
@@ -109,7 +134,7 @@ export default function ProfileScreen() {
       </ScrollView>
     </Animated.View>
     {sheet && form && <FieldSheet {...sheets[sheet]} initial={form[sheet]} onClose={() => setSheet(null)}
-      onDone={value => { update(sheet, value); setSheet(null); }} />}
+      onDone={value => commitField(sheet, value)} />}
   </SafeAreaView>;
 }
 

@@ -11,14 +11,14 @@ export function AdminLayout({ children }: PropsWithChildren) {
   const { admin } = view;
   const signOut = async () => {
     await session.logout();
-    navigate('/login', { replace: true });
+    navigate('/admin/login', { replace: true });
   };
 
   return (
     <div className="app-frame">
       <aside className="sidebar">
         <div className="sidebar-brand-container">
-          <NavLink className="brand-lockup" to="/" aria-label="POSCENTER Loyalty — на главную">
+          <NavLink className="brand-lockup" to="/admin" aria-label="POSCENTER Loyalty — на главную">
             <div className="brand-mark-wrap">
               <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
             </div>

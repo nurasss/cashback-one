@@ -23,7 +23,7 @@ export const ru = {
   cityOption21: 'Жезказган',
   cityOption22: 'Другой город',
   app: 'POSCENTER ONE', bonusCurrency: 'ONE', loading: 'Загрузка…', retry: 'Повторить', cancel: 'Отмена', save: 'Сохранить', done: 'Готово',
-  back: 'Назад', all: 'Все', more: 'Загрузить ещё', bootstrap: 'Восстанавливаем сессию', signingOut: 'Выходим из аккаунта',
+  saving: 'Сохранение…', back: 'Назад', all: 'Все', more: 'Загрузить ещё', bootstrap: 'Восстанавливаем сессию', signingOut: 'Выходим из аккаунта',
   // Tabs
   tabHome: 'Главная', tabPromotions: 'Акции', tabQr: 'Мой QR-код', tabNotifications: 'Сообщения', tabProfile: 'Профиль',
   newBadge: 'Есть новое',
@@ -37,9 +37,11 @@ export const ru = {
   yourStatus: 'Ваш статус', pointsSum: 'Сумма баллов', dontMiss: 'Не упустите до {percent}% баллов', hotOffers: 'Горячие предложения',
   noCardTitle: 'Добавьте карту лояльности', noCardBody: 'Карты с вашим номером появятся автоматически. Карту можно привязать и по номеру.',
   bind: 'Привязать карту', noOffers: 'Скоро здесь появятся предложения',
+  balanceDelayNote: 'Баланс обновляется не сразу. Новые начисления и списания появятся, когда магазин передаст данные',
   // QR
   showToCashier: 'Покажите QR кассиру', qrRefreshIn: 'Код обновится через {seconds} сек.', qrUnavailable: 'Не удалось получить QR-код. Проверьте интернет.',
   cardBlocked: 'Карта заблокирована',
+  modeQr: 'QR-код', modeBarcode: 'Штрихкод', barcodeTitle: 'Штрихкод карты', barcodeCaption: 'Номер карты',
   addToAppleWallet: 'Добавить в Apple Wallet',
   addToGoogleWallet: 'Добавить в Google Wallet',
   // Status
@@ -90,7 +92,7 @@ export const errorMessages: Record<string, string> = {
   PROMOTION_NOT_FOUND: 'Акция завершилась или недоступна.',
   NETWORK_UNAVAILABLE: 'Нет соединения. Проверьте интернет и повторите.', REQUEST_TIMEOUT: 'Сервер не ответил вовремя. Повторите запрос.',
   SERVER_UNAVAILABLE: 'Сервис временно недоступен. Попробуйте позже.', UNKNOWN_ERROR: 'Произошла ошибка. Повторите запрос.',
-  INVALID_RESPONSE: 'Не удалось прочитать ответ сервера. Попробуйте позже.', CONFIG_MISSING: ru.config,
+  INVALID_RESPONSE: 'Не удалось прочитать ответ сервера. Попробуйте позже.', RESPONSE_UNREADABLE: 'Не удалось прочитать ответ сервера. Проверьте соединение и повторите.', CONFIG_MISSING: ru.config,
   INSECURE_TRANSPORT: 'Безопасное подключение к сервису недоступно. Обратитесь в поддержку.',
   INVALID_API_URL: 'Подключение к сервису настроено некорректно. Обратитесь в поддержку.',
   SECURE_STORAGE_UNAVAILABLE: 'Не удалось открыть защищённое хранилище. Разблокируйте устройство и повторите.',

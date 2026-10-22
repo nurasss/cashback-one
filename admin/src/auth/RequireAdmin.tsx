@@ -8,7 +8,7 @@ import { AdminLayout } from '../layout/AdminLayout';
 export function RequireAdmin() {
   const { session, view } = useAdminSession();
   if (view.status === 'loading' || view.status === 'authenticating') return <LoadingPage />;
-  if (view.status === 'anonymous') return <Navigate to="/login" replace />;
+  if (view.status === 'anonymous') return <Navigate to="/admin/login" replace />;
   if (view.status === 'error') return <BootstrapFailure retry={() => { void session.bootstrap(); }} />;
   if (view.status === 'logout_error') return <LogoutFailure retry={() => { void session.logout(); }} />;
   if (view.status === 'signing_out') return <LoadingPage label="Выполняем выход…" />;
@@ -24,7 +24,7 @@ function BootstrapFailure({ retry }: { retry: () => void }) {
     <NavigateLink />
   </div></main>;
 }
-function NavigateLink() { return <a className="button button-secondary" href="/login">Перейти ко входу</a>; }
+function NavigateLink() { return <a className="button button-secondary" href="/admin/login">Перейти ко входу</a>; }
 
 function LogoutFailure({ retry }: { retry: () => void }) {
   return <main className="center-screen"><div className="failure-panel">

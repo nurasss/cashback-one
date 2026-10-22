@@ -34,7 +34,7 @@ export function AgentsPage() {
     {query.isPending ? <LoadingPage label="Загружаем агентов…" /> : query.isError ? <ErrorNotice error={query.error} retry={() => { void query.refetch(); }} /> : query.data?.items.length === 0 && page.offset === 0 ?
       <EmptyState title="Агентов пока нет" detail="Статус появится после подключения агента бизнеса." /> : query.data ?
       <DataTable<Agent> page={{ ...page, has_more: query.data.has_more }} onPage={setPage} rows={query.data.items} rowKey={item => item.id} columns={[
-        { key: 'agent', title: 'АГЕНТ', render: item => <Link className="table-name" to={`/agents/${encodeURIComponent(item.id)}`}>{item.business_name}<span>{item.id}</span></Link> },
+        { key: 'agent', title: 'АГЕНТ', render: item => <Link className="table-name" to={`/admin/agents/${encodeURIComponent(item.id)}`}>{item.business_name}<span>{item.id}</span></Link> },
         { key: 'health', title: 'СВЯЗЬ', render: item => <AgentHealthBadge health={item.health} /> },
         { key: 'status', title: 'СТАТУС', render: item => <span>{item.status}</span> },
         { key: 'version', title: 'ВЕРСИЯ', render: item => <span className="mono-value">{item.version ?? '—'}</span> },
@@ -96,7 +96,7 @@ export function AgentDetailPage() {
       {canManage && item.status === 'active' && <button className="button button-secondary" type="button" disabled={busy} onClick={() => { void rotate(); }}>Ротировать ключ</button>}
       {canManage && item.status !== 'revoked' && <button className="button button-secondary" type="button" disabled={busy} onClick={() => { void revoke(); }}>Отозвать</button>}
       {canManage && <button className="button button-primary" type="button" disabled={busy || item.status !== 'active'} onClick={() => { void requestResync(); }}>Запросить полную синхронизацию</button>}
-      <Link className="button button-secondary" to="/agents">К списку агентов</Link>
+      <Link className="button button-secondary" to="/admin/agents">К списку агентов</Link>
     </>} />
     {actionError && <p className="form-error" role="alert">{actionError}</p>}
     {command && <section className="notice" role="status"><div><strong>Запрос синхронизации создан · {command.status}</strong>

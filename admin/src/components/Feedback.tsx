@@ -37,7 +37,7 @@ export function PageHeading({ eyebrow, title, subtitle, actions }: {
 }
 
 export function AccessDenied() {
-  return <main className="center-screen"><div className="notice error-notice"><strong>Нет доступа</strong><p>У вашей учётной записи нет доступа к этому разделу.</p><Link className="button button-secondary" to="/">Вернуться к обзору</Link></div></main>;
+  return <main className="center-screen"><div className="notice error-notice"><strong>Нет доступа</strong><p>У вашей учётной записи нет доступа к этому разделу.</p><Link className="button button-secondary" to="/admin">Вернуться к обзору</Link></div></main>;
 }
 
 export function StatusPill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'positive' | 'warning' | 'negative' }) {

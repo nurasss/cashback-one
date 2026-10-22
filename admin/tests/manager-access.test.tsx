@@ -66,7 +66,8 @@ it('renders ManagerAccessDialog with one-time credentials and supports copy-all'
   expect(screen.getByRole('dialog')).toBeInTheDocument();
   expect(screen.getByText('Доступ клиента к админке')).toBeInTheDocument();
   expect(screen.getByText(/Пароль показан один раз и не сохраняется/i)).toBeInTheDocument();
-  expect(screen.getByLabelText('Ссылка для входа')).toHaveTextContent('https://cashback-qr.poscenter.kz');
+  const expectedLoginUrl = `${window.location.origin}/admin/login`;
+  expect(screen.getByLabelText('Ссылка для входа')).toHaveTextContent(expectedLoginUrl);
   expect(screen.getByLabelText('Логин менеджера')).toHaveTextContent('kafe-uyut');
   expect(screen.getByLabelText('Пароль менеджера')).toHaveTextContent('MockSecurePass16x');
 
@@ -74,7 +75,7 @@ it('renders ManagerAccessDialog with one-time credentials and supports copy-all'
   const copyBtn = screen.getByRole('button', { name: 'Скопировать всё' });
   await user.click(copyBtn);
   expect(writeText).toHaveBeenCalledWith(
-    'Ссылка: https://cashback-qr.poscenter.kz\nЛогин: kafe-uyut\nПароль: MockSecurePass16x'
+    `Ссылка: ${expectedLoginUrl}\nЛогин: kafe-uyut\nПароль: MockSecurePass16x`
   );
   expect(await screen.findByText('Скопировано в буфер обмена.')).toBeInTheDocument();
 

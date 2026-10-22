@@ -18,12 +18,12 @@ export interface NavItem {
 }
 
 export const adminNavigation: readonly NavItem[] = [
-  { path: '/', label: 'Обзор', icon: IconOverview, roles: ['superadmin', 'business_manager'] },
-  { path: '/businesses', label: 'Бизнесы', icon: IconBusinesses, roles: ['superadmin'] },
-  { path: '/agents', label: 'Агенты', icon: IconAgents, roles: ['superadmin', 'business_manager'] },
-  { path: '/operations', label: 'Карты и клиенты', icon: IconCards, roles: ['superadmin', 'business_manager'] },
-  { path: '/content', label: 'Приложение', icon: IconContent, roles: ['superadmin', 'business_manager'] },
-  { path: '/audit', label: 'Журнал событий', icon: IconAudit, roles: ['superadmin', 'business_manager'] },
+  { path: '/admin', label: 'Обзор', icon: IconOverview, roles: ['superadmin', 'business_manager'] },
+  { path: '/admin/businesses', label: 'Бизнесы', icon: IconBusinesses, roles: ['superadmin'] },
+  { path: '/admin/agents', label: 'Агенты', icon: IconAgents, roles: ['superadmin', 'business_manager'] },
+  { path: '/admin/operations', label: 'Карты и клиенты', icon: IconCards, roles: ['superadmin', 'business_manager'] },
+  { path: '/admin/content', label: 'Приложение', icon: IconContent, roles: ['superadmin', 'business_manager'] },
+  { path: '/admin/audit', label: 'Журнал событий', icon: IconAudit, roles: ['superadmin', 'business_manager'] },
 ];
 
 export function Navigation({ role }: { role: AdminRole }) {
@@ -35,7 +35,7 @@ export function Navigation({ role }: { role: AdminRole }) {
           <NavLink
             key={item.path}
             to={item.path}
-            end={item.path === '/'}
+            end={item.path === '/admin'}
             className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
           >
             <span className="nav-icon" aria-hidden="true">

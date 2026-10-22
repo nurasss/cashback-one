@@ -94,3 +94,69 @@ it('malformed rotated token response invalidates unusable credentials', async ()
   const f = fixture(); await f.session.accept(old); f.fetcher.mockResolvedValue(response(200, { access_token: 'a' }));
   await expect(f.session.refresh()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' }); expect(f.store.clear).toHaveBeenCalled(); expect(f.session.state.status).toBe('anonymous');
 });
+
+// --- Refresh failures that are not an authoritative answer from the backend must keep the saved credentials. ---
+const html200 = () => ({ status: 200, ok: true, json: async () => { throw new SyntaxError('Unexpected token <'); } }) as unknown as Response;
+const refreshCalls = (f: ReturnType<typeof fixture>) => f.fetcher.mock.calls.filter(call => String(call[0]).endsWith('/auth/refresh'));
+it('non-JSON 200 on bootstrap refresh keeps saved tokens, reports an error and does not sign in', async () => {
+  const f = fixture(); f.fetcher.mockResolvedValue(html200());
+  await f.session.bootstrap();
+  expect(f.session.state).toMatchObject({ status: 'error', error: { code: 'RESPONSE_UNREADABLE' } });
+  expect(f.store.clear).not.toHaveBeenCalled(); expect(f.store.write).not.toHaveBeenCalled(); expect(f.cache).not.toHaveBeenCalled();
+  expect(refreshCalls(f)).toHaveLength(1); // no automatic retry of the POST
+});
+it('retry after a non-JSON refresh reuses the still-saved refresh token and then signs in', async () => {
+  const f = fixture(); f.fetcher.mockResolvedValueOnce(html200());
+  await f.session.bootstrap(); expect(f.session.state.status).toBe('error');
+  f.fetcher.mockResolvedValueOnce(response(200, fresh)).mockResolvedValueOnce(response(200, []));
+  await f.session.bootstrap();
+  expect(f.session.state.status).toBe('authenticated');
+  expect(refreshCalls(f)).toHaveLength(2);
+  for (const call of refreshCalls(f)) expect(call[1]?.body).toBe(JSON.stringify({ refresh_token: old.refresh_token }));
+  expect(f.store.write).toHaveBeenCalledWith(fresh); expect(f.store.clear).not.toHaveBeenCalled();
+});
+it('network failure during refresh keeps tokens and the signed-in state', async () => {
+  const f = fixture(); await f.session.accept(old); f.store.write.mockClear(); f.fetcher.mockRejectedValue(new TypeError('offline'));
+  await expect(f.session.refresh()).rejects.toMatchObject({ code: 'NETWORK_UNAVAILABLE' });
+  expect(f.store.clear).not.toHaveBeenCalled(); expect(f.store.write).not.toHaveBeenCalled(); expect(f.session.state.status).toBe('authenticated');
+  f.fetcher.mockResolvedValueOnce(response(200, fresh)); await f.session.refresh();
+  expect(f.store.write).toHaveBeenCalledWith(fresh); expect(f.fetcher.mock.calls.at(-1)?.[1]?.body).toBe(JSON.stringify({ refresh_token: old.refresh_token }));
+});
+it('refresh timeout keeps tokens', async () => {
+  jest.useFakeTimers();
+  try {
+    const f = fixture(); await f.session.accept(old);
+    f.fetcher.mockImplementation((_url, init) => new Promise((_resolve, reject) => { init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))); }));
+    const attempt = expect(f.session.refresh()).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+    await jest.advanceTimersByTimeAsync(15_001); await attempt;
+    expect(f.store.clear).not.toHaveBeenCalled(); expect(f.session.state.status).toBe('authenticated');
+  } finally { jest.useRealTimers(); }
+});
+it('401 followed by a non-JSON refresh does not log out and does not replay the request', async () => {
+  const f = fixture(); await f.session.accept(old);
+  f.fetcher.mockResolvedValueOnce(response(401, { error: { code: 'TOKEN_EXPIRED' } })).mockResolvedValueOnce(html200());
+  await expect(f.session.api.request('/me/cards', { auth: true })).rejects.toMatchObject({ code: 'RESPONSE_UNREADABLE' });
+  expect(f.session.state.status).toBe('authenticated'); expect(f.store.clear).not.toHaveBeenCalled(); expect(f.fetcher).toHaveBeenCalledTimes(2);
+  // The next request can still recover with the same refresh token.
+  f.fetcher.mockResolvedValueOnce(response(401, { error: { code: 'TOKEN_EXPIRED' } })).mockResolvedValueOnce(response(200, fresh)).mockResolvedValueOnce(response(200, []));
+  expect(await f.session.api.request('/me/cards', { auth: true })).toEqual([]);
+  expect(refreshCalls(f).at(-1)?.[1]?.body).toBe(JSON.stringify({ refresh_token: old.refresh_token }));
+});
+it('a later 401 on refresh after a non-JSON answer still invalidates the session', async () => {
+  const f = fixture(); await f.session.accept(old);
+  f.fetcher.mockResolvedValueOnce(html200());
+  await expect(f.session.refresh()).rejects.toMatchObject({ code: 'RESPONSE_UNREADABLE' }); expect(f.session.state.status).toBe('authenticated');
+  f.fetcher.mockResolvedValueOnce(response(401, { error: { code: 'INVALID_REFRESH_TOKEN' } }));
+  await expect(f.session.refresh()).rejects.toMatchObject({ code: 'INVALID_REFRESH_TOKEN' });
+  expect(f.store.clear).toHaveBeenCalled(); expect(f.session.state.status).toBe('anonymous');
+});
+it.each([[{}], [[]], [null], [{ access_token: 'a', refresh_token: 'r', token_type: 'bearer', expires_in: 0 }]])('parsed JSON %j with unusable tokens still invalidates', async body => {
+  const f = fixture(); await f.session.accept(old); f.fetcher.mockResolvedValue(response(200, body));
+  await expect(f.session.refresh()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  expect(f.store.clear).toHaveBeenCalled(); expect(f.session.state.status).toBe('anonymous');
+});
+it('concurrent callers share one failed non-JSON refresh without clearing tokens', async () => {
+  const f = fixture(); await f.session.accept(old); f.fetcher.mockResolvedValue(html200());
+  const results = await Promise.allSettled([f.session.refresh(), f.session.refresh()]);
+  expect(results.map(r => r.status)).toEqual(['rejected', 'rejected']); expect(refreshCalls(f)).toHaveLength(1); expect(f.store.clear).not.toHaveBeenCalled();
+});

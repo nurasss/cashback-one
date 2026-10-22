@@ -21,7 +21,7 @@ export function BusinessesPage() {
     {query.isPending ? <LoadingPage label="Загружаем бизнесы…" /> : query.isError ? <ErrorNotice error={query.error} retry={() => { void query.refetch(); }} /> : query.data?.items.length === 0 && page.offset === 0 ?
       <EmptyState title="Бизнесов пока нет" detail="После добавления бизнеса его настройки появятся здесь." /> : query.data ?
       <DataTable<Business> page={{ ...page, has_more: query.data.has_more }} onPage={setPage} rows={query.data.items} rowKey={item => item.id} columns={[
-        { key: 'name', title: 'БИЗНЕС', render: item => <Link className="table-name" to={`/businesses/${encodeURIComponent(item.id)}`}>{item.name}<span>{item.id}</span></Link> },
+        { key: 'name', title: 'БИЗНЕС', render: item => <Link className="table-name" to={`/admin/businesses/${encodeURIComponent(item.id)}`}>{item.name}<span>{item.id}</span></Link> },
         { key: 'status', title: 'СТАТУС', render: item => <StatusPill tone={item.status === 'active' ? 'positive' : 'neutral'}>{item.status === 'active' ? 'Активен' : item.status}</StatusPill> },
         { key: 'prefixes', title: 'ПРЕФИКСЫ ШТРИХКОДОВ', render: item => <span className="mono-value">{item.barcode_prefixes?.length ? item.barcode_prefixes.join(', ') : '—'}</span> },
         { key: 'updated', title: 'ИЗМЕНЁН', render: item => <time dateTime={item.updated_at}>{formatDate(item.updated_at)}</time> },
@@ -69,7 +69,7 @@ export function BusinessDetailPage() {
         </button>
         <button className="button button-primary" type="button" onClick={() => setEditOpen(true)}>Изменить бизнес</button>
       </>}
-      <Link className="button button-secondary" to="/businesses">К списку бизнесов</Link>
+      <Link className="button button-secondary" to="/admin/businesses">К списку бизнесов</Link>
     </>} />
     {actionError && <p className="form-error" role="alert">{actionError}</p>}
     <section className="metric-grid three-up">

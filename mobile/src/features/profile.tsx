@@ -1,9 +1,9 @@
 import { useKeyboardLift } from '../components/useKeyboardLift';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Keyboard, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, type IconName } from '../components/icons';
-import { Button } from '../components/ui';
+import { Button, ErrorNotice } from '../components/ui';
 import { useI18n, type Language } from '../i18n';
 import { fonts, theme as t } from '../theme';
 
@@ -47,17 +47,24 @@ export function ProfileRow({ label, value, placeholder, onPress, icon }: { label
 // Bottom sheet editor for one profile field: free text or a fixed list of options.
 export function FieldSheet({ title, initial, hint, options, keyboardType = 'default', placeholder, maxLength, validate, onDone, onClose }: {
   title: string; initial: string; options?: { value: string; label: string }[]; keyboardType?: 'default' | 'email-address' | 'number-pad';
-  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; onDone: (value: string) => void; onClose: () => void;
+  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; onDone: (value: string) => void | Promise<void>; onClose: () => void;
 }) {
   const { t: tr } = useI18n();
   const insets = useSafeInsets();
   const [value, setValue] = useState(initial);
   const selectedY = useRef(0);
   const [error, setError] = useState<string | null>(null);
+  // `onDone` may save asynchronously: block repeat submits while it runs and keep the input and the error inside the sheet if it fails.
+  const [pending, setPending] = useState(false);
+  const [saveError, setSaveError] = useState<unknown>(null);
+  const busy = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
   const lift = useKeyboardLift();
   const scroll = useRef<ScrollView>(null);
 
   const handleRequestClose = () => {
+    if (busy.current) return;
     if (lift.keyboardVisible.current) {
       Keyboard.dismiss();
       return;
@@ -65,35 +72,40 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
     onClose();
   };
 
-  const finish = (next: string) => {
+  const finish = async (next: string) => {
+    if (busy.current) return;
     const result = options ? next : next.trim();
     const problem = validate?.(result) ?? null;
     if (problem) { setError(problem); return; }
-    onDone(result);
+    busy.current = true; setPending(true); setSaveError(null);
+    try { await onDone(result); }
+    catch (err) { if (mounted.current) setSaveError(err); }
+    finally { busy.current = false; if (mounted.current) setPending(false); }
   };
 
   return <Modal transparent animationType="slide" onRequestClose={handleRequestClose} statusBarTranslucent>
     <View style={styles.modalOverlay}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={tr('cancel')} />
+      <Pressable style={styles.backdrop} onPress={() => { if (!busy.current) onClose(); }} accessibilityLabel={tr('cancel')} />
       <Animated.View ref={lift.ref} collapsable={false} onLayout={lift.onLayout} pointerEvents="box-none" style={[styles.sheetWrap, lift.style]}>
         <View style={[styles.sheet, { maxHeight: lift.maxHeight ?? '88%', paddingBottom: Math.max(32, insets.bottom + 20) }]}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>{title}</Text>
           {hint && <Text style={styles.sheetHint}>{hint}</Text>}
           <ScrollView ref={scroll} style={{ flexShrink: 1 }} onContentSizeChange={() => { if (options) scroll.current?.scrollTo({ y: selectedY.current, animated: false }); }} bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
-            {options ? options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected: value === option.value }} onLayout={event => { if (value === option.value) { selectedY.current = event.nativeEvent.layout.y; scroll.current?.scrollTo({ y: selectedY.current, animated: false }); } }}
-              onPress={() => finish(option.value)} style={styles.option}>
+            {options ? options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected: value === option.value, disabled: pending }} onLayout={event => { if (value === option.value) { selectedY.current = event.nativeEvent.layout.y; scroll.current?.scrollTo({ y: selectedY.current, animated: false }); } }}
+              onPress={() => { void finish(option.value); }} style={styles.option}>
               <Text style={styles.optionText}>{option.label}</Text>
               {value === option.value && <Icon name="check" size={22} color={t.colors.primary} />}
             </Pressable>) : <View style={styles.inputWrap}>
-              <TextInput value={value} onChangeText={next => { setValue(next); setError(null); }} accessibilityLabel={title} placeholder={placeholder}
+              <TextInput value={value} onChangeText={next => { setValue(next); setError(null); setSaveError(null); }} editable={!pending} accessibilityLabel={title} placeholder={placeholder}
                 placeholderTextColor={t.colors.placeholder} keyboardType={keyboardType} maxLength={maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
-                style={[styles.input, error ? { borderWidth: 1, borderColor: t.colors.error } : null]} onSubmitEditing={() => finish(value)} />
+                style={[styles.input, error ? { borderWidth: 1, borderColor: t.colors.error } : null]} onSubmitEditing={() => { void finish(value); }} />
               {error && <Text style={styles.error}>{error}</Text>}
 
             </View>}
           </ScrollView>
-          {!options && <Button label={tr('done')} onPress={() => finish(value)} />}
+          {saveError !== null && <ErrorNotice error={saveError} />}
+          {!options && <Button label={pending ? tr('saving') : tr('done')} disabled={pending} onPress={() => { void finish(value); }} />}
         </View>
       </Animated.View>
     </View>
