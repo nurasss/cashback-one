@@ -115,6 +115,7 @@ class BusinessCreateRequest(BaseModel):
     colors: dict[str, object] | None = None
     barcode_prefixes: list[str] | None = Field(default=None, max_length=64)
     status: BusinessStatus = "active"
+    create_manager: bool = True
 
     @field_validator("name")
     @classmethod
@@ -271,6 +272,19 @@ class BusinessDetail(BusinessListItem):
     unblocked_cards_count: int
     customers_with_cards_count: int
     agents_count: int
+
+
+class ManagerAccessDisclosure(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    login: str
+    password: str
+    login_url: str
+    one_time: Literal[True] = True
+
+
+class BusinessCreatedResponse(BusinessDetail):
+    manager_access: ManagerAccessDisclosure | None = None
 
 
 AgentHealth = Literal["online", "stale", "never_connected", "error", "disabled"]

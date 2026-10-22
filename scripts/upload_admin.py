@@ -4,6 +4,7 @@ Usage:
     python scripts/upload_admin.py [--dry-run]
 """
 import argparse
+from datetime import datetime
 import ftplib
 import hashlib
 import os
@@ -80,6 +81,9 @@ def main():
             rel_path = full_path.relative_to(dist_dir).as_posix()
             local_files.append((rel_path, full_path, full_path.stat().st_size))
 
+    # Assets, images, and fonts first; index.html strictly last
+    local_files.sort(key=lambda item: (1 if item[0] == "index.html" else 0, item[0]))
+
     print(f"Connecting to {host}:{port} via FTPS (TLS 1.2)...")
     context = ssl.create_default_context()
     context.maximum_version = ssl.TLSVersion.TLSv1_2
@@ -91,6 +95,19 @@ def main():
         ftp.cwd(site_dir)
         admin_root = ftp.pwd()
         ftp.voidcmd("TYPE I")
+
+        # Backup existing remote index.html if present
+        backup_ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        backup_dir = Path("C:/cashback-stage0") / f"backup_admin_{backup_ts}"
+        try:
+            ftp.size("index.html")
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_file = backup_dir / "index.html"
+            with open(backup_file, "wb") as bf:
+                ftp.retrbinary("RETR index.html", bf.write)
+            print(f"Backed up remote index.html to {backup_file} ({backup_file.stat().st_size} bytes)")
+        except ftplib.error_perm:
+            pass
 
         actions = []
 

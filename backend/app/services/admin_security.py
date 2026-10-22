@@ -68,6 +68,65 @@ def verify_admin_password(password_hash: str, password: str) -> bool:
         return False
 
 
+CYRILLIC_TO_LATIN: dict[str, str] = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
+    "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch",
+    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    "ә": "a", "ғ": "g", "қ": "q", "ң": "n", "ө": "o", "ұ": "u", "ү": "u",
+    "һ": "h", "і": "i",
+}
+
+MANAGER_PASSWORD_LOWER = "abcdefghijkmnopqrstuvwxyz"
+MANAGER_PASSWORD_UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+MANAGER_PASSWORD_DIGITS = "23456789"
+MANAGER_PASSWORD_ALPHABET = MANAGER_PASSWORD_LOWER + MANAGER_PASSWORD_UPPER + MANAGER_PASSWORD_DIGITS
+
+
+def transliterate_business_name(name: str) -> str:
+    res: list[str] = []
+    for ch in name.lower():
+        if ch in CYRILLIC_TO_LATIN:
+            res.append(CYRILLIC_TO_LATIN[ch])
+        elif ch in "abcdefghijklmnopqrstuvwxyz0123456789._@-":
+            res.append(ch)
+        else:
+            res.append("-")
+    raw = "".join(res)
+    raw = re.sub(r"[-._@]{2,}", "-", raw)
+    raw = re.sub(r"^[^a-z0-9]+|[^a-z0-9]+$", "", raw)
+    if len(raw) > 40:
+        raw = re.sub(r"[^a-z0-9]+$", "", raw[:40])
+    return raw
+
+
+def random_slug(length: int = 4) -> str:
+    chars = "23456789abcdefghjkmnpqrstuvwxyz"
+    return "".join(secrets.choice(chars) for _ in range(length))
+
+
+def generate_base_login(name: str) -> str:
+    base = transliterate_business_name(name)
+    if len(base) < 3 or not re.match(r"^[a-z0-9]", base):
+        return f"biz-{random_slug()}"
+    return base
+
+
+def generate_manager_password(length: int = 16) -> str:
+    length = max(length, 16)
+    chars = [
+        secrets.choice(MANAGER_PASSWORD_LOWER),
+        secrets.choice(MANAGER_PASSWORD_UPPER),
+        secrets.choice(MANAGER_PASSWORD_DIGITS),
+    ]
+    chars += [secrets.choice(MANAGER_PASSWORD_ALPHABET) for _ in range(length - len(chars))]
+    secrets.SystemRandom().shuffle(chars)
+    password = "".join(chars)
+    validate_admin_password(password)
+    return password
+
+
 @lru_cache(maxsize=1)
 def dummy_password_hash() -> str:
     return password_hasher().hash(secrets.token_urlsafe(32))

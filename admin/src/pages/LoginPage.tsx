@@ -16,7 +16,7 @@ export function LoginPage() {
   useEffect(() => { if (view.status === 'authenticated') navigate('/', { replace: true }); }, [view.status, navigate]);
   if (view.status === 'loading') return <LoadingPage />;
   if (view.status === 'signing_out' || view.status === 'logout_error') return <section className="center-screen"><div className="failure-panel">
-    <div className="brand-mark-wrap"><span className="brand-mark">P</span></div>
+    <div className="brand-mark-wrap"><img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" /></div>
     <h1>Выход не подтверждён</h1>
     <p className="error-copy">Сервер ещё не подтвердил завершение сессии.</p>
     <button className="button button-primary" type="button" onClick={() => { void session.logout(); }}>Повторить выход</button>
@@ -41,8 +41,10 @@ export function LoginPage() {
   return <main className="login-screen">
     <div className="login-story">
       <div className="login-brand">
-        <div className="brand-mark-wrap"><span className="brand-mark">P</span></div>
-        <div><b>POSCENTER</b><small>LOYALTY PLATFORM</small></div>
+        <div className="brand-mark-wrap">
+          <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+        </div>
+        <div><b>POSCENTER.KZ</b><small>LOYALTY PLATFORM</small></div>
       </div>
       <div className="story-copy">
         <span className="eyebrow">ADMIN CONSOLE</span>
@@ -55,12 +57,8 @@ export function LoginPage() {
       </div>
     </div>
     <section className="login-card" aria-labelledby="login-title">
-      <div className="mobile-brand-lockup">
-        <div className="brand-mark-wrap"><span className="brand-mark">P</span></div>
-        <div className="brand-text">
-          <strong>POSCENTER</strong>
-          <small>LOYALTY PLATFORM</small>
-        </div>
+      <div className="login-card-brand">
+        <img src="/logo.png" alt="POSCENTER.KZ" className="login-card-logo" />
       </div>
       <div className="login-card-heading">
         <span className="eyebrow">ДОБРО ПОЖАЛОВАТЬ</span>

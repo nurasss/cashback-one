@@ -18,6 +18,7 @@ from app.schemas.admin import (
     AgentKeyDisclosureResponse,
     AgentRevokeResponse,
     AuditItem,
+    BusinessCreatedResponse,
     BusinessCreateRequest,
     BusinessDetail,
     BusinessListItem,
@@ -29,6 +30,7 @@ from app.schemas.admin import (
     CardUnbindResponse,
     CardUnbindStatus,
     DashboardResponse,
+    ManagerAccessDisclosure,
     Page,
     PaginationParams,
     UserDetail,
@@ -48,6 +50,7 @@ from app.services.admin_mutations import (
     create_agent,
     create_business,
     request_full_resync,
+    reset_or_create_business_manager,
     revoke_agent_access,
     rotate_agent_api_key,
     unbind_card,
@@ -100,16 +103,35 @@ async def admin_businesses(
     return await list_businesses(db, page.limit, page.offset)
 
 
-@router.post("/businesses", response_model=BusinessDetail, status_code=201)
+@router.post("/businesses", response_model=BusinessCreatedResponse, status_code=201)
 async def admin_create_business(
     body: BusinessCreateRequest,
     scope: Annotated[AdminScope, Depends(get_admin_scope)],
     admin: Annotated[AdminUser, Depends(authenticate_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
-) -> BusinessDetail:
+    response: Response,
+) -> BusinessCreatedResponse:
     scope.require_superadmin()
-    business = await create_business(db, admin, body)
-    return await get_business(db, business.id)
+    response.headers["Cache-Control"] = "no-store"
+    business, manager_access = await create_business(db, admin, body)
+    detail = await get_business(db, business.id)
+    return BusinessCreatedResponse(
+        **detail.model_dump(),
+        manager_access=manager_access,
+    )
+
+
+@router.post("/businesses/{business_id}/manager-access", response_model=ManagerAccessDisclosure)
+async def admin_business_manager_access(
+    business_id: uuid.UUID,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    response: Response,
+) -> ManagerAccessDisclosure:
+    scope.require_superadmin()
+    response.headers["Cache-Control"] = "no-store"
+    return await reset_or_create_business_manager(db, admin, business_id)
 
 
 @router.get("/businesses/{business_id}", response_model=BusinessDetail)

@@ -2,7 +2,13 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, useBusinesses } from '../api/queries';
-import type { AgentKeyDisclosure, BusinessDetail, LoyaltyTier } from '../api/types';
+import type {
+  AgentKeyDisclosure,
+  BusinessCreatedResponse,
+  BusinessDetail,
+  LoyaltyTier,
+  ManagerAccessDisclosure,
+} from '../api/types';
 import { useAdminSession } from '../auth/provider';
 
 export function DialogFrame({ title, onClose, children }: {
@@ -47,7 +53,7 @@ function isTier(value: unknown): value is LoyaltyTier {
 }
 
 export function BusinessEditorDialog({ business, onClose, onSaved }: {
-  business?: BusinessDetail; onClose: () => void; onSaved: () => void;
+  business?: BusinessDetail; onClose: () => void; onSaved: (managerAccess?: ManagerAccessDisclosure | null) => void;
 }) {
   const { session } = useAdminSession();
   const queryClient = useQueryClient();
@@ -133,11 +139,13 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
           method: 'PATCH', body: payload,
         });
         await queryClient.invalidateQueries({ queryKey: [...privateKey, 'business', business.id] });
+        await queryClient.invalidateQueries({ queryKey: [...privateKey, 'businesses'] });
+        onSaved();
       } else {
-        await session.api.request<BusinessDetail>('/admin/businesses', { method: 'POST', body: payload });
+        const created = await session.api.request<BusinessCreatedResponse>('/admin/businesses', { method: 'POST', body: payload });
+        await queryClient.invalidateQueries({ queryKey: [...privateKey, 'businesses'] });
+        onSaved(created.manager_access);
       }
-      await queryClient.invalidateQueries({ queryKey: [...privateKey, 'businesses'] });
-      onSaved();
     } catch (mutationError) {
       setError(messageForError(mutationError));
     } finally {
@@ -248,6 +256,42 @@ export function AgentKeyDialog({ disclosure, title = 'Ключ агента со
         <button className="button button-primary" type="button" onClick={() => { void copy(); }}>Скопировать ключ</button>
       </footer>
       {copied && <p className="success-copy" role="status">Скопировано.</p>}
+    </div>
+  </DialogFrame>;
+}
+
+export function ManagerAccessDialog({ disclosure, title = 'Доступ клиента к админке', onClose }: {
+  disclosure: ManagerAccessDisclosure; title?: string; onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState('');
+
+  const copyAll = async () => {
+    setCopyError('');
+    const fullText = `Ссылка: ${disclosure.login_url}\nЛогин: ${disclosure.login}\nПароль: ${disclosure.password}`;
+    try {
+      await navigator.clipboard.writeText(fullText);
+      setCopied(true);
+    } catch {
+      setCopyError('Не удалось скопировать. Выделите данные вручную.');
+    }
+  };
+
+  return <DialogFrame title={title} onClose={onClose}>
+    <div className="mutation-form">
+      <p className="warning-copy" role="status">Пароль показан один раз и не сохраняется. Передайте клиенту безопасным способом.</p>
+      <label htmlFor="disclosure-url">Ссылка для входа</label>
+      <code id="disclosure-url" className="secret-key" aria-label="Ссылка для входа">{disclosure.login_url}</code>
+      <label htmlFor="disclosure-login">Логин</label>
+      <code id="disclosure-login" className="secret-key" aria-label="Логин менеджера">{disclosure.login}</code>
+      <label htmlFor="disclosure-password">Пароль</label>
+      <code id="disclosure-password" className="secret-key" aria-label="Пароль менеджера">{disclosure.password}</code>
+      {copyError && <p className="form-error" role="alert">{copyError}</p>}
+      <footer className="mutation-actions">
+        <button className="button button-secondary" type="button" onClick={onClose}>Закрыть</button>
+        <button className="button button-primary" type="button" onClick={() => { void copyAll(); }}>Скопировать всё</button>
+      </footer>
+      {copied && <p className="success-copy" role="status">Скопировано в буфер обмена.</p>}
     </div>
   </DialogFrame>;
 }

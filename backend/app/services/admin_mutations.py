@@ -6,16 +6,28 @@ from collections.abc import Mapping
 from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_deps import AdminScope, scope_for_admin
+from app.core.config import settings
 from app.core.errors import AppError
 from app.core.time import utcnow
-from app.models.admin import AdminUser, AgentCommand
+from app.models.admin import AdminSession, AdminUser, AgentCommand
 from app.models.entities import Agent, AuditLog, Business, Card, UserCard
-from app.schemas.admin import BusinessCreateRequest, BusinessUpdateRequest
+from app.schemas.admin import (
+    BusinessCreateRequest,
+    BusinessUpdateRequest,
+    ManagerAccessDisclosure,
+)
+from app.services.admin_security import (
+    generate_base_login,
+    generate_manager_password,
+    hash_admin_password,
+    normalize_admin_login,
+    random_slug,
+)
 from app.services.agent_auth import issue_agent_key, revoke_agent, rotate_agent_key
 
 _SENSITIVE_AUDIT_KEY = re.compile(
@@ -48,6 +60,8 @@ _KNOWN_ADMIN_ACTIONS: set[str] = {
     "promotion_deleted",
     "notification_created",
     "notification_deleted",
+    "business_manager_created",
+    "business_manager_password_reset",
 }
 
 _ALLOWED_BUSINESS_STATUSES: set[str] = {"active", "inactive"}
@@ -331,6 +345,17 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 if isinstance(v, str) and v in ("banner", "offer", "info"):
                     projected[k] = v
 
+    elif action in ("business_manager_created", "business_manager_password_reset"):
+        for k, v in value.items():
+            if k in ("id", "manager_id", "admin_user_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected["id"] = cid
+            elif k == "login":
+                clean_login = _clean_str(v, max_length=128)
+                if clean_login:
+                    projected["login"] = clean_login
+
     if not projected:
         return None
     return projected
@@ -442,12 +467,31 @@ def _business_state(
     return state
 
 
+async def generate_unique_manager_login(db: AsyncSession, business_name: str) -> str:
+    base = generate_base_login(business_name)
+    candidate = base
+    for _ in range(20):
+        normalized = normalize_admin_login(candidate)
+        exists = await db.scalar(
+            select(func.count(AdminUser.id)).where(AdminUser.login == normalized)
+        )
+        if not exists:
+            return normalized
+        suffix = random_slug(4)
+        prefix = base[:120] if len(base) > 120 else base
+        candidate = f"{prefix}-{suffix}"
+    fallback = f"biz-{random_slug(6)}"
+    return normalize_admin_login(fallback)
+
+
 async def create_business(
     db: AsyncSession, actor: AdminUser, request: BusinessCreateRequest
-) -> Business:
+) -> tuple[Business, ManagerAccessDisclosure | None]:
     actor_scope = scope_for_admin(actor)
     actor_scope.require_superadmin()
-    business = Business(**request.model_dump())
+    payload = request.model_dump()
+    create_manager = payload.pop("create_manager", True)
+    business = Business(**payload)
     db.add(business)
     await db.flush()
     _audit(
@@ -459,9 +503,120 @@ async def create_business(
         None,
         _business_state(business),
     )
+    manager_access: ManagerAccessDisclosure | None = None
+    if create_manager:
+        login = await generate_unique_manager_login(db, business.name)
+        password = generate_manager_password(16)
+        password_hash = hash_admin_password(password)
+        manager = AdminUser(
+            login=login,
+            password_hash=password_hash,
+            role="business_manager",
+            business_id=business.id,
+            is_active=True,
+        )
+        db.add(manager)
+        await db.flush()
+        _audit(
+            db,
+            actor,
+            business.id,
+            "business_manager_created",
+            "admin_user",
+            None,
+            {"id": str(manager.id), "login": manager.login},
+        )
+        manager_access = ManagerAccessDisclosure(
+            login=manager.login,
+            password=password,
+            login_url=settings.admin_public_url,
+            one_time=True,
+        )
     await db.commit()
     await db.refresh(business)
-    return business
+    return business, manager_access
+
+
+async def reset_or_create_business_manager(
+    db: AsyncSession, actor: AdminUser, business_id: uuid.UUID
+) -> ManagerAccessDisclosure:
+    scope_for_admin(actor).require_superadmin()
+    business = await db.scalar(select(Business).where(Business.id == business_id))
+    if business is None:
+        raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
+
+    result = await db.execute(
+        select(AdminUser)
+        .where(
+            AdminUser.business_id == business_id,
+            AdminUser.role == "business_manager",
+        )
+        .order_by(AdminUser.created_at.asc())
+        .with_for_update()
+    )
+    manager = result.scalars().first()
+
+    if manager is None:
+        login = await generate_unique_manager_login(db, business.name)
+        password = generate_manager_password(16)
+        password_hash = hash_admin_password(password)
+        manager = AdminUser(
+            login=login,
+            password_hash=password_hash,
+            role="business_manager",
+            business_id=business.id,
+            is_active=True,
+        )
+        db.add(manager)
+        await db.flush()
+        _audit(
+            db,
+            actor,
+            business.id,
+            "business_manager_created",
+            "admin_user",
+            None,
+            {"id": str(manager.id), "login": manager.login},
+        )
+        await db.commit()
+        await db.refresh(manager)
+        return ManagerAccessDisclosure(
+            login=manager.login,
+            password=password,
+            login_url=settings.admin_public_url,
+            one_time=True,
+        )
+    else:
+        password = generate_manager_password(16)
+        password_hash = hash_admin_password(password)
+        manager.password_hash = password_hash
+        manager.is_active = True
+        now = utcnow()
+        await db.execute(
+            update(AdminSession)
+            .where(
+                AdminSession.admin_user_id == manager.id,
+                AdminSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
+        _audit(
+            db,
+            actor,
+            business.id,
+            "business_manager_password_reset",
+            "admin_user",
+            None,
+            {"id": str(manager.id), "login": manager.login},
+        )
+        await db.commit()
+        await db.refresh(manager)
+        return ManagerAccessDisclosure(
+            login=manager.login,
+            password=password,
+            login_url=settings.admin_public_url,
+            one_time=True,
+        )
 
 
 async def update_business(

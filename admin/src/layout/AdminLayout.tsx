@@ -20,10 +20,10 @@ export function AdminLayout({ children }: PropsWithChildren) {
         <div className="sidebar-brand-container">
           <NavLink className="brand-lockup" to="/" aria-label="POSCENTER Loyalty — на главную">
             <div className="brand-mark-wrap">
-              <span className="brand-mark">P</span>
+              <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
             </div>
             <div className="brand-text">
-              <strong>POSCENTER</strong>
+              <strong>POSCENTER.KZ</strong>
               <small>LOYALTY · ADMIN</small>
             </div>
           </NavLink>

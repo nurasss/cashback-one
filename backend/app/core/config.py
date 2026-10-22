@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     admin_agent_stale_seconds: int = Field(default=900, ge=60, le=86400)
     admin_max_stats_period_days: int = Field(default=90, ge=1, le=365)
     admin_allow_insecure_http: bool = False
+    admin_public_url: str = Field(
+        default="",
+        description="Public URL for admin web console (used in manager invitations/credentials).",
+    )
 
     # Production runtime, connection pool, and security settings (TASK-012)
     debug: bool = Field(default=False, description="Debug mode. Must be False in production.")
@@ -393,6 +397,17 @@ class Settings(BaseSettings):
         if len(set(normalized_origins)) != len(normalized_origins):
             raise ValueError("ADMIN_ALLOWED_ORIGINS must not contain duplicate origins")
         self.admin_allowed_origins = normalized_origins
+
+        # Validate ADMIN_PUBLIC_URL
+        clean_admin_public_url = (self.admin_public_url or "").strip().rstrip("/")
+        if not clean_admin_public_url:
+            if self.admin_allowed_origins:
+                clean_admin_public_url = self.admin_allowed_origins[0].rstrip("/")
+            else:
+                clean_admin_public_url = "https://cashback-qr.poscenter.kz"
+        if self.app_env == "production" and not clean_admin_public_url.startswith("https://"):
+            raise ValueError("ADMIN_PUBLIC_URL must use HTTPS in production")
+        self.admin_public_url = clean_admin_public_url
 
         # Validate WHATSAPP_LOGIN_NUMBER format (E.164)
         if not self.whatsapp_login_number or not self.whatsapp_login_number.strip():

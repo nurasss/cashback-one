@@ -222,7 +222,7 @@ async def test_business_create_update_validation_and_audit_are_atomic(
             select(AuditLog).where(AuditLog.business_id == business_id).order_by(AuditLog.created_at, AuditLog.id)
         )
     ).all()
-    assert [event.action for event in events] == ["business_created", "business_updated"]
+    assert [event.action for event in events] == ["business_created", "business_manager_created", "business_updated"]
     assert all(event.admin_user_id == root.id and event.actor == root.login for event in events)
     assert events[0].before_state is None
     assert events[0].after_state is not None
@@ -244,14 +244,18 @@ async def test_business_create_update_validation_and_audit_are_atomic(
     assert "debug_token" not in str(events[0].after_state)
     assert "fixture-secret" not in str(events)
 
-    assert events[1].before_state is not None
-    assert events[1].before_state["status"] == "active"
     assert events[1].after_state is not None
-    assert events[1].after_state["business_id"] == str(business_id)
-    assert events[1].after_state["status"] == "inactive"
-    assert events[1].after_state["changed_fields"] == ["barcode_prefixes", "name", "status"]
-    assert "name" not in events[1].after_state
-    assert "Pilot Updated" not in str(events[1].after_state)
+    assert "login" in events[1].after_state
+    assert "id" in events[1].after_state
+
+    assert events[2].before_state is not None
+    assert events[2].before_state["status"] == "active"
+    assert events[2].after_state is not None
+    assert events[2].after_state["business_id"] == str(business_id)
+    assert events[2].after_state["status"] == "inactive"
+    assert events[2].after_state["changed_fields"] == ["barcode_prefixes", "name", "status"]
+    assert "name" not in events[2].after_state
+    assert "Pilot Updated" not in str(events[2].after_state)
 
 
 @pytest.mark.asyncio
@@ -889,7 +893,7 @@ async def test_trusted_new_admin_event_retains_safe_structured_snapshot(
     audit_resp = await mutation_client.get("/admin/audit", headers=headers)
     assert audit_resp.status_code == 200
     items = audit_resp.json()["items"]
-    event = next((ev for ev in items if ev["business_id"] == business_id), None)
+    event = next((ev for ev in items if ev["business_id"] == business_id and ev["action"] == "business_created"), None)
     assert event is not None
     assert event["action"] == "business_created"
     assert event["admin_user_id"] == str(root.id)

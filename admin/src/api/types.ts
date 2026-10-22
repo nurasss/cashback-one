@@ -19,6 +19,15 @@ export interface AppNotification { id: string; business_id: string | null; user_
 export interface BusinessDetail extends Business {
   cards_count: number; unblocked_cards_count: number; customers_with_cards_count: number; agents_count: number;
 }
+export interface ManagerAccessDisclosure {
+  login: string;
+  password: string;
+  login_url: string;
+  one_time: true;
+}
+export interface BusinessCreatedResponse extends BusinessDetail {
+  manager_access?: ManagerAccessDisclosure | null;
+}
 export interface Agent {
   id: string; business_id: string; business_name: string; status: string; health: AgentHealth;
   last_seen_at: string | null; version: string | null; last_sync_at: string | null; last_error: string | null; created_at: string;

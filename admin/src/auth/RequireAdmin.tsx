@@ -17,7 +17,8 @@ export function RequireAdmin() {
 
 function BootstrapFailure({ retry }: { retry: () => void }) {
   return <main className="center-screen"><div className="failure-panel">
-    <span className="brand-mark">C</span><h1>Нет соединения с Admin</h1>
+    <div className="brand-mark-wrap"><img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" /></div>
+    <h1>Нет соединения с Admin</h1>
     <ErrorNotice error={new ApiError('NETWORK_UNAVAILABLE')} retry={retry} />
     <p className="muted-copy">Можно перейти ко входу и повторить позже.</p>
     <NavigateLink />
@@ -27,7 +28,8 @@ function NavigateLink() { return <a className="button button-secondary" href="/l
 
 function LogoutFailure({ retry }: { retry: () => void }) {
   return <main className="center-screen"><div className="failure-panel">
-    <span className="brand-mark">C</span><h1>Выход не подтверждён</h1>
+    <div className="brand-mark-wrap"><img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" /></div>
+    <h1>Выход не подтверждён</h1>
     <p className="error-copy">Браузер заблокировал доступ на этом устройстве. Сервер ещё не подтвердил отзыв сессии; повторите запрос.</p>
     <button className="button button-primary" type="button" onClick={retry}>Повторить выход</button>
   </div></main>;

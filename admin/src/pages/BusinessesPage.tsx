@@ -3,15 +3,17 @@ import { Link, useParams } from 'react-router-dom';
 import { useAdminSession } from '../auth/provider';
 import { DataTable } from '../components/DataTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
+import { messageForError } from '../api/errors';
 import { useBusiness, useBusinesses } from '../api/queries';
-import type { Business } from '../api/types';
+import type { Business, ManagerAccessDisclosure } from '../api/types';
 import { formatDate } from '../utils/format';
 import { usePage } from '../utils/usePage';
 import type { ReactNode } from 'react';
-import { BusinessEditorDialog } from '../features/AdminMutations';
+import { BusinessEditorDialog, ManagerAccessDialog } from '../features/AdminMutations';
 
 export function BusinessesPage() {
   const [createOpen, setCreateOpen] = useState(false);
+  const [managerAccess, setManagerAccess] = useState<ManagerAccessDisclosure | null>(null);
   const [page, setPage] = usePage();
   const query = useBusinesses(page);
   return <div className="page-stack"><PageHeading eyebrow="ОРГАНИЗАЦИИ" title="Бизнесы" subtitle="Настройки бренда и статус каждого бизнеса."
@@ -24,22 +26,52 @@ export function BusinessesPage() {
         { key: 'prefixes', title: 'ПРЕФИКСЫ ШТРИХКОДОВ', render: item => <span className="mono-value">{item.barcode_prefixes?.length ? item.barcode_prefixes.join(', ') : '—'}</span> },
         { key: 'updated', title: 'ИЗМЕНЁН', render: item => <time dateTime={item.updated_at}>{formatDate(item.updated_at)}</time> },
       ]} /> : null}
-    {createOpen && <BusinessEditorDialog onClose={() => setCreateOpen(false)} onSaved={() => setCreateOpen(false)} />}
+    {createOpen && <BusinessEditorDialog onClose={() => setCreateOpen(false)} onSaved={(access) => { setCreateOpen(false); if (access) setManagerAccess(access); }} />}
+    {managerAccess && <ManagerAccessDialog disclosure={managerAccess} onClose={() => setManagerAccess(null)} />}
   </div>;
 }
 
 export function BusinessDetailPage() {
-  const { view } = useAdminSession();
+  const { session, view } = useAdminSession();
   const [editOpen, setEditOpen] = useState(false);
+  const [managerAccess, setManagerAccess] = useState<ManagerAccessDisclosure | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [resetting, setResetting] = useState(false);
   const { businessId } = useParams<{ businessId: string }>();
   const query = useBusiness(businessId ?? '');
+
+  const handleManagerAccess = async (bId: string) => {
+    if (!window.confirm('Старый пароль перестанет работать, активные входы менеджера будут завершены.')) {
+      return;
+    }
+    setActionError('');
+    setResetting(true);
+    try {
+      const disclosure = await session.api.request<ManagerAccessDisclosure>(
+        `/admin/businesses/${encodeURIComponent(bId)}/manager-access`,
+        { method: 'POST' }
+      );
+      setManagerAccess(disclosure);
+    } catch (err) {
+      setActionError(messageForError(err));
+    } finally {
+      setResetting(false);
+    }
+  };
+
   if (query.isPending) return <LoadingPage label="Загружаем бизнес…" />;
   if (query.isError || !query.data) return <div className="page-stack"><ErrorNotice error={query.error} retry={() => { void query.refetch(); }} /></div>;
   const business = query.data;
   return <div className="page-stack"><PageHeading eyebrow="ОРГАНИЗАЦИИ / КАРТОЧКА" title={business.name} subtitle="Настройки доступны суперадминистратору." actions={<>
-      {view.status === 'authenticated' && view.admin.role === 'superadmin' && <button className="button button-primary" type="button" onClick={() => setEditOpen(true)}>Изменить бизнес</button>}
+      {view.status === 'authenticated' && view.admin.role === 'superadmin' && <>
+        <button className="button button-secondary" type="button" disabled={resetting} onClick={() => { void handleManagerAccess(business.id); }}>
+          {resetting ? 'Сбрасываем…' : 'Выдать доступ / Сбросить пароль'}
+        </button>
+        <button className="button button-primary" type="button" onClick={() => setEditOpen(true)}>Изменить бизнес</button>
+      </>}
       <Link className="button button-secondary" to="/businesses">К списку бизнесов</Link>
     </>} />
+    {actionError && <p className="form-error" role="alert">{actionError}</p>}
     <section className="metric-grid three-up">
       <DetailMetric title="Карты" value={business.cards_count} detail="Все зеркальные карты" />
       <DetailMetric title="Незаблокированные" value={business.unblocked_cards_count} detail="is_blocked = false" />
@@ -57,6 +89,7 @@ export function BusinessDetailPage() {
         <p className="table-empty">Цвета не настроены.</p>}</article>
     </section>
     {editOpen && <BusinessEditorDialog business={business} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); void query.refetch(); }} />}
+    {managerAccess && <ManagerAccessDialog disclosure={managerAccess} onClose={() => setManagerAccess(null)} />}
   </div>;
 }
 
