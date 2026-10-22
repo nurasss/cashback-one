@@ -39,6 +39,8 @@ describe('Public Landing Isolation', () => {
 
     // Проверяем главные элементы страницы
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Карта магазина/i);
+    expect(screen.queryByText(/Android, файл APK, версия 1\.0\.3\./i)).not.toBeInTheDocument();
+    expect(screen.getByText('Версии для iPhone пока нет.')).toBeInTheDocument();
     expect(
       screen.getAllByText(
         /Баланс обновляется не сразу\. Новые начисления и списания появятся, когда магазин передаст данные\./i
@@ -108,6 +110,113 @@ describe('Public Landing Isolation', () => {
     termsView.unmount();
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('switches among all four phone screens via mouse and keyboard without API calls', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.history.pushState({}, '', '/');
+    render(<AppRouter />);
+
+    const tabHome = screen.getByRole('tab', { name: 'Карта' });
+    const tabBarcode = screen.getByRole('tab', { name: 'Штрихкод' });
+    const tabHistory = screen.getByRole('tab', { name: 'История' });
+    const tabPromotions = screen.getByRole('tab', { name: 'Акции' });
+
+    expect(tabHome).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/Карта и баланс\./i)).toBeInTheDocument();
+    expect(screen.getByText(/Данные на экранах — пример/i)).toBeInTheDocument();
+
+    // Переключение кликом на Штрихкод
+    await user.click(tabBarcode);
+    expect(tabBarcode).toHaveAttribute('aria-selected', 'true');
+    expect(tabHome).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByText(/Штрихкод\./i)).toBeInTheDocument();
+
+    // Переключение кликом на Историю
+    await user.click(tabHistory);
+    expect(tabHistory).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/История операций\./i)).toBeInTheDocument();
+
+    // Переключение кликом на Акции
+    await user.click(tabPromotions);
+    expect(tabPromotions).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/Акции и сообщения\./i)).toBeInTheDocument();
+
+    // Клавиатурное переключение (ArrowLeft возвращает на Историю)
+    await user.keyboard('{ArrowLeft}');
+    expect(tabHistory).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/История операций\./i)).toBeInTheDocument();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('connects all tabs to existing tabpanels via aria-controls and hides inactive panels', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/');
+    render(<AppRouter />);
+
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs).toHaveLength(4);
+
+    const panels = screen.getAllByRole('tabpanel', { hidden: true });
+    expect(panels).toHaveLength(4);
+
+    // Verify each tab points to an existing panel and labelledby matches tab id
+    tabs.forEach((tab) => {
+      const controlsId = tab.getAttribute('aria-controls');
+      expect(controlsId).toBeTruthy();
+      const panel = document.getElementById(controlsId!);
+      expect(panel).not.toBeNull();
+      expect(panel?.getAttribute('role')).toBe('tabpanel');
+      expect(panel?.getAttribute('aria-labelledby')).toBe(tab.getAttribute('id'));
+    });
+
+    // Initial state: only panel-home is visible, others are hidden
+    const panelHome = document.getElementById('panel-home');
+    const panelBarcode = document.getElementById('panel-barcode');
+    const panelHistory = document.getElementById('panel-history');
+    const panelPromotions = document.getElementById('panel-promotions');
+
+    expect(panelHome).not.toHaveAttribute('hidden');
+    expect(panelBarcode).toHaveAttribute('hidden');
+    expect(panelHistory).toHaveAttribute('hidden');
+    expect(panelPromotions).toHaveAttribute('hidden');
+
+    // Switch to Barcode
+    const tabBarcode = screen.getByRole('tab', { name: 'Штрихкод' });
+    await user.click(tabBarcode);
+
+    expect(panelHome).toHaveAttribute('hidden');
+    expect(panelBarcode).not.toHaveAttribute('hidden');
+    expect(panelHistory).toHaveAttribute('hidden');
+    expect(panelPromotions).toHaveAttribute('hidden');
+
+    // Switch to History
+    const tabHistory = screen.getByRole('tab', { name: 'История' });
+    await user.click(tabHistory);
+
+    expect(panelBarcode).toHaveAttribute('hidden');
+    expect(panelHistory).not.toHaveAttribute('hidden');
+  });
+
+  it('has no false submission form, fake button or draft notes on client page', () => {
+    window.history.pushState({}, '', '/');
+    render(<AppRouter />);
+
+    // Нет фиктивной кнопки «Обсудить подключение» и ложной отправки
+    expect(screen.queryByRole('button', { name: /Обсудить подключение/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('form')).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+
+    // Нет служебных пометок и черновиков
+    const bodyText = document.body.textContent || '';
+    expect(bodyText).not.toMatch(/будет опубликовано/i);
+    expect(bodyText).not.toMatch(/будут опубликованы/i);
+    expect(bodyText).not.toMatch(/контакт не утверждён/i);
+    expect(bodyText).not.toMatch(/записка команде/i);
   });
 });
 
