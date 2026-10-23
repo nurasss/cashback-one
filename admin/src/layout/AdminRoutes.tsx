@@ -1,4 +1,16 @@
 import { Link, Navigate, Route, Routes } from 'react-router-dom';
+import '@fontsource/roboto/cyrillic-ext-400.css';
+import '@fontsource/roboto/cyrillic-400.css';
+import '@fontsource/roboto/latin-400.css';
+import '@fontsource/roboto/cyrillic-ext-500.css';
+import '@fontsource/roboto/cyrillic-500.css';
+import '@fontsource/roboto/latin-500.css';
+import '@fontsource/roboto/cyrillic-ext-600.css';
+import '@fontsource/roboto/cyrillic-600.css';
+import '@fontsource/roboto/latin-600.css';
+import '@fontsource/roboto/cyrillic-ext-700.css';
+import '@fontsource/roboto/cyrillic-700.css';
+import '@fontsource/roboto/latin-700.css';
 import { AdminProvider, useAdminSession } from '../auth/provider';
 import { RequireAdmin, RequireSuperadmin } from '../auth/RequireAdmin';
 import { LoginPage } from '../pages/LoginPage';
