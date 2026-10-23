@@ -1,6 +1,7 @@
 import { Pagination } from './Feedback';
 import type { ReactNode } from 'react';
 import { useLocale } from '../i18n/LocaleContext';
+import { CompactTableToggle, useCompactRows, type TableExpansion } from './CompactTable';
 
 export interface Column<T> {
   key: string;
@@ -15,14 +16,17 @@ export function DataTable<T>({
   rowKey,
   page,
   onPage,
+  expansion,
 }: {
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T) => string;
   page: { limit: number; offset: number; has_more: boolean };
   onPage: (offset: number) => void;
+  expansion?: TableExpansion;
 }) {
   const { locale } = useLocale();
+  const compact = useCompactRows(rows, expansion);
 
   return (
     <div className="table-card">
@@ -41,8 +45,8 @@ export function DataTable<T>({
               ))}
             </tr>
           </thead>
-          <tbody>
-            {rows.map(row => (
+          <tbody id={compact.bodyId}>
+            {compact.visibleRows.map(row => (
               <tr key={rowKey(row)}>
                 {columns.map(column => (
                   <td
@@ -57,6 +61,7 @@ export function DataTable<T>({
           </tbody>
         </table>
       </div>
+      <CompactTableToggle {...compact} />
       {rows.length === 0 ? (
         <p className="table-empty">
           {locale === 'kk'
@@ -64,7 +69,7 @@ export function DataTable<T>({
             : 'По заданным условиям записей не найдено.'}
         </p>
       ) : (
-        <Pagination page={page} onChange={onPage} />
+        compact.showPagination && <Pagination page={page} onChange={onPage} />
       )}
     </div>
   );

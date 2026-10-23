@@ -7,6 +7,7 @@ import { privateKey, useAgent, useAgents } from '../api/queries';
 import type { Agent, AgentCommand, AgentHealth, AgentKeyDisclosure } from '../api/types';
 import { useAdminSession } from '../auth/provider';
 import { DataTable } from '../components/DataTable';
+import { useTableExpansion } from '../components/CompactTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { AgentCreateDialog, AgentKeyDialog } from '../features/AdminMutations';
 import { usePage } from '../utils/usePage';
@@ -32,6 +33,7 @@ export function AgentsPage() {
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const [page, setPage] = usePage();
+  const expansion = useTableExpansion();
   const [createOpen, setCreateOpen] = useState(false);
   const [disclosure, setDisclosure] = useState<AgentKeyDisclosure | null>(null);
   const query = useAgents(undefined, page);
@@ -43,7 +45,6 @@ export function AgentsPage() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.agents.eyebrow}
         title={t.agents.title}
         subtitle={scopeDescription}
         actions={
@@ -62,6 +63,7 @@ export function AgentsPage() {
         <EmptyState title={t.agents.emptyTitle} detail={t.agents.emptyDetail} />
       ) : query.data ? (
         <DataTable<Agent>
+          expansion={expansion}
           page={{ ...page, has_more: query.data.has_more }}
           onPage={setPage}
           rows={query.data.items}
@@ -207,7 +209,6 @@ export function AgentDetailPage() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.agents.detailEyebrow}
         title={item.business_name}
         subtitle={t.agents.detailSubtitle}
         actions={

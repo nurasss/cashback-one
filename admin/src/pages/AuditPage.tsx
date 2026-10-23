@@ -2,6 +2,7 @@ import { useAdminSession } from '../auth/provider';
 import { useAudit } from '../api/queries';
 import type { AuditItem } from '../api/types';
 import { DataTable } from '../components/DataTable';
+import { useTableExpansion } from '../components/CompactTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { formatDate } from '../utils/format';
 import { usePage } from '../utils/usePage';
@@ -23,13 +24,13 @@ export function AuditPage() {
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const [page, setPage] = usePage();
+  const expansion = useTableExpansion();
   const query = useAudit(page);
   const isManager = view.status === 'authenticated' && view.admin.role === 'business_manager';
 
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.audit.eyebrow}
         title={t.audit.title}
         subtitle={
           isManager
@@ -48,6 +49,7 @@ export function AuditPage() {
         <EmptyState title={t.audit.emptyTitle} detail={t.audit.emptyDetail} />
       ) : query.data ? (
         <DataTable<AuditItem>
+          expansion={expansion}
           page={{ ...page, has_more: query.data.has_more }}
           onPage={setPage}
           rows={query.data.items}

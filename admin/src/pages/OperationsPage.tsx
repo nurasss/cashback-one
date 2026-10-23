@@ -6,6 +6,7 @@ import { useAdminSession } from '../auth/provider';
 import { privateKey, useBusinesses, useCard, useCards, useCardSearch, useUser, useUserSearch } from '../api/queries';
 import type { AdminUser, Card, CardUnbindResult, PageQuery } from '../api/types';
 import { DataTable } from '../components/DataTable';
+import { CompactTableToggle, useCompactRows, useTableExpansion, type TableExpansion } from '../components/CompactTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { formatBalance, formatDate } from '../utils/format';
 import { usePage } from '../utils/usePage';
@@ -23,6 +24,8 @@ export function OperationsPage() {
   const [cardListPage, setCardListPage] = usePage(25);
   const [cardSearchPage, setCardSearchPage] = usePage(25);
   const [userPage, setUserPage] = usePage(25);
+  const cardExpansion = useTableExpansion();
+  const userExpansion = useTableExpansion();
 
   const businesses = useBusinesses(
     { limit: 100, offset: 0 },
@@ -99,7 +102,6 @@ export function OperationsPage() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.operations.eyebrow}
         title={t.operations.title}
         subtitle={
           view.status === 'authenticated' && view.admin.business
@@ -192,6 +194,7 @@ export function OperationsPage() {
               <EmptyState title={t.operations.emptyCardsSearchTitle} detail={t.operations.emptyCardsSearchDetail} />
             ) : cardSearch.data ? (
               <CardResults
+                expansion={cardExpansion}
                 page={cardSearchPage}
                 setPage={setCardSearchPage}
                 rows={cardSearch.data.items}
@@ -207,6 +210,7 @@ export function OperationsPage() {
               <EmptyState title={t.operations.emptyUsersSearchTitle} detail={t.operations.emptyUsersSearchDetail} />
             ) : userSearch.data ? (
               <UserResults
+                expansion={userExpansion}
                 page={userPage}
                 setPage={setUserPage}
                 rows={userSearch.data.items}
@@ -230,6 +234,7 @@ export function OperationsPage() {
             <EmptyState title={t.operations.emptyCardsListTitle} detail={t.operations.emptyCardsListDetail} />
           ) : cardList.data ? (
             <CardResults
+              expansion={cardExpansion}
               page={cardListPage}
               setPage={setCardListPage}
               rows={cardList.data.items}
@@ -250,6 +255,7 @@ export function OperationsPage() {
 }
 
 function CardResults({
+  expansion,
   page,
   setPage,
   rows,
@@ -257,6 +263,7 @@ function CardResults({
   locale,
   t,
 }: {
+  expansion: TableExpansion;
   page: PageQuery;
   setPage: (offset: number) => void;
   rows: Card[];
@@ -266,6 +273,7 @@ function CardResults({
 }) {
   return (
     <DataTable<Card>
+      expansion={expansion}
       page={{ ...page, has_more: hasMore }}
       onPage={setPage}
       rows={rows}
@@ -317,6 +325,7 @@ function CardResults({
 }
 
 function UserResults({
+  expansion,
   page,
   setPage,
   rows,
@@ -324,6 +333,7 @@ function UserResults({
   locale,
   t,
 }: {
+  expansion: TableExpansion;
   page: PageQuery;
   setPage: (offset: number) => void;
   rows: AdminUser[];
@@ -333,6 +343,7 @@ function UserResults({
 }) {
   return (
     <DataTable<AdminUser>
+      expansion={expansion}
       page={{ ...page, has_more: hasMore }}
       onPage={setPage}
       rows={rows}
@@ -419,7 +430,6 @@ export function CardDetailPage() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.operations.cardDetailEyebrow}
         title={card.business_name}
         subtitle={t.operations.cardDetailSubtitle}
         actions={
@@ -492,6 +502,7 @@ export function UserDetailPage() {
       ? view.admin.business?.id
       : undefined;
   const query = useUser(userId, businessId, page);
+  const compact = useCompactRows(query.data?.cards.items ?? []);
 
   if (query.isPending) return <LoadingPage label={t.operations.loadingUsers} />;
   if (query.isError || !query.data) {
@@ -506,7 +517,6 @@ export function UserDetailPage() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.operations.userDetailEyebrow}
         title={user.phone ?? t.operations.colUser}
         subtitle={t.operations.userDetailSubtitle}
         actions={
@@ -542,8 +552,8 @@ export function UserDetailPage() {
                   <th>{t.operations.colStatus}</th>
                 </tr>
               </thead>
-              <tbody>
-                {user.cards.items.map(card => (
+              <tbody id={compact.bodyId}>
+                {compact.visibleRows.map(card => (
                   <tr key={card.id}>
                     <td>
                       <Link className="text-link mono-value" to={`/admin/cards/${encodeURIComponent(card.id)}`}>
@@ -560,7 +570,8 @@ export function UserDetailPage() {
             </table>
           </div>
         )}
-        {user.cards.items.length > 0 && (
+        <CompactTableToggle {...compact} />
+        {user.cards.items.length > 0 && compact.showPagination && (
           <div className="pagination">
             <span>{t.operations.userCardsPaged}</span>
             <div className="pagination-actions">

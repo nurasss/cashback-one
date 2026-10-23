@@ -114,6 +114,8 @@ it('immediately renders first page of all cards without requiring search input',
 
   // Verify leading zeros preserved
   expect(screen.getByText('0000000000001')).toBeInTheDocument();
+  expect(screen.queryByText('0000000000025')).not.toBeInTheDocument();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Показать все (25)' }));
   expect(screen.getByText('0000000000025')).toBeInTheDocument();
   expect(screen.getAllByText('Alpha Market').length).toBeGreaterThan(0);
 
@@ -172,10 +174,12 @@ it('navigates next and previous pages properly with has_more handling', async ()
     expect(screen.getByText('0000000000001')).toBeInTheDocument();
   });
 
+  await user.click(screen.getByRole('button', { name: 'Показать все (25)' }));
   const nextBtn = screen.getByRole('button', { name: 'Далее' });
   expect(nextBtn).toBeEnabled();
 
   // Click Далее to go to page 2
+  // The pagination is available only after expanding the current page.
   await user.click(nextBtn);
 
   await waitFor(() => {

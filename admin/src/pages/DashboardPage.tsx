@@ -69,7 +69,7 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <PageHeading eyebrow={t.dashboard.eyebrow} title={title} subtitle={t.dashboard.subtitle} />
+      <PageHeading title={title} subtitle={t.dashboard.subtitle} />
       {dashboard.isError && <ErrorNotice error={dashboard.error} retry={() => { void dashboard.refetch(); }} />}
 
       <section className="filter-panel" aria-label={t.dashboard.filterAria}>

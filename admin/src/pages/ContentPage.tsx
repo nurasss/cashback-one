@@ -5,6 +5,7 @@ import { privateKey, useAppNotifications, useBusinesses, usePromotions } from '.
 import type { AppNotification, Promotion, PromotionKind } from '../api/types';
 import { useAdminSession } from '../auth/provider';
 import { DataTable } from '../components/DataTable';
+import { useTableExpansion } from '../components/CompactTable';
 import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { ImageUploadField } from '../components/ImageUploadField';
 import { DialogFrame } from '../features/AdminMutations';
@@ -42,7 +43,6 @@ export function ContentPage() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.content.eyebrow}
         title={t.content.title}
         subtitle={t.content.subtitle}
         actions={
@@ -99,6 +99,7 @@ export function ContentPage() {
 }
 
 function PromotionsTable({ businessId, onEdit }: { businessId?: string; onEdit: (promotion: Promotion) => void }) {
+  const expansion = useTableExpansion();
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const [page, setPage] = usePage();
@@ -112,6 +113,7 @@ function PromotionsTable({ businessId, onEdit }: { businessId?: string; onEdit: 
     <>
       {remove.error && <ErrorNotice error={remove.error} />}
       <DataTable<Promotion>
+        expansion={expansion}
         page={{ ...page, has_more: query.data.has_more }}
         onPage={setPage}
         rows={query.data.items}
@@ -184,6 +186,7 @@ function PromotionsTable({ businessId, onEdit }: { businessId?: string; onEdit: 
 }
 
 function NotificationsTable({ businessId }: { businessId?: string }) {
+  const expansion = useTableExpansion();
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const [page, setPage] = usePage();
@@ -197,6 +200,7 @@ function NotificationsTable({ businessId }: { businessId?: string }) {
     <>
       {remove.error && <ErrorNotice error={remove.error} />}
       <DataTable<AppNotification>
+        expansion={expansion}
         page={{ ...page, has_more: query.data.has_more }}
         onPage={setPage}
         rows={query.data.items}

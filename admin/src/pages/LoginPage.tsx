@@ -76,7 +76,7 @@ export function LoginPage() {
             <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
           </div>
           <div>
-            <b>POSCENTER.KZ</b>
+            <b>poscenter.kz</b>
             <small>LOYALTY PLATFORM</small>
           </div>
         </div>

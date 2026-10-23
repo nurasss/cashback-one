@@ -68,9 +68,10 @@ export const adminRu = {
     prevPage: 'Назад',
     nextPage: 'Далее',
     tableEmpty: 'По заданным условиям записей не найдено.',
+    showAllRows: (count: number) => `Показать все (${count})`,
+    collapseRows: 'Свернуть',
   },
   dashboard: {
-    eyebrow: 'ОПЕРАТИВНЫЙ ОБЗОР',
     subtitle: 'Сводка по картам, клиентам и синхронизации.',
     loadingMetrics: 'Загружаем показатели…',
     emptyDetail: 'Для выбранного периода пока нет показателей.',
@@ -107,7 +108,6 @@ export const adminRu = {
       'Баланс и операции — read-only зеркало данных из Cloud Backend. «Незаблокированные» основано только на поле is_blocked; отдельное определение активной карты не выводится.',
   },
   businesses: {
-    eyebrow: 'ОРГАНИЗАЦИИ',
     title: 'Бизнесы',
     subtitle: 'Настройки бренда и статус каждого бизнеса.',
     createBtn: 'Создать бизнес',
@@ -120,7 +120,6 @@ export const adminRu = {
     colUpdated: 'ИЗМЕНЁН',
     statusActive: 'Активен',
     statusInactive: 'Неактивен',
-    detailEyebrow: 'ОРГАНИЗАЦИИ / КАРТОЧКА',
     detailSubtitle: 'Настройки доступны суперадминистратору.',
     grantAccessBtn: 'Выдать доступ / Сбросить пароль',
     resettingBtn: 'Сбрасываем…',
@@ -149,7 +148,6 @@ export const adminRu = {
     logoAlt: 'Логотип бизнеса',
   },
   agents: {
-    eyebrow: 'СИНХРОНИЗАЦИЯ',
     title: 'Агенты',
     scopePrefix: (name: string) => `Агенты бизнеса «${name}».`,
     scopeAll: 'Состояние синхронизации по бизнесам.',
@@ -165,7 +163,6 @@ export const adminRu = {
     colLastSync: 'ПОСЛЕДНЯЯ СИНХРОНИЗАЦИЯ',
     colLastError: 'ПОСЛЕДНЯЯ ОШИБКА',
     noData: 'Нет данных',
-    detailEyebrow: 'АГЕНТЫ / СОСТОЯНИЕ',
     detailSubtitle: 'Сведения из состояния облачной синхронизации.',
     rotateKeyBtn: 'Ротировать ключ',
     revokeBtn: 'Отозвать',
@@ -190,7 +187,6 @@ export const adminRu = {
     noErrorsReported: 'Ошибок не сообщалось',
   },
   operations: {
-    eyebrow: 'КАРТЫ И КЛИЕНТЫ',
     title: 'Карты и клиенты',
     subtitleScope: (name: string) => `Область доступа: «${name}».`,
     subtitleAll: 'Полный список карт и поиск по облачной базе данных.',
@@ -235,7 +231,6 @@ export const adminRu = {
     blocked: 'Заблокирована',
     unblocked: 'Не заблокирована',
     notBound: 'Не привязана',
-    cardDetailEyebrow: 'КАРТЫ / ПРОФИЛЬ',
     cardDetailSubtitle:
       'Карта и привязка отображаются только для доступных вам бизнесов.',
     unbindBtn: 'Отвязать карту',
@@ -260,7 +255,6 @@ export const adminRu = {
     no: 'Нет',
     notSpecified: 'Не указан',
     noActiveProfile: 'Нет активного профиля',
-    userDetailEyebrow: 'КЛИЕНТЫ / ПРОФИЛЬ',
     userDetailSubtitle:
       'Отображаются только карты, входящие в разрешённую область данных.',
     backToSearch: 'К поиску',
@@ -272,7 +266,6 @@ export const adminRu = {
     userCardsPaged: 'Карты постранично',
   },
   audit: {
-    eyebrow: 'БЕЗОПАСНОСТЬ',
     title: 'Журнал событий',
     subtitleScope: (name: string) => `События только бизнеса «${name}».`,
     subtitleAll: 'Административные события всех бизнесов.',
@@ -290,7 +283,6 @@ export const adminRu = {
     stateShow: 'Показать',
   },
   content: {
-    eyebrow: 'МОБИЛЬНОЕ ПРИЛОЖЕНИЕ',
     title: 'Приложение',
     subtitle: 'Баннеры, акции и уведомления, которые видят покупатели.',
     addPromoBtn: 'Добавить акцию',
@@ -525,9 +517,10 @@ export const adminKk: AdminTranslations = {
     prevPage: 'Артқа',
     nextPage: 'Келесі',
     tableEmpty: 'Берілген шарттар бойынша жазбалар табылмады.',
+    showAllRows: (count: number) => `Барлығын көрсету (${count})`,
+    collapseRows: 'Жию',
   },
   dashboard: {
-    eyebrow: 'ЖЕДЕЛ ШОЛУ',
     subtitle: 'Карталар, клиенттер және синхрондау бойынша жиынтық мәлімет.',
     loadingMetrics: 'Көрсеткіштер жүктелуде…',
     emptyDetail: 'Таңдалған кезең үшін әзірге көрсеткіштер жоқ.',
@@ -564,7 +557,6 @@ export const adminKk: AdminTranslations = {
       'Баланс пен операциялар — Cloud Backend деректерінің тек оқуға арналған айнасы. «Бұғатталмағандар» тек is_blocked өрісіне негізделген; белсенді картаның бөлек анықтамасы көрсетілмейді.',
   },
   businesses: {
-    eyebrow: 'ҰЙЫМДАР',
     title: 'Бизнестер',
     subtitle: 'Бренд баптаулары және әр бизнестің мәртебесі.',
     createBtn: 'Бизнес құру',
@@ -577,7 +569,6 @@ export const adminKk: AdminTranslations = {
     colUpdated: 'ӨЗГЕРТІЛДІ',
     statusActive: 'Белсенді',
     statusInactive: 'Белсенді емес',
-    detailEyebrow: 'ҰЙЫМДАР / КАРТОЧКА',
     detailSubtitle: 'Баптаулар суперадминистраторға қолжетімді.',
     grantAccessBtn: 'Қолжетімділік беру / Құпиясөзді қайта орнату',
     resettingBtn: 'Қайта орнатудамыз…',
@@ -606,7 +597,6 @@ export const adminKk: AdminTranslations = {
     logoAlt: 'Бизнес логотипі',
   },
   agents: {
-    eyebrow: 'СИНХРОНДАУ',
     title: 'Агенттер',
     scopePrefix: (name: string) => `«${name}» бизнесінің агенттері.`,
     scopeAll: 'Бизнестер бойынша синхрондау күйі.',
@@ -622,7 +612,6 @@ export const adminKk: AdminTranslations = {
     colLastSync: 'СОҢҒЫ СИНХРОНДАУ',
     colLastError: 'СОҢҒЫ ҚАТЕ',
     noData: 'Деректер жоқ',
-    detailEyebrow: 'АГЕНТТЕР / КҮЙІ',
     detailSubtitle: 'Бұлттық синхрондау күйіндегі мәліметтер.',
     rotateKeyBtn: 'Кілтті ротациялау',
     revokeBtn: 'Кері қайтарып алу',
@@ -648,7 +637,6 @@ export const adminKk: AdminTranslations = {
     noErrorsReported: 'Қателер хабарланбаған',
   },
   operations: {
-    eyebrow: 'КАРТАЛАР МЕН КЛИЕНТТЕР',
     title: 'Карталар мен клиенттер',
     subtitleScope: (name: string) => `Қолжетімділік аймағы: «${name}».`,
     subtitleAll: 'Карталардың толық тізімі және бұлттық дерекқор бойынша іздеу.',
@@ -693,7 +681,6 @@ export const adminKk: AdminTranslations = {
     blocked: 'Бұғатталған',
     unblocked: 'Бұғатталмаған',
     notBound: 'Байланыстырылмаған',
-    cardDetailEyebrow: 'КАРТАЛАР / БЕЙІН',
     cardDetailSubtitle:
       'Карта мен байланыс тек сізге қолжетімді бизнестер үшін көрсетіледі.',
     unbindBtn: 'Карта байланысын ажырату',
@@ -718,7 +705,6 @@ export const adminKk: AdminTranslations = {
     no: 'Жоқ',
     notSpecified: 'Көрсетілмеген',
     noActiveProfile: 'Белсенді бейін жоқ',
-    userDetailEyebrow: 'КЛИЕНТТЕР / БЕЙІН',
     userDetailSubtitle:
       'Рұқсат етілген деректер аймағына кіретін карталар ғана көрсетіледі.',
     backToSearch: 'Іздеуге оралу',
@@ -730,7 +716,6 @@ export const adminKk: AdminTranslations = {
     userCardsPaged: 'Карталар беттер бойынша',
   },
   audit: {
-    eyebrow: 'ҚАУІПСІЗДІК',
     title: 'Оқиғалар журналы',
     subtitleScope: (name: string) => `Тек «${name}» бизнесінің оқиғалары.`,
     subtitleAll: 'Барлық бизнестердің әкімшілік оқиғалары.',
@@ -748,7 +733,6 @@ export const adminKk: AdminTranslations = {
     stateShow: 'Көрсету',
   },
   content: {
-    eyebrow: 'МОБИЛЬДІ ҚОЛДАНБА',
     title: 'Қолданба',
     subtitle: 'Сатып алушылар көретін баннерлер, акциялар және хабарламалар.',
     addPromoBtn: 'Акция қосу',

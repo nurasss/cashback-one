@@ -62,12 +62,10 @@ export function EmptyState({ title, detail }: { title: string; detail: string })
 }
 
 export function PageHeading({
-  eyebrow,
   title,
   subtitle,
   actions,
 }: {
-  eyebrow: string;
   title: string;
   subtitle: string;
   actions?: ReactNode;
@@ -75,7 +73,6 @@ export function PageHeading({
   return (
     <header className="page-heading">
       <div>
-        <span className="eyebrow">{eyebrow}</span>
         <h1>{title}</h1>
         <p>{subtitle}</p>
       </div>

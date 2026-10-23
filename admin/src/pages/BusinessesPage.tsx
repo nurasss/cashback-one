@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAdminSession } from '../auth/provider';
 import { DataTable } from '../components/DataTable';
+import { useTableExpansion } from '../components/CompactTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { messageForError } from '../api/errors';
 import { useBusiness, useBusinesses } from '../api/queries';
@@ -19,12 +20,12 @@ export function BusinessesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [managerAccess, setManagerAccess] = useState<ManagerAccessDisclosure | null>(null);
   const [page, setPage] = usePage();
+  const expansion = useTableExpansion();
   const query = useBusinesses(page);
 
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.businesses.eyebrow}
         title={t.businesses.title}
         subtitle={t.businesses.subtitle}
         actions={
@@ -41,6 +42,7 @@ export function BusinessesPage() {
         <EmptyState title={t.businesses.emptyTitle} detail={t.businesses.emptyDetail} />
       ) : query.data ? (
         <DataTable<Business>
+          expansion={expansion}
           page={{ ...page, has_more: query.data.has_more }}
           onPage={setPage}
           rows={query.data.items}
@@ -143,7 +145,6 @@ export function BusinessDetailPage() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow={t.businesses.detailEyebrow}
         title={business.name}
         subtitle={t.businesses.detailSubtitle}
         actions={

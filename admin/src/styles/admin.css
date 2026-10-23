@@ -424,7 +424,7 @@ body {
 }
 
 .page-heading h1 {
-  margin: 6px 0 4px;
+  margin: 0 0 4px;
   color: var(--ink);
   font-size: clamp(24px, 2.5vw, 32px);
   font-weight: 700;
@@ -765,6 +765,17 @@ body {
 
 .table-wrap {
   overflow-x: auto;
+}
+
+.table-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 1px;
+  white-space: normal;
+}
+
+.table-toggle:focus-visible {
+  outline-offset: -3px;
 }
 
 .admin-surface table {

@@ -26,7 +26,7 @@ export function AdminLayout({ children }: PropsWithChildren) {
               <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
             </div>
             <div className="brand-text">
-              <strong>POSCENTER.KZ</strong>
+              <strong>poscenter.kz</strong>
               <small>LOYALTY · ADMIN</small>
             </div>
           </NavLink>
