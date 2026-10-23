@@ -10,20 +10,26 @@ import { AuditPage } from '../pages/AuditPage';
 import { ContentPage } from '../pages/ContentPage';
 import { ErrorNotice, LoadingPage } from '../components/Feedback';
 import { AdminErrorBoundary } from './AdminErrorBoundary';
+import { LanguageSwitcher } from '../i18n/LocaleContext';
+import { useAdminTranslation } from '../i18n/admin';
 
 export { AdminErrorBoundary };
 
 export function AdminNotFoundPage() {
+  const t = useAdminTranslation();
   return (
     <div className="center-screen">
       <div className="failure-panel">
-        <div className="brand-mark-wrap">
-          <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div className="brand-mark-wrap">
+            <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+          </div>
+          <LanguageSwitcher className="admin-not-found-lang-switcher" />
         </div>
-        <h1>Страница не найдена</h1>
-        <p className="error-copy">Запрошенный административный раздел не существует или был перемещён.</p>
+        <h1>{t.routes.adminNotFoundTitle}</h1>
+        <p className="error-copy">{t.routes.adminNotFoundCopy}</p>
         <Link to="/admin" className="button button-primary">
-          Вернуться к обзору
+          {t.routes.backToOverview}
         </Link>
       </div>
     </div>
@@ -36,20 +42,24 @@ function ProtectedLayout() {
 
 function AdminRouterState() {
   const { session, view } = useAdminSession();
+  const t = useAdminTranslation();
 
-  if (view.status === 'loading') return <LoadingPage />;
+  if (view.status === 'loading') return <LoadingPage label={t.routes.loadingSession} />;
 
   if (view.status === 'error') {
     return (
       <main className="center-screen">
         <div className="failure-panel">
-          <div className="brand-mark-wrap">
-            <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div className="brand-mark-wrap">
+              <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+            </div>
+            <LanguageSwitcher className="admin-error-lang-switcher" />
           </div>
-          <h1>Нет соединения с Admin</h1>
+          <h1>{t.routes.noConnectionTitle}</h1>
           <ErrorNotice error={view.error} retry={() => { void session.bootstrap(); }} />
           <button className="button button-secondary" type="button" onClick={() => session.continueToLogin()}>
-            Перейти ко входу
+            {t.routes.goToLogin}
           </button>
         </div>
       </main>
@@ -60,26 +70,29 @@ function AdminRouterState() {
     return (
       <main className="center-screen">
         <div className="failure-panel">
-          <div className="brand-mark-wrap">
-            <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div className="brand-mark-wrap">
+              <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+            </div>
+            <LanguageSwitcher className="admin-error-lang-switcher" />
           </div>
-          <h1>Выход не подтверждён</h1>
-          <p className="error-copy">Браузер заблокировал доступ на этом устройстве. Сервер ещё не подтвердил отзыв сессии.</p>
+          <h1>{t.login.logoutUnconfirmed}</h1>
+          <p className="error-copy">{t.login.logoutErrorCopy}</p>
           <button className="button button-primary" type="button" onClick={() => { void session.logout(); }}>
-            Повторить выход
+            {t.login.retryLogout}
           </button>
         </div>
       </main>
     );
   }
 
-  if (view.status === 'signing_out') return <LoadingPage label="Выполняем выход…" />;
+  if (view.status === 'signing_out') return <LoadingPage label={t.routes.signingOut} />;
 
   if (view.status === 'authenticating') {
     return (
       <Routes>
         <Route path="login" element={<LoginPage />} />
-        <Route path="*" element={<LoadingPage />} />
+        <Route path="*" element={<LoadingPage label={t.routes.loadingSession} />} />
       </Routes>
     );
   }

@@ -10,10 +10,13 @@ import type {
   ManagerAccessDisclosure,
 } from '../api/types';
 import { useAdminSession } from '../auth/provider';
+import { useLocale } from '../i18n/LocaleContext';
+import { useAdminTranslation } from '../i18n/admin';
 
 export function DialogFrame({ title, onClose, children }: {
   title: string; onClose: () => void; children: ReactNode;
 }) {
+  const t = useAdminTranslation();
   const dialogRef = useRef<HTMLElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -37,7 +40,7 @@ export function DialogFrame({ title, onClose, children }: {
   return <div className="mutation-backdrop">
     <section ref={dialogRef} tabIndex={-1} className="mutation-dialog" role="dialog" aria-modal="true" aria-labelledby="mutation-title" onKeyDown={closeOnEscape}>
       <header className="mutation-heading"><h2 id="mutation-title">{title}</h2>
-        <button className="button button-secondary" type="button" onClick={onClose} aria-label="Закрыть окно">Закрыть</button>
+        <button className="button button-secondary" type="button" onClick={onClose} aria-label={t.mutations.closeDialog}>{t.mutations.close}</button>
       </header>
       {children}
     </section>
@@ -56,6 +59,8 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
   business?: BusinessDetail; onClose: () => void; onSaved: (managerAccess?: ManagerAccessDisclosure | null) => void;
 }) {
   const { session } = useAdminSession();
+  const { locale } = useLocale();
+  const t = useAdminTranslation();
   const queryClient = useQueryClient();
   const [name, setName] = useState(business?.name ?? '');
   const [logoUrl, setLogoUrl] = useState(business?.logo_url ?? '');
@@ -71,7 +76,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
     setError('');
     const trimmedName = name.trim();
     if (!trimmedName || trimmedName.length > 255) {
-      setError('Введите название длиной до 255 символов.');
+      setError(t.mutations.errBusinessName);
       return;
     }
     let normalizedLogo: string | null = null;
@@ -83,7 +88,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
         }
         normalizedLogo = parsed.href;
       } catch {
-        setError('Логотип должен быть HTTPS URL без встроенных учётных данных.');
+        setError(t.mutations.errBusinessLogo);
         return;
       }
     }
@@ -95,9 +100,10 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       else throw new Error('invalid');
       if (new TextEncoder().encode(JSON.stringify(colors)).length > 8192) throw new Error('large');
     } catch {
-      setError('Цвета должны быть JSON-объектом не больше 8 KiB или null.');
+      setError(t.mutations.errBusinessColors);
       return;
     }
+
     let barcodePrefixes: string[] | null;
     try {
       const parsed: unknown = JSON.parse(prefixesText || '[]');
@@ -109,7 +115,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
         }
       } else throw new Error('invalid');
     } catch {
-      setError('Префиксы должны быть JSON-массивом строк, [] или null.');
+      setError(t.mutations.errBusinessPrefixes);
       return;
     }
 
@@ -120,7 +126,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       else if (Array.isArray(parsed) && parsed.length > 0 && parsed.length <= 10 && parsed.every(isTier)) loyaltyTiers = parsed;
       else throw new Error('invalid');
     } catch {
-      setError('Уровни должны быть JSON-массивом до 10 объектов {level, name, threshold, percent} или null.');
+      setError(t.mutations.errBusinessTiers);
       return;
     }
 
@@ -147,32 +153,32 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
         onSaved(created.manager_access);
       }
     } catch (mutationError) {
-      setError(messageForError(mutationError));
+      setError(messageForError(mutationError, locale));
     } finally {
       setSaving(false);
     }
   };
 
-  return <DialogFrame title={business ? 'Изменить бизнес' : 'Создать бизнес'} onClose={onClose}>
+  return <DialogFrame title={business ? t.mutations.businessEditTitle : t.mutations.businessCreateTitle} onClose={onClose}>
     <form className="mutation-form" onSubmit={event => { void submit(event); }}>
-      <label htmlFor="business-name">Название</label>
+      <label htmlFor="business-name">{t.mutations.businessName}</label>
       <input id="business-name" value={name} maxLength={255} onChange={event => setName(event.target.value)} autoFocus required />
-      <label htmlFor="business-logo">Логотип (HTTPS URL или пусто)</label>
+      <label htmlFor="business-logo">{t.mutations.businessLogo}</label>
       <input id="business-logo" type="url" value={logoUrl} maxLength={1024} onChange={event => setLogoUrl(event.target.value)} />
-      <label htmlFor="business-colors">Цвета (ограниченный JSON object)</label>
+      <label htmlFor="business-colors">{t.mutations.businessColors}</label>
       <textarea id="business-colors" rows={5} value={colorsText} onChange={event => setColorsText(event.target.value)} />
-      <label htmlFor="business-prefixes">Префиксы barcode (JSON array; пустой список допустим)</label>
+      <label htmlFor="business-prefixes">{t.mutations.businessPrefixes}</label>
       <textarea id="business-prefixes" rows={3} value={prefixesText} onChange={event => setPrefixesText(event.target.value)} />
-      {business && <><label htmlFor="business-tiers">Уровни лояльности (JSON: level, name, threshold — сумма покупок, percent — % баллов)</label>
+      {business && <><label htmlFor="business-tiers">{t.mutations.businessTiers}</label>
       <textarea id="business-tiers" rows={6} value={tiersText} placeholder='[{"level": 1, "name": "Базовый", "threshold": "0", "percent": "3"}]' onChange={event => setTiersText(event.target.value)} /></>}
-      <label htmlFor="business-status">Статус</label>
+      <label htmlFor="business-status">{t.mutations.businessStatus}</label>
       <select id="business-status" value={status} onChange={event => setStatus(event.target.value as 'active' | 'inactive')}>
-        <option value="active">Активен</option><option value="inactive">Неактивен</option>
+        <option value="active">{t.mutations.statusActive}</option><option value="inactive">{t.mutations.statusInactive}</option>
       </select>
       {error && <p className="form-error" role="alert">{error}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={onClose} disabled={saving}>Отмена</button>
-        <button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Сохраняем…' : business ? 'Сохранить' : 'Создать'}</button>
+        <button className="button button-secondary" type="button" onClick={onClose} disabled={saving}>{t.mutations.cancel}</button>
+        <button className="button button-primary" type="submit" disabled={saving}>{saving ? t.mutations.saving : business ? t.mutations.save : t.mutations.create}</button>
       </footer>
     </form>
   </DialogFrame>;
@@ -182,6 +188,8 @@ export function AgentCreateDialog({ onClose, onCreated }: {
   onClose: () => void; onCreated: (disclosure: AgentKeyDisclosure) => void;
 }) {
   const { session } = useAdminSession();
+  const { locale } = useLocale();
+  const t = useAdminTranslation();
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
   const businesses = useBusinesses({ limit: 100, offset });
@@ -192,48 +200,48 @@ export function AgentCreateDialog({ onClose, onCreated }: {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
-    if (!businessId) { setError('Выберите бизнес.'); return; }
+    if (!businessId) { setError(t.mutations.agentErrSelectBusiness); return; }
     setCreating(true);
     try {
       const disclosure = await session.api.request<AgentKeyDisclosure>('/admin/agents', {
         method: 'POST', body: { business_id: businessId },
       });
       await queryClient.invalidateQueries({ queryKey: [...privateKey, 'agents'] });
-      // The disclosure bypasses query/mutation caches and is passed only to transient component state.
       onCreated({ agent: disclosure.agent, api_key: disclosure.api_key });
     } catch (mutationError) {
-      setError(messageForError(mutationError));
+      setError(messageForError(mutationError, locale));
     } finally {
       setCreating(false);
     }
   };
 
-  return <DialogFrame title="Создать агента" onClose={onClose}>
+  return <DialogFrame title={t.mutations.agentCreateTitle} onClose={onClose}>
     <form className="mutation-form" onSubmit={event => { void submit(event); }}>
-      <label htmlFor="agent-business">Бизнес</label>
-      {businesses.isPending ? <p>Загружаем список бизнесов…</p> : businesses.isError ?
-        <p className="form-error" role="alert">{messageForError(businesses.error)}</p> :
+      <label htmlFor="agent-business">{t.mutations.agentBusiness}</label>
+      {businesses.isPending ? <p>{t.mutations.agentLoadingBusinesses}</p> : businesses.isError ?
+        <p className="form-error" role="alert">{messageForError(businesses.error, locale)}</p> :
         <select id="agent-business" value={businessId} onChange={event => setBusinessId(event.target.value)} required>
-          <option value="">Выберите бизнес</option>
+          <option value="">{t.mutations.agentSelectBusiness}</option>
           {businesses.data?.items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>}
       {businesses.data?.has_more && <div className="pagination-actions">
-        <button className="button button-secondary" type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Предыдущие бизнесы</button>
-        <button className="button button-secondary" type="button" onClick={() => setOffset(offset + 100)}>Следующие бизнесы</button>
+        <button className="button button-secondary" type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>{t.mutations.agentPrevBusinesses}</button>
+        <button className="button button-secondary" type="button" onClick={() => setOffset(offset + 100)}>{t.mutations.agentNextBusinesses}</button>
       </div>}
-      <p className="muted-copy">Ключ API будет показан один раз после создания.</p>
+      <p className="muted-copy">{t.mutations.agentApiKeyHint}</p>
       {error && <p className="form-error" role="alert">{error}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={onClose} disabled={creating}>Отмена</button>
-        <button className="button button-primary" type="submit" disabled={creating || businesses.isPending}>{creating ? 'Создаём…' : 'Создать агента'}</button>
+        <button className="button button-secondary" type="button" onClick={onClose} disabled={creating}>{t.mutations.cancel}</button>
+        <button className="button button-primary" type="submit" disabled={creating || businesses.isPending}>{creating ? t.mutations.creating : t.mutations.agentCreateSubmit}</button>
       </footer>
     </form>
   </DialogFrame>;
 }
 
-export function AgentKeyDialog({ disclosure, title = 'Ключ агента создан', onClose }: {
+export function AgentKeyDialog({ disclosure, title, onClose }: {
   disclosure: AgentKeyDisclosure; title?: string; onClose: () => void;
 }) {
+  const t = useAdminTranslation();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState('');
   const copy = async () => {
@@ -242,27 +250,28 @@ export function AgentKeyDialog({ disclosure, title = 'Ключ агента со
       await navigator.clipboard.writeText(disclosure.api_key);
       setCopied(true);
     } catch {
-      setCopyError('Не удалось скопировать. Выделите ключ вручную.');
+      setCopyError(t.mutations.copyError);
     }
   };
-  return <DialogFrame title={title} onClose={onClose}>
+  return <DialogFrame title={title ?? t.mutations.agentKeyTitleCreated} onClose={onClose}>
     <div className="mutation-form">
-      <p>Ключ будет показан только один раз. Сохраните его сейчас.</p>
-      <p className="muted-copy">Агент: {disclosure.agent.business_name} · {disclosure.agent.id}</p>
-      <code className="secret-key" aria-label="Одноразовый API key">{disclosure.api_key}</code>
+      <p>{t.mutations.agentKeyNotice}</p>
+      <p className="muted-copy">{t.mutations.agentInfo(disclosure.agent.business_name, disclosure.agent.id)}</p>
+      <code className="secret-key" aria-label={t.mutations.agentApiKeyAria}>{disclosure.api_key}</code>
       {copyError && <p className="form-error" role="alert">{copyError}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={() => { setCopied(false); onClose(); }}>Закрыть и удалить ключ</button>
-        <button className="button button-primary" type="button" onClick={() => { void copy(); }}>Скопировать ключ</button>
+        <button className="button button-secondary" type="button" onClick={() => { setCopied(false); onClose(); }}>{t.mutations.closeAndDismissBtn}</button>
+        <button className="button button-primary" type="button" onClick={() => { void copy(); }}>{t.mutations.copyKeyBtn}</button>
       </footer>
-      {copied && <p className="success-copy" role="status">Скопировано.</p>}
+      {copied && <p className="success-copy" role="status">{t.mutations.copied}</p>}
     </div>
   </DialogFrame>;
 }
 
-export function ManagerAccessDialog({ disclosure, title = 'Доступ клиента к админке', onClose }: {
+export function ManagerAccessDialog({ disclosure, title, onClose }: {
   disclosure: ManagerAccessDisclosure; title?: string; onClose: () => void;
 }) {
+  const t = useAdminTranslation();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState('');
 
@@ -271,30 +280,30 @@ export function ManagerAccessDialog({ disclosure, title = 'Доступ клие
 
   const copyAll = async () => {
     setCopyError('');
-    const fullText = `Ссылка: ${loginUrl}\nЛогин: ${disclosure.login}\nПароль: ${disclosure.password}`;
+    const fullText = t.mutations.copyAllTemplate(loginUrl, disclosure.login, disclosure.password);
     try {
       await navigator.clipboard.writeText(fullText);
       setCopied(true);
     } catch {
-      setCopyError('Не удалось скопировать. Выделите данные вручную.');
+      setCopyError(t.mutations.copyAllError);
     }
   };
 
-  return <DialogFrame title={title} onClose={onClose}>
+  return <DialogFrame title={title ?? t.mutations.managerAccessTitle} onClose={onClose}>
     <div className="mutation-form">
-      <p className="warning-copy" role="status">Пароль показан один раз и не сохраняется. Передайте клиенту безопасным способом.</p>
-      <label htmlFor="disclosure-url">Ссылка для входа</label>
-      <code id="disclosure-url" className="secret-key" aria-label="Ссылка для входа">{loginUrl}</code>
-      <label htmlFor="disclosure-login">Логин</label>
-      <code id="disclosure-login" className="secret-key" aria-label="Логин менеджера">{disclosure.login}</code>
-      <label htmlFor="disclosure-password">Пароль</label>
-      <code id="disclosure-password" className="secret-key" aria-label="Пароль менеджера">{disclosure.password}</code>
+      <p className="warning-copy" role="status">{t.mutations.managerWarning}</p>
+      <label htmlFor="disclosure-url">{t.mutations.managerUrlLabel}</label>
+      <code id="disclosure-url" className="secret-key" aria-label={t.mutations.managerUrlAria}>{loginUrl}</code>
+      <label htmlFor="disclosure-login">{t.mutations.managerLoginLabel}</label>
+      <code id="disclosure-login" className="secret-key" aria-label={t.mutations.managerLoginAria}>{disclosure.login}</code>
+      <label htmlFor="disclosure-password">{t.mutations.managerPasswordLabel}</label>
+      <code id="disclosure-password" className="secret-key" aria-label={t.mutations.managerPasswordAria}>{disclosure.password}</code>
       {copyError && <p className="form-error" role="alert">{copyError}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={onClose}>Закрыть</button>
-        <button className="button button-primary" type="button" onClick={() => { void copyAll(); }}>Скопировать всё</button>
+        <button className="button button-secondary" type="button" onClick={onClose}>{t.mutations.close}</button>
+        <button className="button button-primary" type="button" onClick={() => { void copyAll(); }}>{t.mutations.copyAllBtn}</button>
       </footer>
-      {copied && <p className="success-copy" role="status">Скопировано в буфер обмена.</p>}
+      {copied && <p className="success-copy" role="status">{t.mutations.copyAllCopied}</p>}
     </div>
   </DialogFrame>;
 }

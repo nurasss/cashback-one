@@ -3,9 +3,12 @@ import type { PropsWithChildren } from 'react';
 import { useAdminSession } from '../auth/provider';
 import { Navigation } from '../features/Navigation';
 import { IconBuilding, IconLogout } from '../components/Icons';
+import { LanguageSwitcher } from '../i18n/LocaleContext';
+import { useAdminTranslation } from '../i18n/admin';
 
 export function AdminLayout({ children }: PropsWithChildren) {
   const { session, view } = useAdminSession();
+  const t = useAdminTranslation();
   const navigate = useNavigate();
   if (view.status !== 'authenticated') return null;
   const { admin } = view;
@@ -18,7 +21,7 @@ export function AdminLayout({ children }: PropsWithChildren) {
     <div className="app-frame">
       <aside className="sidebar">
         <div className="sidebar-brand-container">
-          <NavLink className="brand-lockup" to="/admin" aria-label="POSCENTER Loyalty — на главную">
+          <NavLink className="brand-lockup" to="/admin" aria-label={t.layout.brandAria}>
             <div className="brand-mark-wrap">
               <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
             </div>
@@ -35,9 +38,9 @@ export function AdminLayout({ children }: PropsWithChildren) {
           <div className="sidebar-note">
             <div className="sidebar-note-header">
               <span className="security-dot" aria-hidden="true" />
-              <span className="security-title">Режим просмотра</span>
+              <span className="security-title">{t.layout.viewMode}</span>
             </div>
-            <small>Административные изменения отключены</small>
+            <small>{t.layout.viewModeNote}</small>
           </div>
         </div>
       </aside>
@@ -45,32 +48,33 @@ export function AdminLayout({ children }: PropsWithChildren) {
       <div className="main-column">
         <header className="topbar">
           <div className="topbar-context">
-            <span className="context-platform">Платформа лояльности</span>
+            <span className="context-platform">{t.layout.platform}</span>
             <span className="context-divider" aria-hidden="true">/</span>
             <span className="context-business">
               <IconBuilding className="context-icon" aria-hidden="true" />
-              <strong>{admin.business?.name ?? 'Все бизнесы'}</strong>
+              <strong>{admin.business?.name ?? t.layout.allBusinesses}</strong>
             </span>
           </div>
 
           <div className="account-menu">
+            <LanguageSwitcher className="topbar-lang-switcher" />
             <div className="account-avatar" aria-hidden="true">
               {admin.login.slice(0, 1).toUpperCase()}
             </div>
             <div className="account-copy">
               <strong>{admin.login}</strong>
               <span className="account-role-pill">
-                {admin.role === 'superadmin' ? 'Суперадминистратор' : 'Менеджер бизнеса'}
+                {admin.role === 'superadmin' ? t.layout.roles.superadmin : t.layout.roles.business_manager}
               </span>
             </div>
             <button
               className="button button-secondary signout-button"
               type="button"
               onClick={() => { void signOut(); }}
-              title="Завершить сеанс"
+              title={t.layout.signoutTitle}
             >
               <IconLogout className="button-icon" aria-hidden="true" />
-              <span>Выйти</span>
+              <span>{t.layout.signout}</span>
             </button>
           </div>
         </header>

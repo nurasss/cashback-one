@@ -9,9 +9,13 @@ import { DataTable } from '../components/DataTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { formatBalance, formatDate } from '../utils/format';
 import { usePage } from '../utils/usePage';
+import { useLocale } from '../i18n/LocaleContext';
+import { useAdminTranslation } from '../i18n/admin';
 
 export function OperationsPage() {
   const { view } = useAdminSession();
+  const { locale } = useLocale();
+  const t = useAdminTranslation();
   const [mode, setMode] = useState<'barcode' | 'phone'>('barcode');
   const [raw, setRaw] = useState('');
   const [businessId, setBusinessId] = useState('');
@@ -95,16 +99,16 @@ export function OperationsPage() {
   return (
     <div className="page-stack">
       <PageHeading
-        eyebrow="КАРТЫ И КЛИЕНТЫ"
-        title="Карты и клиенты"
+        eyebrow={t.operations.eyebrow}
+        title={t.operations.title}
         subtitle={
           view.status === 'authenticated' && view.admin.business
-            ? `Область доступа: «${view.admin.business.name}».`
-            : 'Полный список карт и поиск по облачной базе данных.'
+            ? t.operations.subtitleScope(view.admin.business.name)
+            : t.operations.subtitleAll
         }
       />
       <section className="search-panel surface-card">
-        <div className="search-tabs" role="tablist" aria-label="Тип поиска">
+        <div className="search-tabs" role="tablist" aria-label={t.operations.title}>
           <button
             className={mode === 'barcode' ? 'search-tab selected' : 'search-tab'}
             type="button"
@@ -112,7 +116,7 @@ export function OperationsPage() {
             aria-selected={mode === 'barcode'}
             onClick={() => handleTabChange('barcode')}
           >
-            По номеру карты
+            {t.operations.tabBarcode}
           </button>
           <button
             className={mode === 'phone' ? 'search-tab selected' : 'search-tab'}
@@ -121,32 +125,32 @@ export function OperationsPage() {
             aria-selected={mode === 'phone'}
             onClick={() => handleTabChange('phone')}
           >
-            По телефону
+            {t.operations.tabPhone}
           </button>
         </div>
         <form className="search-form" onSubmit={search}>
           <label className="form-control search-input">
-            <span>{mode === 'barcode' ? 'Номер штрихкода (6–15 цифр)' : 'Телефон клиента'}</span>
+            <span>{mode === 'barcode' ? t.operations.labelBarcode : t.operations.labelPhone}</span>
             <input
-              aria-label={mode === 'barcode' ? 'Штрихкод карты' : 'Телефон клиента'}
+              aria-label={mode === 'barcode' ? t.operations.searchBarcodeAria : t.operations.searchPhoneAria}
               autoComplete="off"
               spellCheck={false}
               inputMode={mode === 'barcode' ? 'numeric' : 'tel'}
               maxLength={mode === 'barcode' ? 64 : 32}
               value={raw}
               onChange={event => setRaw(event.target.value)}
-              placeholder={mode === 'barcode' ? 'Например, 0123456789012' : 'Например, +7 701 123 45 67'}
+              placeholder={mode === 'barcode' ? t.operations.placeholderBarcode : t.operations.placeholderPhone}
             />
           </label>
           {view.status === 'authenticated' && view.admin.role === 'superadmin' && (
             <label className="form-control">
-              <span>Бизнес</span>
+              <span>{t.operations.businessLabel}</span>
               <select
-                aria-label="Бизнес поиска"
+                aria-label={t.operations.searchBusinessAria}
                 value={businessId}
                 onChange={event => handleBusinessChange(event.target.value)}
               >
-                <option value="">Все бизнесы</option>
+                <option value="">{t.operations.allBusinesses}</option>
                 {businesses.data?.items.map(business => (
                   <option key={business.id} value={business.id}>
                     {business.name}
@@ -156,18 +160,16 @@ export function OperationsPage() {
             </label>
           )}
           <button className="button button-primary" type="submit" disabled={isSearching || !raw.trim()}>
-            {isSearching ? 'Ищем…' : 'Найти'}
+            {isSearching ? t.operations.searchingBtn : t.operations.searchBtn}
           </button>
           {(isSearchActive || raw.trim().length > 0) && (
             <button className="button button-secondary" type="button" onClick={handleReset}>
-              Сбросить
+              {t.operations.resetBtn}
             </button>
           )}
         </form>
         <p className="search-hint">
-          {isSearchActive
-            ? 'Показаны результаты поиска. Нажмите «Сбросить», чтобы вернуться к общему списку карт.'
-            : 'Barcode ищется точным совпадением строки, начальные нули сохраняются. Телефон нормализует сервер.'}
+          {isSearchActive ? t.operations.searchHintActive : t.operations.searchHintDefault}
         </p>
       </section>
 
@@ -185,28 +187,32 @@ export function OperationsPage() {
           )}
           {mode === 'barcode' ? (
             cardSearch.isPending ? (
-              <LoadingPage label="Ищем карты…" />
+              <LoadingPage label={t.operations.loadingCards} />
             ) : cardSearch.data?.items.length === 0 && cardSearchPage.offset === 0 ? (
-              <EmptyState title="Карты не найдены" detail="По вашему запросу не найдено ни одной карты." />
+              <EmptyState title={t.operations.emptyCardsSearchTitle} detail={t.operations.emptyCardsSearchDetail} />
             ) : cardSearch.data ? (
               <CardResults
                 page={cardSearchPage}
                 setPage={setCardSearchPage}
                 rows={cardSearch.data.items}
                 hasMore={cardSearch.data.has_more}
+                locale={locale}
+                t={t}
               />
             ) : null
           ) : (
             userSearch.isPending ? (
-              <LoadingPage label="Ищем клиентов…" />
+              <LoadingPage label={t.operations.loadingUsers} />
             ) : userSearch.data?.items.length === 0 && userPage.offset === 0 ? (
-              <EmptyState title="Клиент не найден" detail="Клиент с указанным номером телефона не найден." />
+              <EmptyState title={t.operations.emptyUsersSearchTitle} detail={t.operations.emptyUsersSearchDetail} />
             ) : userSearch.data ? (
               <UserResults
                 page={userPage}
                 setPage={setUserPage}
                 rows={userSearch.data.items}
                 hasMore={userSearch.data.has_more}
+                locale={locale}
+                t={t}
               />
             ) : null
           )}
@@ -217,23 +223,25 @@ export function OperationsPage() {
       {!isSearchActive && (
         mode === 'barcode' ? (
           cardList.isPending ? (
-            <LoadingPage label="Загружаем карты…" />
+            <LoadingPage label={t.operations.loadingCards} />
           ) : cardList.isError ? (
             <ErrorNotice error={cardList.error} retry={() => { void cardList.refetch(); }} />
           ) : cardList.data?.items.length === 0 && cardListPage.offset === 0 ? (
-            <EmptyState title="Карт пока нет" detail="В базе пока нет карт для отображения." />
+            <EmptyState title={t.operations.emptyCardsListTitle} detail={t.operations.emptyCardsListDetail} />
           ) : cardList.data ? (
             <CardResults
               page={cardListPage}
               setPage={setCardListPage}
               rows={cardList.data.items}
               hasMore={cardList.data.has_more}
+              locale={locale}
+              t={t}
             />
           ) : null
         ) : (
           <EmptyState
-            title="Поиск клиента по телефону"
-            detail="Введите телефон (не менее 7 цифр), чтобы найти профиль клиента и связанные карты."
+            title={t.operations.phonePromptTitle}
+            detail={t.operations.phonePromptDetail}
           />
         )
       )}
@@ -241,43 +249,156 @@ export function OperationsPage() {
   );
 }
 
-function CardResults({ page, setPage, rows, hasMore }: { page: PageQuery; setPage: (offset: number) => void; rows: Card[]; hasMore: boolean }) {
-  return <DataTable<Card> page={{ ...page, has_more: hasMore }} onPage={setPage} rows={rows} rowKey={row => row.id} columns={[
-    { key: 'barcode', title: 'КАРТА', render: row => <Link className="table-name mono-value" to={`/admin/cards/${encodeURIComponent(row.id)}`}>{row.barcode}<span>{row.business_name}</span></Link> },
-    { key: 'balance', title: 'БАЛАНС', render: row => <span className="numeric-value">{formatBalance(row.balance)}</span>, align: 'right' },
-    { key: 'status', title: 'СТАТУС', render: row => <StatusPill tone={row.is_blocked ? 'negative' : 'positive'}>{row.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</StatusPill> },
-    { key: 'owner', title: 'КЛИЕНТ', render: row => row.bind_method && row.phone_masked ? <span>{row.phone_masked}</span> : <span className="muted-copy">Не привязана</span> },
-    { key: 'updated', title: 'ОБНОВЛЕНА', render: row => <time dateTime={row.updated_at}>{formatDate(row.updated_at)}</time> },
-  ]} />;
+function CardResults({
+  page,
+  setPage,
+  rows,
+  hasMore,
+  locale,
+  t,
+}: {
+  page: PageQuery;
+  setPage: (offset: number) => void;
+  rows: Card[];
+  hasMore: boolean;
+  locale: 'ru' | 'kk';
+  t: ReturnType<typeof useAdminTranslation>;
+}) {
+  return (
+    <DataTable<Card>
+      page={{ ...page, has_more: hasMore }}
+      onPage={setPage}
+      rows={rows}
+      rowKey={row => row.id}
+      columns={[
+        {
+          key: 'barcode',
+          title: t.operations.colCard,
+          render: row => (
+            <Link className="table-name mono-value" to={`/admin/cards/${encodeURIComponent(row.id)}`}>
+              {row.barcode}
+              <span>{row.business_name}</span>
+            </Link>
+          ),
+        },
+        {
+          key: 'balance',
+          title: t.operations.colBalance,
+          render: row => <span className="numeric-value">{formatBalance(row.balance)}</span>,
+          align: 'right',
+        },
+        {
+          key: 'status',
+          title: t.operations.colStatus,
+          render: row => (
+            <StatusPill tone={row.is_blocked ? 'negative' : 'positive'}>
+              {row.is_blocked ? t.operations.blocked : t.operations.unblocked}
+            </StatusPill>
+          ),
+        },
+        {
+          key: 'owner',
+          title: t.operations.colOwner,
+          render: row =>
+            row.bind_method && row.phone_masked ? (
+              <span>{row.phone_masked}</span>
+            ) : (
+              <span className="muted-copy">{t.operations.notBound}</span>
+            ),
+        },
+        {
+          key: 'updated',
+          title: t.operations.colCardUpdated,
+          render: row => <time dateTime={row.updated_at}>{formatDate(row.updated_at, locale)}</time>,
+        },
+      ]}
+    />
+  );
 }
 
-function UserResults({ page, setPage, rows, hasMore }: { page: PageQuery; setPage: (offset: number) => void; rows: AdminUser[]; hasMore: boolean }) {
-  return <DataTable<AdminUser> page={{ ...page, has_more: hasMore }} onPage={setPage} rows={rows} rowKey={row => row.id} columns={[
-    { key: 'phone', title: 'КЛИЕНТ', render: row => <Link className="table-name" to={`/admin/users/${encodeURIComponent(row.id)}`}>{row.phone_masked ?? 'Телефон не указан'}<span>Язык: {row.language}</span></Link> },
-    { key: 'cards', title: 'КАРТ В БИЗНЕСЕ', render: row => <span className="numeric-value">{row.business_cards_count}</span>, align: 'right' },
-    { key: 'created', title: 'ЗАРЕГИСТРИРОВАН', render: row => <time dateTime={row.created_at}>{formatDate(row.created_at)}</time> },
-  ]} />;
+function UserResults({
+  page,
+  setPage,
+  rows,
+  hasMore,
+  locale,
+  t,
+}: {
+  page: PageQuery;
+  setPage: (offset: number) => void;
+  rows: AdminUser[];
+  hasMore: boolean;
+  locale: 'ru' | 'kk';
+  t: ReturnType<typeof useAdminTranslation>;
+}) {
+  return (
+    <DataTable<AdminUser>
+      page={{ ...page, has_more: hasMore }}
+      onPage={setPage}
+      rows={rows}
+      rowKey={row => row.id}
+      columns={[
+        {
+          key: 'phone',
+          title: t.operations.colUser,
+          render: row => (
+            <Link className="table-name" to={`/admin/users/${encodeURIComponent(row.id)}`}>
+              {row.phone_masked ?? t.operations.notSpecified}
+              <span>{t.operations.colUserLanguage(row.language)}</span>
+            </Link>
+          ),
+        },
+        {
+          key: 'cards',
+          title: t.operations.colCardsInBiz,
+          render: row => <span className="numeric-value">{row.business_cards_count}</span>,
+          align: 'right',
+        },
+        {
+          key: 'created',
+          title: t.operations.colRegistered,
+          render: row => <time dateTime={row.created_at}>{formatDate(row.created_at, locale)}</time>,
+        },
+      ]}
+    />
+  );
 }
 
 export function CardDetailPage() {
   const { view, session } = useAdminSession();
+  const { locale } = useLocale();
+  const t = useAdminTranslation();
   const queryClient = useQueryClient();
   const { cardId = '' } = useParams<{ cardId: string }>();
   const query = useCard(cardId);
   const [unbindBusy, setUnbindBusy] = useState(false);
   const [unbindError, setUnbindError] = useState('');
   const [unbindResult, setUnbindResult] = useState<CardUnbindResult['status'] | null>(null);
-  if (query.isPending) return <LoadingPage label="Загружаем карту…" />;
-  if (query.isError || !query.data) return <div className="page-stack"><ErrorNotice error={query.error} retry={() => { void query.refetch(); }} /></div>;
+
+  if (query.isPending) return <LoadingPage label={t.operations.loadingCards} />;
+  if (query.isError || !query.data) {
+    return (
+      <div className="page-stack">
+        <ErrorNotice error={query.error} retry={() => { void query.refetch(); }} />
+      </div>
+    );
+  }
   const card = query.data;
-  const canUnbind = view.status === 'authenticated' && (view.admin.role === 'superadmin' || view.admin.role === 'business_manager');
+  const canUnbind =
+    view.status === 'authenticated' && (view.admin.role === 'superadmin' || view.admin.role === 'business_manager');
+
   const submitUnbind = async () => {
-    const maskedCustomer = card.phone_masked ?? 'клиент не указан';
-    const warning = `Отвязать карту?\n\nБизнес: ${card.business_name}\nКлиент: ${maskedCustomer}\nШтрихкод: ${card.barcode}\n\nБудет удалена только связь с клиентом. Карта и баланс сохранятся.`;
+    const maskedCustomer = card.phone_masked ?? t.operations.notSpecified;
+    const warning = t.operations.unbindConfirm(card.business_name, maskedCustomer, card.barcode);
     if (!window.confirm(warning)) return;
-    setUnbindBusy(true); setUnbindError(''); setUnbindResult(null);
+    setUnbindBusy(true);
+    setUnbindError('');
+    setUnbindResult(null);
     try {
-      const result = await session.api.request<CardUnbindResult>(`/admin/cards/${encodeURIComponent(card.id)}/unbind`, { method: 'POST', body: {} });
+      const result = await session.api.request<CardUnbindResult>(
+        `/admin/cards/${encodeURIComponent(card.id)}/unbind`,
+        { method: 'POST', body: {} }
+      );
       setUnbindResult(result.status);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'card', card.id] }),
@@ -289,43 +410,187 @@ export function CardDetailPage() {
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'dashboard'] }),
       ]);
     } catch (error) {
-      setUnbindError(messageForError(error));
-    } finally { setUnbindBusy(false); }
+      setUnbindError(messageForError(error, locale));
+    } finally {
+      setUnbindBusy(false);
+    }
   };
-  return <div className="page-stack"><PageHeading eyebrow="КАРТЫ / ПРОФИЛЬ" title={card.business_name} subtitle="Карта и привязка отображаются только для доступных вам бизнесов." actions={<>
-      {canUnbind && <button className="button button-danger" type="button" disabled={unbindBusy || !card.bind_method} onClick={() => { void submitUnbind(); }}>{unbindBusy ? 'Отвязываем…' : 'Отвязать карту'}</button>}
-      <Link className="button button-secondary" to="/admin/operations">К результатам поиска</Link>
-    </>} />
-    {unbindError && <p className="form-error" role="alert">{unbindError}</p>}
-    {unbindResult && <p className="success-copy" role="status">{unbindResult === 'unbound' ? 'Привязка удалена. Карта и баланс сохранены.' : 'Карта уже была отвязана.'}</p>}
-    <section className="surface-card"><dl className="detail-list">
-      <Detail label="Номер карты"><span className="mono-value">{card.barcode}</span></Detail><Detail label="Баланс"><strong className="numeric-value">{formatBalance(card.balance)}</strong></Detail>
-      <Detail label="Статус"><StatusPill tone={card.is_blocked ? 'negative' : 'positive'}>{card.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</StatusPill></Detail>
-      <Detail label="Телефон карты">{card.phone_masked ?? 'Не указан'}</Detail><Detail label="Клиент">{card.full_name ?? 'Не указан'}</Detail>
-      <Detail label="Язык профиля">{card.owner_language ?? 'Нет активного профиля'}</Detail><Detail label="Тип привязки">{card.bind_method ?? 'Не привязана'}</Detail>
-      <Detail label="Дата привязки">{card.bound_at ? formatDate(card.bound_at) : '—'}</Detail><Detail label="Скрыта клиентом">{card.hidden_at ? formatDate(card.hidden_at) : 'Нет'}</Detail>
-      <Detail label="Источник данных">POSCENTER Cloud mirror</Detail><Detail label="Обновлена"><time dateTime={card.updated_at}>{formatDate(card.updated_at)}</time></Detail>
-    </dl></section>
-  </div>;
+
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow={t.operations.cardDetailEyebrow}
+        title={card.business_name}
+        subtitle={t.operations.cardDetailSubtitle}
+        actions={
+          <>
+            {canUnbind && (
+              <button
+                className="button button-danger"
+                type="button"
+                disabled={unbindBusy || !card.bind_method}
+                onClick={() => { void submitUnbind(); }}
+              >
+                {unbindBusy ? t.operations.unbindingBtn : t.operations.unbindBtn}
+              </button>
+            )}
+            <Link className="button button-secondary" to="/admin/operations">
+              {t.operations.backToSearchResults}
+            </Link>
+          </>
+        }
+      />
+      {unbindError && <p className="form-error" role="alert">{unbindError}</p>}
+      {unbindResult && (
+        <p className="success-copy" role="status">
+          {unbindResult === 'unbound' ? t.operations.unbindSuccess : t.operations.unbindAlready}
+        </p>
+      )}
+      <section className="surface-card">
+        <dl className="detail-list">
+          <Detail label={t.operations.cardBarcode}>
+            <span className="mono-value">{card.barcode}</span>
+          </Detail>
+          <Detail label={t.operations.cardBalance}>
+            <strong className="numeric-value">{formatBalance(card.balance)}</strong>
+          </Detail>
+          <Detail label={t.operations.cardStatus}>
+            <StatusPill tone={card.is_blocked ? 'negative' : 'positive'}>
+              {card.is_blocked ? t.operations.blocked : t.operations.unblocked}
+            </StatusPill>
+          </Detail>
+          <Detail label={t.operations.cardPhone}>{card.phone_masked ?? t.operations.notSpecified}</Detail>
+          <Detail label={t.operations.cardCustomer}>{card.full_name ?? t.operations.notSpecified}</Detail>
+          <Detail label={t.operations.cardOwnerLang}>{card.owner_language ?? t.operations.noActiveProfile}</Detail>
+          <Detail label={t.operations.cardBindMethod}>{card.bind_method ?? t.operations.notBound}</Detail>
+          <Detail label={t.operations.cardBoundAt}>
+            {card.bound_at ? formatDate(card.bound_at, locale) : '—'}
+          </Detail>
+          <Detail label={t.operations.cardHidden}>
+            {card.hidden_at ? formatDate(card.hidden_at, locale) : t.operations.no}
+          </Detail>
+          <Detail label={t.operations.cardDataSource}>POSCENTER Cloud mirror</Detail>
+          <Detail label={t.operations.cardUpdated}>
+            <time dateTime={card.updated_at}>{formatDate(card.updated_at, locale)}</time>
+          </Detail>
+        </dl>
+      </section>
+    </div>
+  );
 }
 
 export function UserDetailPage() {
   const { userId = '' } = useParams<{ userId: string }>();
   const { view } = useAdminSession();
+  const { locale } = useLocale();
+  const t = useAdminTranslation();
   const [page, setPage] = usePage();
-  const businessId = view.status === 'authenticated' && view.admin.role === 'superadmin' ? undefined : view.status === 'authenticated' ? view.admin.business?.id : undefined;
+  const businessId =
+    view.status === 'authenticated' && view.admin.role === 'superadmin'
+      ? undefined
+      : view.status === 'authenticated'
+      ? view.admin.business?.id
+      : undefined;
   const query = useUser(userId, businessId, page);
-  if (query.isPending) return <LoadingPage label="Загружаем клиента…" />;
-  if (query.isError || !query.data) return <div className="page-stack"><ErrorNotice error={query.error} retry={() => { void query.refetch(); }} /></div>;
+
+  if (query.isPending) return <LoadingPage label={t.operations.loadingUsers} />;
+  if (query.isError || !query.data) {
+    return (
+      <div className="page-stack">
+        <ErrorNotice error={query.error} retry={() => { void query.refetch(); }} />
+      </div>
+    );
+  }
   const user = query.data;
-  return <div className="page-stack"><PageHeading eyebrow="КЛИЕНТЫ / ПРОФИЛЬ" title={user.phone ?? 'Клиент'} subtitle="Отображаются только карты, входящие в разрешённую область данных." actions={<Link className="button button-secondary" to="/admin/operations">К поиску</Link>} />
-    <section className="surface-card"><dl className="detail-list"><Detail label="Телефон">{user.phone ?? 'Не указан'}</Detail><Detail label="Язык">{user.language}</Detail><Detail label="Создан"><time dateTime={user.created_at}>{formatDate(user.created_at)}</time></Detail></dl></section>
-    <section className="surface-card"><div className="section-heading"><h2>Карты в области доступа</h2></div>
-      {user.cards.items.length === 0 ? <p className="table-empty">Карт не найдено.</p> : <div className="table-wrap"><table><thead><tr><th>КАРТА</th><th>БИЗНЕС</th><th>БАЛАНС</th><th>ПРИВЯЗКА</th><th>СТАТУС</th></tr></thead>
-        <tbody>{user.cards.items.map(card => <tr key={card.id}><td><Link className="text-link mono-value" to={`/admin/cards/${encodeURIComponent(card.id)}`}>{card.barcode}</Link></td><td>{card.business_name}</td><td>{formatBalance(card.balance)}</td><td>{card.bind_method ?? '—'}</td><td>{card.is_blocked ? 'Заблокирована' : 'Не заблокирована'}</td></tr>)}</tbody></table></div>}
-      {user.cards.items.length > 0 && <div className="pagination"><span>Карты постранично</span><div className="pagination-actions"><button className="button button-secondary" disabled={page.offset === 0} onClick={() => setPage(Math.max(0, page.offset - page.limit))}>Назад</button><button className="button button-secondary" disabled={!user.cards.has_more} onClick={() => setPage(page.offset + page.limit)}>Далее</button></div></div>}
-    </section>
-  </div>;
+
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow={t.operations.userDetailEyebrow}
+        title={user.phone ?? t.operations.colUser}
+        subtitle={t.operations.userDetailSubtitle}
+        actions={
+          <Link className="button button-secondary" to="/admin/operations">
+            {t.operations.backToSearch}
+          </Link>
+        }
+      />
+      <section className="surface-card">
+        <dl className="detail-list">
+          <Detail label={t.operations.userPhone}>{user.phone ?? t.operations.notSpecified}</Detail>
+          <Detail label={t.operations.userLang}>{user.language}</Detail>
+          <Detail label={t.operations.userCreated}>
+            <time dateTime={user.created_at}>{formatDate(user.created_at, locale)}</time>
+          </Detail>
+        </dl>
+      </section>
+      <section className="surface-card">
+        <div className="section-heading">
+          <h2>{t.operations.cardsInScope}</h2>
+        </div>
+        {user.cards.items.length === 0 ? (
+          <p className="table-empty">{t.operations.userCardsEmpty}</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t.operations.colCard}</th>
+                  <th>{t.businesses.colName}</th>
+                  <th>{t.operations.colBalance}</th>
+                  <th>{t.operations.cardBindMethod}</th>
+                  <th>{t.operations.colStatus}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {user.cards.items.map(card => (
+                  <tr key={card.id}>
+                    <td>
+                      <Link className="text-link mono-value" to={`/admin/cards/${encodeURIComponent(card.id)}`}>
+                        {card.barcode}
+                      </Link>
+                    </td>
+                    <td>{card.business_name}</td>
+                    <td>{formatBalance(card.balance)}</td>
+                    <td>{card.bind_method ?? '—'}</td>
+                    <td>{card.is_blocked ? t.operations.blocked : t.operations.unblocked}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {user.cards.items.length > 0 && (
+          <div className="pagination">
+            <span>{t.operations.userCardsPaged}</span>
+            <div className="pagination-actions">
+              <button
+                className="button button-secondary"
+                disabled={page.offset === 0}
+                onClick={() => setPage(Math.max(0, page.offset - page.limit))}
+              >
+                {t.feedback.prevPage}
+              </button>
+              <button
+                className="button button-secondary"
+                disabled={!user.cards.has_more}
+                onClick={() => setPage(page.offset + page.limit)}
+              >
+                {t.feedback.nextPage}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
 }
 
-function Detail({ label, children }: { label: string; children: ReactNode }) { return <div className="detail-line"><dt>{label}</dt><dd>{children}</dd></div>; }
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="detail-line">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}

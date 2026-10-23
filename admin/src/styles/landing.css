@@ -142,7 +142,7 @@
   flex-shrink: 0;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1120px) {
   .landing-nav {
     display: none;
   }
@@ -235,13 +235,63 @@
   white-space: nowrap;
 }
 
+.landing-page .landing-lang-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--lp-border);
+  border-radius: 9999px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+.landing-page .landing-lang-switcher .lang-btn {
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lp-muted);
+  padding: 3px 6px;
+  border-radius: 9999px;
+  cursor: pointer;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.landing-page .landing-lang-switcher .lang-btn:hover {
+  color: var(--lp-text);
+}
+
+.landing-page .landing-lang-switcher .lang-btn:focus-visible {
+  outline: 2px solid var(--lp-brand);
+  outline-offset: 1px;
+}
+
+.landing-page .landing-lang-switcher .lang-btn.lang-btn-active {
+  background: #ffffff;
+  color: var(--lp-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.landing-page .landing-lang-switcher .lang-divider {
+  font-size: 11px;
+  color: var(--lp-muted-2);
+  user-select: none;
+}
+
 @media (max-width: 640px) {
   .landing-page .landing-header-biz-btn {
     display: none !important;
   }
   .landing-header-inner {
-    height: 54px;
-    gap: 8px;
+    height: auto;
+    min-height: 54px;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
   .landing-brand {
     font-size: 16px;
@@ -253,8 +303,52 @@
   }
   .landing-header-actions {
     gap: 6px;
+    max-width: 100%;
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
   .landing-header-login-btn {
+    font-size: 13px;
+    padding: 6px 8px;
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.3;
+    text-align: center;
+  }
+  .landing-section {
+    scroll-margin-top: 110px;
+  }
+}
+
+@media (max-width: 400px) {
+  .landing-page .landing-container {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .landing-page .landing-header-inner {
+    gap: 6px;
+  }
+  .landing-page .landing-brand {
+    font-size: 14px;
+    gap: 5px;
+  }
+  .landing-page .landing-brand-logo {
+    width: 26px;
+    height: 26px;
+  }
+  .landing-page .landing-header-actions {
+    gap: 6px;
+  }
+  .landing-page .landing-lang-switcher {
+    padding: 1px 2px;
+  }
+  .landing-page .landing-lang-switcher .lang-btn {
+    font-size: 12px;
+    padding: 4px 6px;
+    min-height: 32px;
+  }
+  .landing-page .landing-header-login-btn {
     font-size: 13px;
     padding: 6px 8px;
   }

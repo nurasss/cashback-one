@@ -1074,8 +1074,80 @@ tbody tr:hover {
   padding: 48px 0;
 }
 
-.login-card-brand {
+.login-card-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 24px;
+}
+
+.login-card-brand {
+  margin-bottom: 0;
+}
+
+.topbar-lang-switcher,
+.login-lang-switcher,
+.admin-error-lang-switcher,
+.admin-not-found-lang-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-surface-alt, #f1f5f9);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 9999px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+.topbar-lang-switcher .lang-btn,
+.login-lang-switcher .lang-btn,
+.admin-error-lang-switcher .lang-btn,
+.admin-not-found-lang-switcher .lang-btn {
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  padding: 3px 6px;
+  border-radius: 9999px;
+  cursor: pointer;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.topbar-lang-switcher .lang-btn:hover,
+.login-lang-switcher .lang-btn:hover,
+.admin-error-lang-switcher .lang-btn:hover,
+.admin-not-found-lang-switcher .lang-btn:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.topbar-lang-switcher .lang-btn:focus-visible,
+.login-lang-switcher .lang-btn:focus-visible,
+.admin-error-lang-switcher .lang-btn:focus-visible,
+.admin-not-found-lang-switcher .lang-btn:focus-visible {
+  outline: 2px solid var(--brand, #ff3a4d);
+  outline-offset: 1px;
+}
+
+.topbar-lang-switcher .lang-btn.lang-btn-active,
+.login-lang-switcher .lang-btn.lang-btn-active,
+.admin-error-lang-switcher .lang-btn.lang-btn-active,
+.admin-not-found-lang-switcher .lang-btn.lang-btn-active {
+  background: #ffffff;
+  color: var(--text-primary, #0f172a);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.topbar-lang-switcher .lang-divider,
+.login-lang-switcher .lang-divider,
+.admin-error-lang-switcher .lang-divider,
+.admin-not-found-lang-switcher .lang-divider {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  user-select: none;
 }
 
 .login-card-logo {

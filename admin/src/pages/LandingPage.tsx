@@ -1,111 +1,39 @@
-import { useState, type KeyboardEvent } from 'react';
-
-interface ScreenItem {
-  id: string;
-  tabLabel: string;
-  title: string;
-  desc: string;
-  src: string;
-  alt: string;
-}
-
-const SCREENS: ScreenItem[] = [
-  {
-    id: 'home',
-    tabLabel: 'Карта',
-    title: 'Карта и баланс',
-    desc: 'Бонусный баланс карты выбранного магазина.',
-    src: '/landing/screen-home.png',
-    alt: 'Скриншот экрана приложения: Карта и баланс Cashback One',
-  },
-  {
-    id: 'barcode',
-    tabLabel: 'Штрихкод',
-    title: 'Штрихкод',
-    desc: 'Штрихкод карты — на экране телефона.',
-    src: '/landing/screen-barcode.png',
-    alt: 'Скриншот экрана приложения: Штрихкод карты в Cashback One',
-  },
-  {
-    id: 'history',
-    tabLabel: 'История',
-    title: 'История операций',
-    desc: 'Начисления и списания по карте.',
-    src: '/landing/screen-history.png',
-    alt: 'Скриншот экрана приложения: История операций Cashback One',
-  },
-  {
-    id: 'promotions',
-    tabLabel: 'Акции',
-    title: 'Акции и сообщения',
-    desc: 'Предложения и новости магазина.',
-    src: '/landing/screen-promotions.png',
-    alt: 'Скриншот экрана приложения: Акции и спецпредложения в Cashback One',
-  },
-];
-
-interface FaqItem {
-  q: string;
-  a: string;
-}
-
-const FAQS: FaqItem[] = [
-  {
-    q: 'Не пришёл код',
-    a: 'Проверьте правильность введённого номера телефона и убедитесь, что на телефоне установлен WhatsApp и есть доступ к интернету. Подождите минуту и запросите код повторно.',
-  },
-  {
-    q: 'Не появилась карта',
-    a: 'Существующая карта может появиться по номеру телефона, на который она оформлена в магазине. Если карты нет — уточните оформление в магазине. Приложение не выпускает новые карты автоматически.',
-  },
-  {
-    q: 'Баланс не изменился',
-    a: 'Баланс обновляется не сразу. Новые начисления и списания появятся, когда магазин передаст данные. Кассовые операции поступают в базу ONE после закрытия смены, после чего синхронизируются с приложением.',
-  },
-  {
-    q: 'Где действует карта',
-    a: 'Каждая карта принадлежит конкретному магазину или розничной сети и действует только там. Список магазинов и правила начисления или списания бонусов определяет сам магазин.',
-  },
-  {
-    q: 'Есть ли версия для iPhone',
-    a: 'Опубликованной версии для iPhone нет. Сейчас приложение доступно для Android через установку APK-файла.',
-  },
-  {
-    q: 'Как подключить магазин',
-    a: 'Нужны касса POSCENTER Cash, учётная система POSCENTER ONE и Windows-компьютер с агентом синхронизации. Подключение настраивается с администратором платформы, учётные данные выдаются при настройке.',
-  },
-];
-
-const DEFAULT_SCREEN: ScreenItem = {
-  id: 'home',
-  tabLabel: 'Карта',
-  title: 'Карта и баланс',
-  desc: 'Бонусный баланс карты выбранного магазина.',
-  src: '/landing/screen-home.png',
-  alt: 'Скриншот экрана приложения: Карта и баланс Cashback One',
-};
+import { useEffect, useState, type KeyboardEvent } from 'react';
+import { LanguageSwitcher } from '../i18n/LocaleContext';
+import { usePublicTranslation } from '../i18n/public';
 
 export function LandingPage() {
+  const t = usePublicTranslation();
   const [activeScreen, setActiveScreen] = useState(0);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = t.pageTitle;
+    }
+  }, [t.pageTitle]);
+
+  const screens = t.hero.screens;
 
   const handleTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
     let nextIndex = currentIndex;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      nextIndex = (currentIndex + 1) % SCREENS.length;
+      nextIndex = (currentIndex + 1) % screens.length;
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      nextIndex = (currentIndex - 1 + SCREENS.length) % SCREENS.length;
+      nextIndex = (currentIndex - 1 + screens.length) % screens.length;
     } else if (e.key === 'Home') {
       nextIndex = 0;
     } else if (e.key === 'End') {
-      nextIndex = SCREENS.length - 1;
+      nextIndex = screens.length - 1;
     } else {
       return;
     }
     e.preventDefault();
     setActiveScreen(nextIndex);
-    const nextScreen = SCREENS[nextIndex] ?? DEFAULT_SCREEN;
-    const nextBtn = document.getElementById(`tab-${nextScreen.id}`);
-    nextBtn?.focus();
+    const target = screens[nextIndex] ?? screens[0];
+    if (target) {
+      const nextBtn = document.getElementById(`tab-${target.id}`);
+      nextBtn?.focus();
+    }
   };
 
   return (
@@ -113,7 +41,7 @@ export function LandingPage() {
       {/* Шапка сайта */}
       <header className="landing-header">
         <div className="landing-container landing-header-inner">
-          <a href="#top" className="landing-brand" aria-label="Cashback One — на главную">
+          <a href="#top" className="landing-brand" aria-label={t.header.brandAria}>
             <img
               src="/brand-mark.png"
               alt=""
@@ -124,19 +52,20 @@ export function LandingPage() {
             <span className="landing-brand-name">Cashback One</span>
           </a>
 
-          <nav className="landing-nav" aria-label="Разделы страницы">
-            <a href="#start" className="landing-nav-link">Начало работы</a>
-            <a href="#bonus" className="landing-nav-link">Бонусы</a>
-            <a href="#business" className="landing-nav-link">Для бизнеса</a>
-            <a href="#faq" className="landing-nav-link">Помощь</a>
+          <nav className="landing-nav" aria-label={t.header.navAria}>
+            <a href="#start" className="landing-nav-link">{t.header.navStart}</a>
+            <a href="#bonus" className="landing-nav-link">{t.header.navBonus}</a>
+            <a href="#business" className="landing-nav-link">{t.header.navBusiness}</a>
+            <a href="#faq" className="landing-nav-link">{t.header.navFaq}</a>
           </nav>
 
           <div className="landing-header-actions">
+            <LanguageSwitcher className="landing-lang-switcher" />
             <a href="#business" className="landing-btn landing-btn-outline landing-btn-sm landing-header-biz-btn">
-              Для бизнеса
+              {t.header.businessBtn}
             </a>
             <a href="/admin/login" className="landing-btn landing-btn-ghost landing-btn-sm landing-header-login-btn">
-              Вход для бизнеса
+              {t.header.loginBtn}
             </a>
           </div>
         </div>
@@ -149,12 +78,12 @@ export function LandingPage() {
             <div className="landing-hero-grid">
               {/* Левая колонка: выгода и действие */}
               <div className="landing-hero-content">
-                <p className="landing-kicker">Приложение для покупателей</p>
+                <p className="landing-kicker">{t.hero.kicker}</p>
                 <h1 id="hero-title" className="landing-title">
-                  Карта магазина в&nbsp;телефоне
+                  {t.hero.title}
                 </h1>
                 <p className="landing-lead">
-                  Баланс, история и штрихкод карты — без пластика в кармане.
+                  {t.hero.lead}
                 </p>
 
                 <div className="landing-hero-actions">
@@ -179,24 +108,20 @@ export function LandingPage() {
                       <polyline points="7 10 12 15 17 10" />
                       <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
-                    <span>Скачать для Android</span>
+                    <span>{t.hero.downloadBtn}</span>
                   </a>
 
                   <a href="#business" className="landing-btn landing-btn-secondary landing-btn-lg">
-                    Для бизнеса →
+                    {t.hero.bizBtn}
                   </a>
                 </div>
-
-                <p className="landing-hero-note">
-                  Версии для iPhone пока нет.
-                </p>
               </div>
 
               {/* Правая колонка: интерактивный телефон */}
               <div className="landing-hero-device">
                 <div className="landing-phone-mockup" aria-hidden="true">
                   <div className="landing-phone-screen">
-                    {SCREENS.map((s, idx) => (
+                    {screens.map((s, idx) => (
                       <img
                         key={s.id}
                         src={s.src}
@@ -209,8 +134,8 @@ export function LandingPage() {
                 </div>
 
                 <div className="landing-screen-controls">
-                  <div role="tablist" aria-label="Экраны приложения" className="landing-screen-tabs">
-                    {SCREENS.map((s, idx) => (
+                  <div role="tablist" aria-label={t.hero.tabsAria} className="landing-screen-tabs">
+                    {screens.map((s, idx) => (
                       <button
                         key={s.id}
                         type="button"
@@ -229,7 +154,7 @@ export function LandingPage() {
                   </div>
 
                   <div className="landing-screen-panels">
-                    {SCREENS.map((s, idx) => (
+                    {screens.map((s, idx) => (
                       <div
                         key={s.id}
                         id={`panel-${s.id}`}
@@ -247,7 +172,7 @@ export function LandingPage() {
                   </div>
 
                   <p className="landing-screen-caption">
-                    Данные на экранах — пример. Каждая карта принадлежит одному магазину или сети.
+                    {t.hero.mockupCaption}
                   </p>
                 </div>
               </div>
@@ -259,52 +184,50 @@ export function LandingPage() {
         <section id="start" className="landing-section landing-section-start" aria-labelledby="start-title">
           <div className="landing-container">
             <h2 id="start-title" className="landing-section-title">
-              Три шага до карты в телефоне
+              {t.start.title}
             </h2>
 
             <ol className="landing-steps-list">
               <li className="landing-step-item">
                 <span className="landing-step-num" aria-hidden="true">1</span>
-                <h3 className="landing-step-title">Установите приложение</h3>
+                <h3 className="landing-step-title">{t.start.step1Title}</h3>
                 <p className="landing-step-desc">
-                  Скачайте файл для Android и откройте его. Подробная инструкция — ниже.
+                  {t.start.step1Desc}
                 </p>
               </li>
 
               <li className="landing-step-item">
                 <span className="landing-step-num" aria-hidden="true">2</span>
-                <h3 className="landing-step-title">Войдите через WhatsApp</h3>
+                <h3 className="landing-step-title">{t.start.step2Title}</h3>
                 <p className="landing-step-desc">
-                  Введите номер телефона — проверочный код придёт в WhatsApp.
+                  {t.start.step2Desc}
                 </p>
               </li>
 
               <li className="landing-step-item">
                 <span className="landing-step-num" aria-hidden="true">3</span>
-                <h3 className="landing-step-title">Откройте карту магазина</h3>
+                <h3 className="landing-step-title">{t.start.step3Title}</h3>
                 <p className="landing-step-desc">
-                  Если карта уже оформлена на ваш номер, она появится в приложении. Если карты нет — уточните оформление в магазине. Приложение не выпускает новые карты само.
+                  {t.start.step3Desc}
                 </p>
               </li>
             </ol>
 
             <div className="landing-instructions-grid">
               <div className="landing-card landing-card-guide">
-                <h3 className="landing-card-title">Как установить APK</h3>
+                <h3 className="landing-card-title">{t.start.guideTitle}</h3>
                 <ol className="landing-guide-steps">
-                  <li>Нажмите «Скачать для Android» на телефоне.</li>
-                  <li>Откройте скачанный файл <code>cashback-one-1.0.3.apk</code>.</li>
-                  <li>
-                    Если Android спросит, разрешите установку из этого источника — только для браузера или файлового менеджера, через который вы открываете файл.
-                  </li>
-                  <li>Нажмите «Установить» и откройте приложение.</li>
+                  <li>{t.start.guideStep1}</li>
+                  <li>{t.start.guideStep2}</li>
+                  <li>{t.start.guideStep3}</li>
+                  <li>{t.start.guideStep4}</li>
                 </ol>
               </div>
 
               <div className="landing-card landing-card-notice">
-                <h3 className="landing-card-title">Про защиту Android</h3>
+                <h3 className="landing-card-title">{t.start.noticeTitle}</h3>
                 <p className="landing-card-text">
-                  Не отключайте защиту телефона целиком (например, Play Защиту). Разрешение на установку нужно выдать один раз для конкретного приложения и при желании отозвать после установки.
+                  {t.start.noticeText}
                 </p>
               </div>
             </div>
@@ -317,26 +240,23 @@ export function LandingPage() {
             <div className="landing-bonus-grid">
               <div className="landing-bonus-hero">
                 <h2 id="bonus-title" className="landing-bonus-title">
-                  Баланс обновляется не сразу
+                  {t.bonus.title}
                 </h2>
                 <p className="landing-bonus-lead">
-                  Баланс обновляется не сразу. Новые начисления и списания появятся, когда магазин передаст данные.
-                </p>
-                <p className="landing-bonus-explanation">
-                  Операции с кассы POSCENTER Cash поступают в учётную базу POSCENTER ONE при закрытии кассовой смены, после чего агент синхронизации передаёт данные в облако.
+                  {t.bonus.lead}
                 </p>
               </div>
 
               <div className="landing-bonus-card">
-                <h3 className="landing-card-title">Как работают баллы</h3>
+                <h3 className="landing-card-title">{t.bonus.pointsTitle}</h3>
                 <p className="landing-card-text">
-                  Правила начисления, списания и использования баллов определяет конкретный магазин. Приложение их не меняет.
+                  {t.bonus.pointsText1}
                 </p>
                 <p className="landing-card-text">
-                  Источник данных о балансе — POSCENTER ONE магазина. Приложение показывает копию, которую передаёт агент на компьютере магазина, и само ничего не начисляет.
+                  {t.bonus.pointsText2}
                 </p>
                 <p className="landing-card-text">
-                  Курс, сроки и ограничения уточняйте у магазина.
+                  {t.bonus.pointsText3}
                 </p>
               </div>
             </div>
@@ -346,48 +266,48 @@ export function LandingPage() {
         {/* Для бизнеса */}
         <section id="business" className="landing-section landing-section-biz" aria-labelledby="biz-title">
           <div className="landing-container">
-            <p className="landing-kicker">Для владельцев магазинов</p>
+            <p className="landing-kicker">{t.business.kicker}</p>
             <h2 id="biz-title" className="landing-section-title">
-              Карта лояльности вашего магазина — в телефоне покупателя
+              {t.business.title}
             </h2>
 
             <div className="landing-biz-grid">
               <div className="landing-biz-points">
                 <div className="landing-biz-point">
-                  <h3>Кому подходит</h3>
-                  <p>Магазинам и розничным сетям, которые работают с POSCENTER Cash и POSCENTER ONE и ведут бонусную программу.</p>
+                  <h3>{t.business.point1Title}</h3>
+                  <p>{t.business.point1Desc}</p>
                 </div>
 
                 <div className="landing-biz-point">
-                  <h3>Что получает магазин</h3>
-                  <p>Карту лояльности в приложении покупателя, штрихкод карты, каналы для акций и сообщений.</p>
+                  <h3>{t.business.point2Title}</h3>
+                  <p>{t.business.point2Desc}</p>
                 </div>
 
                 <div className="landing-biz-point">
-                  <h3>Что получает покупатель</h3>
-                  <p>Баланс, историю операций, штрихкод и акции магазина — всегда под рукой.</p>
+                  <h3>{t.business.point3Title}</h3>
+                  <p>{t.business.point3Desc}</p>
                 </div>
               </div>
 
               <div className="landing-biz-sidebar">
                 <div className="landing-card landing-card-setup">
-                  <h3 className="landing-card-title">Что нужно для подключения</h3>
+                  <h3 className="landing-card-title">{t.business.setupTitle}</h3>
                   <ul className="landing-setup-list">
-                    <li>Касса POSCENTER Cash</li>
-                    <li>Учётная система POSCENTER ONE</li>
-                    <li>Windows-компьютер с агентом синхронизации данных</li>
+                    <li>{t.business.setupItem1}</li>
+                    <li>{t.business.setupItem2}</li>
+                    <li>{t.business.setupItem3}</li>
                   </ul>
                   <p className="landing-card-subtext">
-                    Подключение выполняется с настройкой. Учётные данные выдаёт администратор платформы.
+                    {t.business.setupSubtext}
                   </p>
                 </div>
 
                 <div className="landing-biz-cta-box">
                   <a href="/admin/login" className="landing-btn landing-btn-primary landing-btn-lg">
-                    Войти в кабинет
+                    {t.business.ctaBtn}
                   </a>
                   <p className="landing-biz-cta-note">
-                    Для уже подключённых магазинов доступен личный кабинет. Доступ выдаётся администратором сети при настройке.
+                    {t.business.ctaNote}
                   </p>
                 </div>
               </div>
@@ -400,12 +320,12 @@ export function LandingPage() {
           <div className="landing-container">
             <div className="landing-faq-header">
               <h2 id="faq-title" className="landing-section-title">
-                Частые вопросы
+                {t.faq.title}
               </h2>
             </div>
 
             <div className="landing-faq-accordion">
-              {FAQS.map((item, idx) => (
+              {t.faq.items.map((item, idx) => (
                 <details key={item.q} className="landing-faq-item" open={idx === 0}>
                   <summary className="landing-faq-question">
                     <span>{item.q}</span>
@@ -428,7 +348,7 @@ export function LandingPage() {
             <div className="landing-footer-brand-col">
               <strong className="landing-footer-brand-title">Cashback One</strong>
               <p className="landing-footer-brand-desc">
-                Приложение покупателя для карт лояльности магазинов POSCENTER.
+                {t.footer.brandDesc}
               </p>
               <img
                 src="/logo-white.png"
@@ -439,26 +359,26 @@ export function LandingPage() {
             </div>
 
             <div className="landing-footer-nav-col">
-              <strong className="landing-footer-heading">Навигация</strong>
-              <nav className="landing-footer-nav" aria-label="Навигация в подвале">
-                <a href="#start">Начало работы</a>
-                <a href="#bonus">Бонусы</a>
-                <a href="#business">Для бизнеса</a>
-                <a href="#faq">Помощь</a>
-                <a href="/admin/login">Вход в кабинет</a>
+              <strong className="landing-footer-heading">{t.footer.navHeading}</strong>
+              <nav className="landing-footer-nav" aria-label={t.footer.navAria}>
+                <a href="#start">{t.footer.navStart}</a>
+                <a href="#bonus">{t.footer.navBonus}</a>
+                <a href="#business">{t.footer.navBusiness}</a>
+                <a href="#faq">{t.footer.navFaq}</a>
+                <a href="/admin/login">{t.footer.navLogin}</a>
               </nav>
             </div>
 
             <div className="landing-footer-info-col">
-              <strong className="landing-footer-heading">О платформе</strong>
+              <strong className="landing-footer-heading">{t.footer.infoHeading}</strong>
               <p className="landing-footer-info-text">
-                Синхронизация данных с кассовой программой POSCENTER Cash и учётной системой POSCENTER ONE на базе 1С.
+                {t.footer.infoText}
               </p>
             </div>
           </div>
 
           <div className="landing-footer-bottom">
-            <small>© Cashback One. Платформа лояльности для решений POSCENTER.</small>
+            <small>{t.footer.copyright}</small>
           </div>
         </div>
       </footer>
@@ -467,34 +387,43 @@ export function LandingPage() {
 }
 
 export function PublicNotFoundPage() {
+  const t = usePublicTranslation();
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = `${t.notFound.title} — Cashback One`;
+    }
+  }, [t.notFound.title]);
+
   return (
     <div className="landing-page not-found-page">
       <header className="landing-header">
         <div className="landing-container landing-header-inner">
-          <a href="/" className="landing-brand" aria-label="Cashback One">
+          <a href="/" className="landing-brand" aria-label={t.header.brandAria}>
             <img src="/brand-mark.png" alt="" width="36" height="36" className="landing-brand-logo" />
             <span className="landing-brand-name">Cashback One</span>
           </a>
-          <nav className="landing-header-actions" aria-label="Навигация">
+          <div className="landing-header-actions" aria-label={t.header.navAria}>
+            <LanguageSwitcher className="landing-lang-switcher" />
             <a href="/admin/login" className="landing-btn landing-btn-outline landing-btn-sm">
-              Вход для бизнеса
+              {t.notFound.loginBtn}
             </a>
-          </nav>
+          </div>
         </div>
       </header>
 
       <main className="landing-main not-found-main">
         <div className="landing-container">
           <div className="not-found-card">
-            <span className="landing-kicker">ОШИБКА 404</span>
-            <h1>Страница не найдена</h1>
-            <p>Запрошенный адрес не существует. Возможно, ссылка устарела или содержит опечатку.</p>
+            <span className="landing-kicker">{t.notFound.kicker}</span>
+            <h1>{t.notFound.title}</h1>
+            <p>{t.notFound.desc}</p>
             <div className="not-found-actions">
               <a href="/" className="landing-btn landing-btn-primary">
-                На главную страницу
+                {t.notFound.homeBtn}
               </a>
               <a href="/admin/login" className="landing-btn landing-btn-outline">
-                Вход для бизнеса
+                {t.notFound.loginBtn}
               </a>
             </div>
           </div>
@@ -503,7 +432,7 @@ export function PublicNotFoundPage() {
 
       <footer className="landing-footer">
         <div className="landing-container landing-footer-bottom">
-          <small>© Cashback One. Платформа лояльности для решений POSCENTER.</small>
+          <small>{t.footer.copyright}</small>
         </div>
       </footer>
     </div>

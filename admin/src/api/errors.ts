@@ -18,7 +18,7 @@ export function errorFromResponse(status: number, payload: unknown): ApiError {
   return new ApiError(code, status);
 }
 
-const messages: Record<string, string> = {
+const ruMessages: Record<string, string> = {
   CONFIG_MISSING: 'Сервис ещё не подключён. Обратитесь к администратору.',
   INVALID_API_URL: 'Не удалось настроить подключение к сервису.',
   INSECURE_TRANSPORT: 'Для сервиса требуется защищённое подключение HTTPS.',
@@ -45,7 +45,35 @@ const messages: Record<string, string> = {
   UNKNOWN_ERROR: 'Произошла ошибка. Повторите запрос.',
 };
 
-export function messageForError(error: unknown): string {
+const kkMessages: Record<string, string> = {
+  CONFIG_MISSING: 'Қызмет әлі қосылмаған. Әкімшіге хабарласыңыз.',
+  INVALID_API_URL: 'Қызметке қосылуды баптау мүмкін болмады.',
+  INSECURE_TRANSPORT: 'Қызмет үшін HTTPS қорғалған байланыс қажет.',
+  INVALID_CREDENTIALS: 'Қате логин немесе құпиясөз.',
+  ADMIN_UNAUTHENTICATED: 'Сессия аяқталды. Қайта кіріңіз.',
+  ADMIN_FORBIDDEN: 'Тіркелгіңізде бұл бөлімге кіруге рұқсат жоқ.',
+  ADMIN_RESOURCE_NOT_FOUND: 'Жазба табылмады.',
+  ADMIN_AGENT_REVOKED: 'Өшірілген агенттің кілтін өзгертуге немесе оған команда беруге болмайды.',
+  ADMIN_RESYNC_ALREADY_PENDING: 'Агент үшін белсенді синхрондау сұранысы бар.',
+  ADMIN_CARD_ALREADY_UNBOUND: 'Карта байланысы бұрыннан ажыратылған.',
+  ADMIN_RATE_LIMITED: 'Әрекеттер тым көп. Кейінірек қайталап көріңіз.',
+  ADMIN_REQUEST_TOO_LARGE: 'Деректер көлемі тым үлкен. Өлшемін азайтып, қайталаңыз.',
+  ADMIN_CSRF_BLOCKED: 'Сұранысты тексеру мүмкін болмады. Бетті жаңартыңыз.',
+  ADMIN_ORIGIN_FORBIDDEN: 'Бұл мекенжайдан қосылуға тыйым салынған.',
+  AUTH_RATE_LIMIT_UNAVAILABLE: 'Кіру қызметі уақытша қолжетімсіз.',
+  VALIDATION_ERROR: 'Толтырылған өрістерді тексеріңіз.',
+  ADMIN_PERIOD_TOO_LARGE: 'Қысқарақ кезеңді таңдаңыз.',
+  ADMIN_INVALID_PERIOD: 'Кезең күндерін тексеріңіз.',
+  NETWORK_UNAVAILABLE: 'Байланыс жоқ. Интернетті тексеріп, қайталаңыз.',
+  REQUEST_TIMEOUT: 'Сервер уақытында жауап бермеді. Қайталаңыз.',
+  SERVER_UNAVAILABLE: 'Қызмет уақытша қолжетімсіз. Кейінірек көріңіз.',
+  SESSION_CHANGED: 'Сессия өзгерді. Бетті жаңартыңыз.',
+  INVALID_RESPONSE: 'Сервер жауабын оқу мүмкін болмады.',
+  UNKNOWN_ERROR: 'Қате орын алды. Қайталап көріңіз.',
+};
+
+export function messageForError(error: unknown, locale: 'ru' | 'kk' = 'ru'): string {
   const code = error instanceof ApiError ? error.code : 'UNKNOWN_ERROR';
-  return messages[code] ?? messages.UNKNOWN_ERROR!;
+  const dict = locale === 'kk' ? kkMessages : ruMessages;
+  return dict[code] ?? dict.UNKNOWN_ERROR!;
 }

@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useInRouterContext, useLocation
 import { LandingPage, PublicNotFoundPage } from '../pages/LandingPage';
 import { LoadingPage } from '../components/Feedback';
 import { AdminErrorBoundary } from './AdminErrorBoundary';
+import { LocaleProvider, useLocale } from '../i18n/LocaleContext';
 
 const AdminRoutesLazy = lazy(() => import('./AdminRoutes'));
 
@@ -11,6 +12,17 @@ function LegacyRedirect() {
   const cleanPath = location.pathname.replace(/\/+$/, '');
   const destination = `/admin${cleanPath}${location.search}${location.hash}`;
   return <Navigate to={destination} replace />;
+}
+
+function AdminLazyFallback() {
+  const { locale } = useLocale();
+  return (
+    <div className="admin-surface">
+      <LoadingPage
+        label={locale === 'kk' ? 'Қауіпсіз сессияны жүктеудеміз…' : 'Загружаем безопасную сессию…'}
+      />
+    </div>
+  );
 }
 
 export function AppRoutes() {
@@ -25,13 +37,7 @@ export function AppRoutes() {
         path="/admin/*"
         element={
           <AdminErrorBoundary>
-            <Suspense
-              fallback={
-                <div className="admin-surface">
-                  <LoadingPage label="Загружаем безопасную сессию…" />
-                </div>
-              }
-            >
+            <Suspense fallback={<AdminLazyFallback />}>
               <AdminRoutesLazy />
             </Suspense>
           </AdminErrorBoundary>
@@ -63,11 +69,17 @@ export function AppRoutes() {
 export function AppRouter() {
   const inRouter = useInRouterContext();
   if (inRouter) {
-    return <AppRoutes />;
+    return (
+      <LocaleProvider>
+        <AppRoutes />
+      </LocaleProvider>
+    );
   }
   return (
     <BrowserRouter>
-      <AppRoutes />
+      <LocaleProvider>
+        <AppRoutes />
+      </LocaleProvider>
     </BrowserRouter>
   );
 }

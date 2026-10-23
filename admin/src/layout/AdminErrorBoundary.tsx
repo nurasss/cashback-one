@@ -1,4 +1,6 @@
 import { Component, type ReactNode } from 'react';
+import { LanguageSwitcher } from '../i18n/LocaleContext';
+import { usePublicTranslation } from '../i18n/public';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -11,9 +13,12 @@ interface ErrorBoundaryState {
 }
 
 export class AdminErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  override state: ErrorBoundaryState = { hasError: false, error: null };
+  override state: ErrorBoundaryState = {
+    hasError: false,
+    error: null,
+  };
 
-  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+  static getDerivedStateFromError(error: unknown): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
   }
 
@@ -29,32 +34,36 @@ export class AdminErrorBoundary extends Component<ErrorBoundaryProps, ErrorBound
 
   override render() {
     if (this.state.hasError) {
-      return (
-        <div className="admin-surface">
-          <main className="center-screen">
-            <div className="failure-panel">
-              <div className="brand-mark-wrap">
-                <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
-              </div>
-              <h1>Ошибка загрузки кабинета</h1>
-              <p className="error-copy">Не удалось загрузить модуль управления. Проверьте соединение или обновите страницу.</p>
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '16px' }}>
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={this.handleReload}
-                >
-                  Перезагрузить страницу
-                </button>
-                <a href="/" className="button button-secondary">
-                  На главную
-                </a>
-              </div>
-            </div>
-          </main>
-        </div>
-      );
+      return <AdminLoadError onReload={this.handleReload} />;
     }
     return this.props.children;
   }
+}
+
+function AdminLoadError({ onReload }: { onReload: () => void }) {
+  const t = usePublicTranslation().adminChunkError;
+  return (
+    <div className="admin-surface">
+      <main className="center-screen">
+        <div className="failure-panel">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div className="brand-mark-wrap">
+              <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+            </div>
+            <LanguageSwitcher className="admin-error-lang-switcher" />
+          </div>
+          <h1>{t.title}</h1>
+          <p className="error-copy">{t.desc}</p>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '16px' }}>
+            <button className="button button-primary" type="button" onClick={onReload}>
+              {t.reloadBtn}
+            </button>
+            <a href="/" className="button button-secondary">
+              {t.homeBtn}
+            </a>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
 }

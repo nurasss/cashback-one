@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -38,12 +38,12 @@ describe('Public Landing Isolation', () => {
     render(<AppRouter />);
 
     // Проверяем главные элементы страницы
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Карта магазина/i);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Бонусная карта в телефоне/i);
     expect(screen.queryByText(/Android, файл APK, версия 1\.0\.3\./i)).not.toBeInTheDocument();
-    expect(screen.getByText('Версии для iPhone пока нет.')).toBeInTheDocument();
+    expect(screen.queryByText('Версии для iPhone пока нет.')).not.toBeInTheDocument();
     expect(
       screen.getAllByText(
-        /Баланс обновляется не сразу\. Новые начисления и списания появятся, когда магазин передаст данные\./i
+        /Баланс обновляется не сразу\. Новые начисления и списания появляются 2 раза в сутки\./i
       ).length
     ).toBeGreaterThanOrEqual(2);
 
@@ -75,7 +75,7 @@ describe('Public Landing Isolation', () => {
     window.history.pushState({}, '', '/');
     render(<AppRouter />);
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Карта магазина/i);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Бонусная карта в телефоне/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -83,7 +83,7 @@ describe('Public Landing Isolation', () => {
     // Авторизованный посетитель тоже видит лендинг на /
     window.history.pushState({}, '', '/');
     render(<AppRouter />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Карта магазина/i);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Бонусная карта в телефоне/i);
     expect(window.location.pathname).toBe('/');
   });
 
