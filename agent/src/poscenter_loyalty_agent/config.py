@@ -115,7 +115,7 @@ class AgentSettings(BaseSettings):
         description="Directory for rotating log files",
     )
     agent_version: str = Field(
-        default="0.2.0",
+        default="0.2.1",
         description="Agent release version",
     )
     one_adapter_mode: str = Field(
