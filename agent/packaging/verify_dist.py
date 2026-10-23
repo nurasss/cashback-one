@@ -52,7 +52,7 @@ def verify() -> None:
     isolated_env = {"SYSTEMROOT": os.environ.get("SYSTEMROOT", r"C:\Windows")}
     r_ver = subprocess.run([exe_path, "--version"], env=isolated_env, capture_output=True, text=True)
     assert r_ver.returncode == 0, f"--version failed with code {r_ver.returncode}"
-    assert "0.1.0" in r_ver.stdout, f"--version output unexpected: {r_ver.stdout}"
+    assert "0.2.0" in r_ver.stdout, f"--version output unexpected: {r_ver.stdout}"
     print(f"Safe --version: Exit code {r_ver.returncode}, Output: {r_ver.stdout.strip()}")
 
     r_help = subprocess.run([exe_path, "--help"], env=isolated_env, capture_output=True, text=True)

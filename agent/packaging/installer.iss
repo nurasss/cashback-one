@@ -2,7 +2,7 @@
 ; Builds single CashbackOneAgent-Setup.exe installer
 
 #define MyAppName "POSCENTER Loyalty Agent"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher "POSCENTER"
 #define MyAppURL "https://cashback-qr.poscenter.kz"
 #define MyAppExeName "CashbackOneAgent.exe"
