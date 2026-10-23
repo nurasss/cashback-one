@@ -20,7 +20,7 @@ from poscenter_loyalty_agent.config import AgentSettings
 
 logger = logging.getLogger(__name__)
 QR_PATTERN = re.compile(r"C1[A-Z2-7]{20,120}", re.ASCII)
-BARCODE_PATTERN = re.compile(r"[0-9]{6,15}", re.ASCII)
+BARCODE_PATTERN = re.compile(r"[0-9]{4,13}", re.ASCII)
 MAX_BODY_BYTES = 1024
 SOCKET_TIMEOUT_SECONDS = 2.0
 

@@ -379,8 +379,8 @@ async def test_cards_invalid_filtering_and_counters(
     cards_data = [
         MockRow(Ссылка="u-1", Код="", Телефон="", Наименование="", КартаЗапрещена=False, ПометкаУдаления=False, Баланс=0),
         MockRow(Ссылка="u-2", Код="ABC12345", Телефон="", Наименование="", КартаЗапрещена=False, ПометкаУдаления=False, Баланс=0),
-        MockRow(Ссылка="u-3", Код="12345", Телефон="", Наименование="", КартаЗапрещена=False, ПометкаУдаления=False, Баланс=0),
-        MockRow(Ссылка="u-4", Код="1234567890123456", Телефон="", Наименование="", КартаЗапрещена=False, ПометкаУдаления=False, Баланс=0),
+        MockRow(Ссылка="u-3", Код="123", Телефон="", Наименование="", КартаЗапрещена=False, ПометкаУдаления=False, Баланс=0),
+        MockRow(Ссылка="u-4", Код="12345678901234", Телефон="", Наименование="", КартаЗапрещена=False, ПометкаУдаления=False, Баланс=0),
         MockRow(Ссылка="u-5", Код="000123456", Телефон="+7 (701) 999-88-77", Наименование="Valid", КартаЗапрещена=False, ПометкаУдаления=True, Баланс=15),
     ]
 
@@ -1372,7 +1372,7 @@ async def test_card_hash_stable_between_two_negative_balances(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid,breakdown", [
     (("", "BAD-CODE"), (1, 1, 0, 0)),
-    (("54321", "1234567890123456"), (0, 0, 1, 1)),
+    (("543", "12345678901234"), (0, 0, 1, 1)),
 ])
 async def test_card_skip_log_is_per_read_and_has_no_raw_data(
     agent_settings: AgentSettings, test_mapping: OneMappingConfig, caplog: pytest.LogCaptureFixture,
@@ -1415,7 +1415,7 @@ async def test_card_skip_log_is_per_read_and_has_no_raw_data(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid,breakdown", [
     (("", "BAD-CODE"), (1, 1, 0, 0)),
-    (("54321", "1234567890123456"), (0, 0, 1, 1)),
+    (("543", "12345678901234"), (0, 0, 1, 1)),
 ])
 async def test_transaction_skip_log_is_per_read_and_has_no_raw_data(
     agent_settings: AgentSettings, test_mapping: OneMappingConfig, caplog: pytest.LogCaptureFixture,

@@ -157,7 +157,17 @@ def test_cloud_transport_errors(tmp_path: Path, error_type: type[httpx.RequestEr
         assert len(calls) == 1
 
 
-@pytest.mark.parametrize("body", [{"barcode": 123456}, {"barcode": "abc"}, {}, [], {"barcode": "1" * 16}])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"barcode": 123456},
+        {"barcode": "abc"},
+        {},
+        [],
+        {"barcode": "1" * 14},
+        {"barcode": "1" * 16},
+    ],
+)
 def test_bad_cloud_schema_is_not_a_success(tmp_path: Path, body: object) -> None:
     with running_server(tmp_path, lambda _: httpx.Response(200, json=body)) as (client, calls, _):
         assert_error(client.post("/v1/qr/resolve", json={"token": TOKEN}), 502, "CLOUD_ERROR")

@@ -209,14 +209,14 @@ async def test_cards_sync_validation_errors(
 
     now_iso = datetime.now(UTC).isoformat()
 
-    # 1. Invalid barcode: not 6-15 digits
+    # 1. Invalid barcode: not 4-13 digits
     res_bad_barcode = await client.post(
         "/agent/sync/cards",
         headers={"X-Agent-Key": key},
         json={
             "cards": [
                 {
-                    "barcode": "12345",  # invalid
+                    "barcode": "123",  # invalid
                     "balance": "10.0000",
                     "updated_at": now_iso,
                 }

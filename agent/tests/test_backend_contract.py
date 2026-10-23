@@ -128,8 +128,8 @@ def test_barcode_validation_contract() -> None:
 
     now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
 
-    # Valid barcodes: 6, 11, 15 digits, leading zeroes preserved
-    valid_barcodes = ["012345", "77011234567", "000000000000001", "123456789012345"]
+    # Valid barcodes: 4, 11, 13 digits, leading zeroes preserved
+    valid_barcodes = ["0001", "77011234567", "0000000000001", "1234567890123"]
     for bc in valid_barcodes:
         card = CardSyncItem(barcode=bc, balance=Decimal("0"), updated_at=now)
         assert card.barcode == bc
@@ -143,8 +143,8 @@ def test_barcode_validation_contract() -> None:
         )
         assert tx.barcode == bc
 
-    # Invalid barcodes: 5, 16 digits, letters, spaces
-    invalid_barcodes = ["12345", "1234567890123456", "12345A", " 123456 ", "", "abcdef"]
+    # Invalid barcodes: 3, 14 digits, letters, spaces
+    invalid_barcodes = ["123", "12345678901234", "12345A", " 123456 ", "", "abcdef"]
     for bc in invalid_barcodes:
         with pytest.raises(ValidationError):
             CardSyncItem(barcode=bc, balance=Decimal("0"), updated_at=now)

@@ -40,36 +40,36 @@ async def test_bind_card_barcode_validation(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """Test 6 to 15 digit barcode validation: length, types, spaces, leading zeros."""
+    """Test 4 to 13 digit barcode validation: length, types, spaces, leading zeros."""
     _, token = await create_test_customer(db_session)
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 1. 5 digits rejected
-    resp = await client.post("/me/cards/bind", json={"barcode": "12345"}, headers=headers)
+    # 1. 3 digits rejected
+    resp = await client.post("/me/cards/bind", json={"barcode": "123"}, headers=headers)
     assert resp.status_code == 422
-    assert "barcode must contain 6 to 15 digits" in resp.text
+    assert "barcode must contain 4 to 13 digits" in resp.text
 
-    # 2. 16 digits rejected
-    resp = await client.post("/me/cards/bind", json={"barcode": "1234567890123456"}, headers=headers)
+    # 2. 14 digits rejected
+    resp = await client.post("/me/cards/bind", json={"barcode": "12345678901234"}, headers=headers)
     assert resp.status_code == 422
-    assert "barcode must contain 6 to 15 digits" in resp.text
+    assert "barcode must contain 4 to 13 digits" in resp.text
 
     # 3. Letters rejected
     resp = await client.post("/me/cards/bind", json={"barcode": "012345678901A"}, headers=headers)
     assert resp.status_code == 422
-    assert "barcode must contain 6 to 15 digits" in resp.text
+    assert "barcode must contain 4 to 13 digits" in resp.text
 
     # 4. Internal spaces rejected
     resp = await client.post("/me/cards/bind", json={"barcode": "0123 45678901"}, headers=headers)
     assert resp.status_code == 422
-    assert "barcode must contain 6 to 15 digits" in resp.text
+    assert "barcode must contain 4 to 13 digits" in resp.text
 
     # 5. Non-string integer rejected
     resp = await client.post("/me/cards/bind", json={"barcode": 1234567890123}, headers=headers)
     assert resp.status_code == 422
 
-    # 6. Valid lengths: 6, 11, 15 digits pass schema validation (404 card not found, not 422)
-    for valid_barcode in ("012345", "12345678901", "000123456789", "000123456789012"):
+    # 6. Valid lengths: 4, 11, 13 digits pass schema validation (404 card not found, not 422)
+    for valid_barcode in ("0001", "12345678901", "000123456789", "0123456789012", "1234567890123"):
         r = await client.post("/me/cards/bind", json={"barcode": valid_barcode}, headers=headers)
         assert r.status_code == 404, f"Expected 404 for '{valid_barcode}', got {r.status_code}: {r.text}"
 

@@ -57,7 +57,7 @@ export function OperationsPage() {
     event.preventDefault();
     const term = raw.trim();
     if (!term) return;
-    if (mode === 'barcode' && !/^[0-9]{6,15}$/.test(term)) return;
+    if (mode === 'barcode' && !/^[0-9]{4,13}$/.test(term)) return;
     if (mode === 'phone' && term.replace(/\D/g, '').length < 7) return;
     const next = {
       ...(mode === 'barcode' ? { barcode: term } : { phone: term }),

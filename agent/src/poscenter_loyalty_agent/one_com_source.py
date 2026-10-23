@@ -293,10 +293,10 @@ class OneComLoyaltySource(LoyaltySource):
         if not DIGITS_RE.match(code):
             self.counters[f"{prefix}skipped_non_digits"] += 1
             return None
-        if len(code) < 6:
+        if len(code) < 4:
             self.counters[f"{prefix}skipped_too_short"] += 1
             return None
-        if len(code) > 15:
+        if len(code) > 13:
             self.counters[f"{prefix}skipped_too_long"] += 1
             return None
         return code

@@ -597,8 +597,8 @@ def generate_dryrun_report_markdown(res: DryRunResult, db_path: Path) -> str:
 - Пропущено по фильтрам (`cards_*`):
   - Пустой штрихкод: **{res.cards_skipped_empty_code}**
   - Нецифровой штрихкод: **{res.cards_skipped_non_digits}**
-  - Слишком короткий (<6 цифр): **{res.cards_skipped_too_short}**
-  - Слишком длинный (>15 цифр): **{res.cards_skipped_too_long}**
+  - Слишком короткий (<4 цифр): **{res.cards_skipped_too_short}**
+  - Слишком длинный (>13 цифр): **{res.cards_skipped_too_long}**
 - Телефон отсутствует (null): **{res.cards_phone_null_count}**
 - Заблокировано или помечено на удаление: **{res.cards_blocked_count}**
 - Баланс положительный (>0): **{res.cards_balance_positive_count}**

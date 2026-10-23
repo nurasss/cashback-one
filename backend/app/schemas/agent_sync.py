@@ -14,7 +14,7 @@ class CardSyncItem(BaseModel):
         str,
         Field(
             pattern=BARCODE_REGEX,
-            description="Card barcode (6 to 15 digits, preserved with leading zeroes)",
+            description="Card barcode (4 to 13 digits, preserved with leading zeroes)",
         ),
     ]
     phone: str | None = Field(default=None, max_length=32)
@@ -52,7 +52,7 @@ class TransactionSyncItem(BaseModel):
         str,
         Field(
             pattern=BARCODE_REGEX,
-            description="Card barcode (6 to 15 digits)",
+            description="Card barcode (4 to 13 digits)",
         ),
     ]
     type: str = Field(..., min_length=1, max_length=32, description="accrual, redemption, etc.")

@@ -266,6 +266,78 @@ it('supports search by barcode and provides clear reset back to general list', a
   expect((input as HTMLInputElement).value).toBe('');
 });
 
+it('barcode search accepts 4-13 digit numbers and ignores out-of-range terms', async () => {
+  const user = userEvent.setup();
+  vi.stubEnv('VITE_API_BASE_URL', 'https://admin.test');
+  vi.stubEnv('VITE_ALLOW_INSECURE_HTTP', '0');
+
+  const generalCards = [makeMockCard(1)];
+  const searchedCard = makeMockCard(7);
+
+  const fetchMock: typeof fetch = vi.fn(async (input, init) => {
+    const url = String(input);
+    const method = init?.method ?? 'GET';
+    if (url.endsWith('/admin/auth/refresh')) return json(200, access);
+    if (url.endsWith('/admin/me')) return json(200, adminResponse('superadmin'));
+    if (url.endsWith('/admin/businesses?limit=100&offset=0')) {
+      return json(200, { items: [businessA], limit: 100, offset: 0, has_more: false });
+    }
+    if (url.includes('/admin/cards?') && method === 'GET') {
+      return json(200, { items: generalCards, limit: 25, offset: 0, has_more: false });
+    }
+    if (url.includes('/admin/cards/search') && method === 'POST') {
+      const body = JSON.parse(String(init?.body)) as { barcode?: string };
+      if (body.barcode === '0001') {
+        return json(200, { items: [searchedCard], limit: 25, offset: 0, has_more: false });
+      }
+    }
+    return json(404, { error: { code: 'ADMIN_RESOURCE_NOT_FOUND' } });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  render(
+    <AdminProvider>
+      <MemoryRouter initialEntries={['/operations']}>
+        <Routes>
+          <Route path="/operations" element={<OperationsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </AdminProvider>
+  );
+
+  await waitFor(() => {
+    expect(screen.getByText('0000000000001')).toBeInTheDocument();
+  });
+
+  const input = screen.getByLabelText('Штрихкод карты');
+  const searchBtn = screen.getByRole('button', { name: 'Найти' });
+
+  // 3 digits: form must not be submitted
+  await user.type(input, '123');
+  await user.click(searchBtn);
+  const searchCallsAfterShort = fetchMock.mock.calls.filter(([url]) => String(url).includes('/admin/cards/search')).length;
+  expect(searchCallsAfterShort).toBe(0);
+  await user.clear(input);
+
+  // 14 digits: form must not be submitted either
+  await user.type(input, '12345678901234');
+  await user.click(searchBtn);
+  const searchCallsAfterLong = fetchMock.mock.calls.filter(([url]) => String(url).includes('/admin/cards/search')).length;
+  expect(searchCallsAfterLong).toBe(0);
+  await user.clear(input);
+
+  // 4 digits with leading zeros: search request is issued with the raw string barcode
+  await user.type(input, '0001');
+  await user.click(searchBtn);
+  await waitFor(() => {
+    expect(screen.getByText('0000000000007')).toBeInTheDocument();
+  });
+  const searchBodies = fetchMock.mock.calls
+    .filter(([url]) => String(url).includes('/admin/cards/search'))
+    .map(([, init]) => JSON.parse(String((init as RequestInit | undefined)?.body)) as { barcode?: string });
+  expect(searchBodies).toEqual([{ barcode: '0001' }]);
+});
+
 it('switches business filter and re-fetches cards with offset reset', async () => {
   const user = userEvent.setup();
   vi.stubEnv('VITE_API_BASE_URL', 'https://admin.test');

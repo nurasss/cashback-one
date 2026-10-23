@@ -1,4 +1,4 @@
-"""Unit tests verifying the 6-to-15 digit card barcode contract across all schemas."""
+"""Unit tests verifying the 4-to-13 digit card barcode contract across all schemas."""
 from datetime import UTC, datetime
 from decimal import Decimal
 import pytest
@@ -13,13 +13,13 @@ from app.schemas.wallet import BindCardRequest
 
 def test_barcode_contract_valid_lengths_and_leading_zeros() -> None:
     valid_barcodes = [
+        "0001",  # 4 digits with leading zeros (min boundary)
+        "1234",  # 4 digits without leading zero
         "012345",  # 6 digits with leading zero
-        "123456",  # 6 digits without leading zero
         "00012345678",  # 11 digits with leading zeros
         "12345678901",  # 11 digits
-        "0123456789012",  # 13 digits (legacy standard)
-        "000123456789012",  # 15 digits with leading zeros
-        "999999999999999",  # 15 digits max boundary
+        "0123456789012",  # 13 digits with leading zero (legacy standard)
+        "1234567890123",  # 13 digits max boundary
     ]
 
     now = datetime.now(UTC)
@@ -66,10 +66,11 @@ def test_barcode_contract_valid_lengths_and_leading_zeros() -> None:
 @pytest.mark.parametrize(
     "invalid_code",
     [
-        "12345",  # 5 digits (too short)
-        "01234",  # 5 digits with leading zero
-        "1234567890123456",  # 16 digits (too long)
-        "0123456789012345",  # 16 digits with leading zero
+        "123",  # 3 digits (too short)
+        "012",  # 3 digits with leading zero
+        "12345678901234",  # 14 digits (too long)
+        "01234567890123",  # 14 digits with leading zero
+        "1234567890123456",  # 16 digits (far too long)
         "12345a",  # contains letter
         "01234b678901",  # contains letter
         "123 456",  # internal space
