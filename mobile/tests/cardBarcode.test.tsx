@@ -151,7 +151,7 @@ describe('QR screen modes', () => {
 });
 
 describe('Balance delay note on the home screen', () => {
-  const approved = 'Баланс обновляется не сразу. Новые начисления и списания появятся, когда магазин передаст данные';
+  const approved = 'Баланс обновляется не сразу. Новые начисления и списания появляются 2 раза в сутки.';
   const home = { '/me/cards': [card], '/me/profile': profile, '/me/promotions': { banners: [], offers: [], has_new: false } };
 
   it('shows the approved Russian text', async () => {
@@ -170,7 +170,8 @@ describe('Balance delay note on the home screen', () => {
     screen.unmount();
   });
 
-  it('does not promise a time and no longer talks about closing a shift', () => {
+  it('states the twice-a-day schedule, matching the site, without hours or shifts', () => {
+    expect(kz.balanceDelayNote).toBe('Баланс бірден жаңартылмайды. Жаңа есептеулер мен есептен шығарулар тәулігіне 2 рет көрсетіледі.');
     for (const text of [ru.balanceDelayNote, kz.balanceDelayNote]) {
       expect(text).not.toMatch(/24|48|час|сағат|смен/i);
     }
