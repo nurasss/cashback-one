@@ -1,9 +1,20 @@
 """Builder script to invoke ISCC.exe on installer.iss."""
 
 import os
+import re
 import shutil
 import subprocess
 import sys
+
+
+def read_agent_version(script_dir):
+    init_path = os.path.join(script_dir, "..", "src", "poscenter_loyalty_agent", "__init__.py")
+    with open(init_path, encoding="utf-8") as f:
+        match = re.search(r'^__version__ = "([0-9]+\.[0-9]+\.[0-9]+)"$', f.read(), re.MULTILINE)
+    if match is None:
+        print(f"ERROR: Agent version not found in {init_path}", file=sys.stderr)
+        sys.exit(1)
+    return match.group(1)
 
 
 def build():
@@ -30,12 +41,18 @@ def build():
         print(f"ERROR: Expected setup exe not found: {setup_exe}", file=sys.stderr)
         sys.exit(1)
 
-    # Place a copy in C:\cashback-stage0\ for convenient pickup by curator
+    # Place a versioned copy in C:\cashback-stage0\agent-<version>\ for pickup by curator.
+    # Never overwrite an existing Setup: older versions are kept for rollback.
     stage0_dir = r"C:\cashback-stage0"
     if os.path.exists(stage0_dir):
-        stage0_setup = os.path.join(stage0_dir, "CashbackOneAgent-Setup.exe")
-        shutil.copyfile(setup_exe, stage0_setup)
-        print(f"Copied Setup artifact to {stage0_setup}")
+        version = read_agent_version(script_dir)
+        stage0_setup = os.path.join(stage0_dir, f"agent-{version}", f"CashbackOneAgent-Setup-{version}.exe")
+        if os.path.exists(stage0_setup):
+            print(f"Kept existing {stage0_setup}; not overwritten")
+        else:
+            os.makedirs(os.path.dirname(stage0_setup), exist_ok=True)
+            shutil.copyfile(setup_exe, stage0_setup)
+            print(f"Copied Setup artifact to {stage0_setup}")
 
     size = os.path.getsize(setup_exe)
     print(f"SUCCESS: Installer built at {setup_exe} (size: {size} bytes)")

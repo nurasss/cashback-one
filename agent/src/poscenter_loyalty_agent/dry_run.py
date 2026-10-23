@@ -105,7 +105,7 @@ class DryRunCloudClient:
 
     async def send_heartbeat(self, payload: HeartbeatPayload) -> HeartbeatResult:
         self.heartbeat_count += 1
-        return HeartbeatResult(status="ok", next_check_in_seconds=30)
+        return HeartbeatResult(status="ok")
 
     async def close(self) -> None:
         pass
@@ -205,23 +205,23 @@ async def run_sync_cycle(
     # 1. Cards pagination
     while True:
         cursor = source.state_store.get_cursor("cards")
-        batch = await source.fetch_cards(cursor=cursor, limit=cards_limit)
-        if batch.items:
-            cards_sent += len(batch.items)
-            await client.sync_cards(CardsSyncPayload(cards=batch.items))
-            source.state_store.commit_cursor("cards", batch.next_cursor, synced_at=datetime.now(UTC))
-        if not batch.has_more:
+        cards_batch = await source.fetch_cards(cursor=cursor, limit=cards_limit)
+        if cards_batch.items:
+            cards_sent += len(cards_batch.items)
+            await client.sync_cards(CardsSyncPayload(cards=cards_batch.items))
+            source.state_store.commit_cursor("cards", cards_batch.next_cursor, synced_at=datetime.now(UTC))
+        if not cards_batch.has_more:
             break
 
     # 2. Transactions pagination
     while True:
         cursor = source.state_store.get_cursor("transactions")
-        batch = await source.fetch_transactions(cursor=cursor, limit=tx_limit)
-        if batch.items:
-            tx_sent += len(batch.items)
-            await client.sync_transactions(TransactionsSyncPayload(transactions=batch.items))
-            source.state_store.commit_cursor("transactions", batch.next_cursor, synced_at=datetime.now(UTC))
-        if not batch.has_more:
+        tx_batch = await source.fetch_transactions(cursor=cursor, limit=tx_limit)
+        if tx_batch.items:
+            tx_sent += len(tx_batch.items)
+            await client.sync_transactions(TransactionsSyncPayload(transactions=tx_batch.items))
+            source.state_store.commit_cursor("transactions", tx_batch.next_cursor, synced_at=datetime.now(UTC))
+        if not tx_batch.has_more:
             break
 
     return cards_sent, tx_sent
@@ -265,7 +265,7 @@ async def execute_dry_run(
 
     # Derive connection string strictly from env if present
     conn_str = os.environ.get("ONE_CONNECTION_STRING") or settings.one_connection_string
-    if not conn_str:
+    if not conn_str and sys.platform == "win32":
         try:
             import winreg
 

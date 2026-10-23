@@ -11,7 +11,7 @@ import asyncio
 import logging
 import sys
 import threading
-from typing import Any
+from typing import Any, ClassVar
 
 from poscenter_loyalty_agent.config import get_settings
 from poscenter_loyalty_agent.logging import configure_logging
@@ -53,6 +53,9 @@ class POSCENTERLoyaltyAgentService(BaseServiceClass):  # type: ignore[valid-type
     _svc_name_ = "POSCENTERLoyaltyAgent"
     _svc_display_name_ = "POSCENTER Loyalty Agent Service"
     _svc_description_ = "Background synchronization service for POSCENTER Loyalty system."
+    # PyInstaller/pywin32 service attributes assigned only in frozen builds below.
+    _exe_name_: ClassVar[str]
+    _exe_args_: ClassVar[str]
 
     def __init__(self, args: Any = None) -> None:
         if sys.platform != "win32":
@@ -138,4 +141,3 @@ def handle_service_command(argv: list[str]) -> int:
 
     err = win32serviceutil.HandleCommandLine(POSCENTERLoyaltyAgentService, argv=full_argv)
     return int(err or 0)
-

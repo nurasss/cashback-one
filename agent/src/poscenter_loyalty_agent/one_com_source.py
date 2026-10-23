@@ -47,7 +47,7 @@ from poscenter_loyalty_agent.one_mapping import (
 )
 from poscenter_loyalty_agent.one_time import convert_one_datetime, to_one_naive_datetime
 from poscenter_loyalty_agent.phone_norm import normalize_phone
-from poscenter_loyalty_agent.source import LoyaltySource, SourceError
+from poscenter_loyalty_agent.source import LoyaltySource, SourceError, SourceProtocolError
 from poscenter_loyalty_agent.state_store import (
     StateStore,
     compute_card_hmac,
@@ -249,6 +249,42 @@ class OneComLoyaltySource(LoyaltySource):
 
     # --- Cards Logic ---
 
+    def _barcode_skip_counts(self, prefix: str) -> tuple[int, int, int, int]:
+        return (
+            self.counters[f"{prefix}skipped_empty_code"],
+            self.counters[f"{prefix}skipped_non_digits"],
+            self.counters[f"{prefix}skipped_too_short"],
+            self.counters[f"{prefix}skipped_too_long"],
+        )
+
+    def _log_read_completed(
+        self,
+        kind: str,
+        records_read: int,
+        changes_to_send: int,
+        started_at: float,
+        before: tuple[int, int, int, int],
+    ) -> None:
+        prefix = "cards_" if kind == "cards_snapshot" else "tx_"
+        current = self._barcode_skip_counts(prefix)
+        empty, non_digits, too_short, too_long = (
+            new - old for old, new in zip(before, current, strict=True)
+        )
+        logger.info(
+            "ONE read completed: type=%s, records_read=%d, changes_to_send=%d, "
+            "skipped_invalid_barcode=%d (empty=%d, non_digits=%d, too_short=%d, too_long=%d), "
+            "duration=%.3fs",
+            kind,
+            records_read,
+            changes_to_send,
+            empty + non_digits + too_short + too_long,
+            empty,
+            non_digits,
+            too_short,
+            too_long,
+            time.monotonic() - started_at,
+        )
+
     def _validate_card_barcode(self, raw_code: str, prefix: str = "cards_") -> str | None:
         code = str(raw_code).strip()
         if not code:
@@ -267,6 +303,7 @@ class OneComLoyaltySource(LoyaltySource):
 
     def _fetch_all_changed_cards_worker(self) -> list[tuple[str, CardSyncItem]]:
         t0 = time.monotonic()
+        skipped_before = self._barcode_skip_counts("cards_")
         conn = self._get_connection()
         cfg = self.mapping_config
 
@@ -351,12 +388,12 @@ class OneComLoyaltySource(LoyaltySource):
         del sel
         gc.collect()
 
-        duration = time.monotonic() - t0
-        logger.info(
-            "ONE read completed: type=cards_snapshot, records_read=%d, changes_to_send=%d, duration=%.3fs",
+        self._log_read_completed(
+            "cards_snapshot",
             total_read,
             len(changed_items),
-            duration,
+            t0,
+            skipped_before,
         )
         return changed_items
 
@@ -467,6 +504,7 @@ class OneComLoyaltySource(LoyaltySource):
         self, window_start: datetime, window_end: datetime
     ) -> list[TransactionSyncItem]:
         t0 = time.monotonic()
+        skipped_before = self._barcode_skip_counts("tx_")
         conn = self._get_connection()
         cfg = self.mapping_config
 
@@ -509,6 +547,9 @@ class OneComLoyaltySource(LoyaltySource):
                 raise SourceError("Transaction window exceeded maximum allowed rows limit")
 
             raw_period = getattr(sel, "Период", None)
+            if not isinstance(raw_period, datetime):
+                # Fail the window, never invent a timestamp or silently skip a movement.
+                raise SourceProtocolError("SOURCE_PROTOCOL_ERROR: 1C transaction period must be a datetime.")
             period_utc = convert_one_datetime(raw_period, tz_name=self.settings.agent_one_timezone)
 
             reg_uuid = self._get_ref_uuid(conn, getattr(sel, FIELD_REGISTRAR, ""))
@@ -565,12 +606,12 @@ class OneComLoyaltySource(LoyaltySource):
         gc.collect()
 
         if not raw_movements:
-            duration = time.monotonic() - t0
-            logger.info(
-                "ONE read completed: type=transactions_window, records_read=%d, changes_to_send=%d, duration=%.3fs",
+            self._log_read_completed(
+                "transactions_window",
                 total_query_rows,
                 0,
-                duration,
+                t0,
+                skipped_before,
             )
             return []
 
@@ -656,12 +697,12 @@ class OneComLoyaltySource(LoyaltySource):
             )
             candidate_items.append(item)
 
-        duration = time.monotonic() - t0
-        logger.info(
-            "ONE read completed: type=transactions_window, records_read=%d, changes_to_send=%d, duration=%.3fs",
+        self._log_read_completed(
+            "transactions_window",
             total_query_rows,
             len(candidate_items),
-            duration,
+            t0,
+            skipped_before,
         )
         return candidate_items
 

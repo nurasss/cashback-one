@@ -339,7 +339,7 @@ def _resolve_ref_type_name(conn: Any, ref_obj: Any) -> str:
     return _resolve_type_name(conn, ref_obj)
 
 
-def profile_recorder_types_detailed(conn: Any) -> dict[str, dict[str, int]]:
+def profile_recorder_types_detailed(conn: Any) -> dict[str, dict[str, int]] | dict[str, str]:
     """Profile movements by exact recorder metadata type with receipt/expense breakdown (7.1)."""
     breakdown: dict[str, dict[str, int]] = {}
 
@@ -412,7 +412,7 @@ def profile_recorder_types_detailed(conn: Any) -> dict[str, dict[str, int]]:
         return breakdown
     except Exception as exc2:
         logger.error("Method 2 fallback also failed for recorder breakdown: %s", exc2)
-        return {"error": f"Failed profiling recorders: {exc2}"}  # type: ignore[return-value]
+        return {"error": f"Failed profiling recorders: {exc2}"}
 
 
 def profile_shift_report_recorders(conn: Any, has_shift_report: bool) -> dict[str, Any]:

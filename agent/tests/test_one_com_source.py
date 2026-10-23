@@ -1370,6 +1370,133 @@ async def test_card_hash_stable_between_two_negative_balances(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("invalid,breakdown", [
+    (("", "BAD-CODE"), (1, 1, 0, 0)),
+    (("54321", "1234567890123456"), (0, 0, 1, 1)),
+])
+async def test_card_skip_log_is_per_read_and_has_no_raw_data(
+    agent_settings: AgentSettings, test_mapping: OneMappingConfig, caplog: pytest.LogCaptureFixture,
+    invalid: tuple[str, str], breakdown: tuple[int, int, int, int],
+) -> None:
+    codes = ["000000000001", "000000000002", "000000000003", *invalid]
+    cards = [MockRow(Ссылка=f"fixture-card-{i}", Код=code, Баланс=10, Телефон="+77001239876", Наименование="Synthetic Holder") for i, code in enumerate(codes)]
+
+    def query_handler(query: str, params: dict[str, Any]) -> list[MockRow]:
+        return cards if "Справочник.БонусныеКарты" in query else []
+
+    source = OneComLoyaltySource(agent_settings, StateStore(agent_settings.state_db_path), test_mapping, com_connector=MockComConnection(query_handler=query_handler))
+    try:
+        logger_name = "poscenter_loyalty_agent.one_com_source"
+        with caplog.at_level(logging.INFO, logger=logger_name):
+            first = await source.fetch_cards(cursor=None, limit=10)
+            assert len(first.items) == 3
+            assert first.next_cursor is not None
+            second = await source.fetch_cards(cursor=first.next_cursor, limit=10)
+            assert second.items == []
+        messages = [record.getMessage() for record in caplog.records if record.name == logger_name and "ONE read completed" in record.getMessage()]
+        assert len(messages) == 2
+        empty, non_digits, too_short, too_long = breakdown
+        for message, changes in zip(messages, (3, 0), strict=True):
+            expected = (
+                f"ONE read completed: type=cards_snapshot, records_read=5, changes_to_send={changes}, "
+                f"skipped_invalid_barcode=2 (empty={empty}, non_digits={non_digits}, too_short={too_short}, too_long={too_long}), "
+            )
+            assert message.startswith(expected)
+            assert re.search(r"duration=\d+\.\d{3}s$", message)
+            for raw in [code for code in codes if code] + ["+77001239876", "Synthetic Holder", "fixture-card-"]:
+                assert raw not in message
+        for reason, count in zip(("empty_code", "non_digits", "too_short", "too_long"), breakdown, strict=True):
+            assert source.counters[f"cards_skipped_{reason}"] == 2 * count
+        print(messages[0])
+    finally:
+        await source.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid,breakdown", [
+    (("", "BAD-CODE"), (1, 1, 0, 0)),
+    (("54321", "1234567890123456"), (0, 0, 1, 1)),
+])
+async def test_transaction_skip_log_is_per_read_and_has_no_raw_data(
+    agent_settings: AgentSettings, test_mapping: OneMappingConfig, caplog: pytest.LogCaptureFixture,
+    invalid: tuple[str, str], breakdown: tuple[int, int, int, int],
+) -> None:
+    now = datetime(2026, 10, 23, 12, tzinfo=UTC)
+    codes = ["000000000001", "000000000002", "000000000003", *invalid]
+    rows = [MockRow(Период=now, Регистратор=f"fixture-document-{i}", НомерСтроки=1, БонуснаяКарта=f"fixture-card-{i}", КартаКод=code, ВидДвижения="Приход", Сумма=10) for i, code in enumerate(codes)]
+
+    def query_handler(query: str, params: dict[str, Any]) -> list[MockRow]:
+        return [] if "Остатки(&WindowStart" in query else rows
+
+    source = OneComLoyaltySource(agent_settings, StateStore(agent_settings.state_db_path), test_mapping, com_connector=MockComConnection(query_handler=query_handler))
+    try:
+        with caplog.at_level(logging.INFO, logger="poscenter_loyalty_agent.one_com_source"):
+            first = await source.fetch_transactions(cursor=None, limit=10)
+            assert len(first.items) == 3
+            assert first.next_cursor is not None
+            second = await source.fetch_transactions(cursor=first.next_cursor, limit=10)
+            assert second.items == []
+        messages = [record.getMessage() for record in caplog.records if "ONE read completed: type=transactions_window" in record.getMessage()]
+        assert len(messages) == 2
+        empty, non_digits, too_short, too_long = breakdown
+        for message, changes in zip(messages, (3, 0), strict=True):
+            expected = (
+                f"ONE read completed: type=transactions_window, records_read=5, changes_to_send={changes}, "
+                f"skipped_invalid_barcode=2 (empty={empty}, non_digits={non_digits}, too_short={too_short}, too_long={too_long}), "
+            )
+            assert message.startswith(expected)
+            assert re.search(r"duration=\d+\.\d{3}s$", message)
+            for raw in [code for code in codes if code] + ["fixture-document-", "fixture-card-"]:
+                assert raw not in message
+        for reason, count in zip(("empty_code", "non_digits", "too_short", "too_long"), breakdown, strict=True):
+            assert source.counters[f"tx_skipped_{reason}"] == 2 * count
+        print(messages[0])
+    finally:
+        await source.close()
+
+
+@pytest.mark.asyncio
+async def test_all_invalid_transactions_still_log_current_read_counts(
+    agent_settings: AgentSettings, test_mapping: OneMappingConfig, caplog: pytest.LogCaptureFixture,
+) -> None:
+    rows = [MockRow(Период=datetime(2026, 10, 23), Регистратор=f"fixture-document-{i}", НомерСтроки=1, БонуснаяКарта=f"fixture-card-{i}", КартаКод=code) for i, code in enumerate(("", "BAD-CODE"))]
+    source = OneComLoyaltySource(agent_settings, StateStore(agent_settings.state_db_path), test_mapping, com_connector=MockComConnection(query_handler=lambda _query, _params: rows))
+    try:
+        with caplog.at_level(logging.INFO, logger="poscenter_loyalty_agent.one_com_source"):
+            for _ in range(2):
+                batch = await source.fetch_transactions(cursor=None, limit=10)
+                assert batch.items == []
+        messages = [record.getMessage() for record in caplog.records if "ONE read completed: type=transactions_window" in record.getMessage()]
+        assert len(messages) == 2
+        assert all("records_read=2, changes_to_send=0, skipped_invalid_barcode=2 (empty=1, non_digits=1, too_short=0, too_long=0)" in message for message in messages)
+        assert source.counters["tx_skipped_empty_code"] == 2
+        assert source.counters["tx_skipped_non_digits"] == 2
+    finally:
+        await source.close()
+
+
+@pytest.mark.asyncio
+async def test_buffered_card_page_does_not_repeat_read_or_skip_log(
+    agent_settings: AgentSettings, test_mapping: OneMappingConfig, caplog: pytest.LogCaptureFixture,
+) -> None:
+    cards = [MockRow(Ссылка=f"fixture-card-{i}", Код=f"00000000000{i}", Баланс=10) for i in range(3)]
+    cards.append(MockRow(Код="BAD-CODE"))
+    source = OneComLoyaltySource(agent_settings, StateStore(agent_settings.state_db_path), test_mapping, com_connector=MockComConnection(query_handler=lambda _query, _params: cards))
+    try:
+        with caplog.at_level(logging.INFO, logger="poscenter_loyalty_agent.one_com_source"):
+            first = await source.fetch_cards(cursor=None, limit=2)
+            assert first.has_more
+            second = await source.fetch_cards(cursor=first.next_cursor, limit=2)
+            assert len(second.items) == 1
+        messages = [record.getMessage() for record in caplog.records if "ONE read completed: type=cards_snapshot" in record.getMessage()]
+        assert len(messages) == 1
+        assert "records_read=4, changes_to_send=3, skipped_invalid_barcode=1" in messages[0]
+        assert source.counters["cards_skipped_non_digits"] == 1
+    finally:
+        await source.close()
+
+
+@pytest.mark.asyncio
 async def test_diagnostics_cards_read_zero_changes_logs_completion(
     agent_settings: AgentSettings, test_mapping: OneMappingConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1428,7 +1555,10 @@ async def test_diagnostics_cards_read_zero_changes_logs_completion(
     assert len(records) == 1
     rec = records[0]
     assert rec.levelno == logging.INFO
-    pattern = r"^ONE read completed: type=cards_snapshot, records_read=2, changes_to_send=0, duration=\d+\.\d{3}s$"
+    pattern = (
+        r"^ONE read completed: type=cards_snapshot, records_read=2, changes_to_send=0, "
+        r"skipped_invalid_barcode=0 \(empty=0, non_digits=0, too_short=0, too_long=0\), duration=\d+\.\d{3}s$"
+    )
     assert re.match(pattern, rec.message), f"Log message did not match expected format: {rec.message}"
 
     await source.close()
@@ -1514,7 +1644,8 @@ async def test_diagnostics_transactions_read_with_changes_logs_completion(
     rec = records[0]
     assert rec.levelno == logging.INFO
     pattern = (
-        r"^ONE read completed: type=transactions_window, records_read=3, changes_to_send=2, duration=\d+\.\d{3}s$"
+        r"^ONE read completed: type=transactions_window, records_read=3, changes_to_send=2, "
+        r"skipped_invalid_barcode=0 \(empty=0, non_digits=0, too_short=0, too_long=0\), duration=\d+\.\d{3}s$"
     )
     assert re.match(pattern, rec.message), f"Log message did not match expected format: {rec.message}"
 
@@ -1539,7 +1670,8 @@ async def test_diagnostics_transactions_read_with_changes_logs_completion(
     assert len(empty_records) == 1
     empty_rec = empty_records[0]
     empty_pattern = (
-        r"^ONE read completed: type=transactions_window, records_read=0, changes_to_send=0, duration=\d+\.\d{3}s$"
+        r"^ONE read completed: type=transactions_window, records_read=0, changes_to_send=0, "
+        r"skipped_invalid_barcode=0 \(empty=0, non_digits=0, too_short=0, too_long=0\), duration=\d+\.\d{3}s$"
     )
     assert re.match(empty_pattern, empty_rec.message), f"Log message did not match: {empty_rec.message}"
 
@@ -1668,6 +1800,3 @@ async def test_diagnostics_log_contains_no_pii_or_secrets(
             assert forbidden not in msg, f"Forbidden substring '{forbidden}' found in diagnostic log: {msg}"
 
     await source.close()
-
-
-
