@@ -27,11 +27,15 @@ certifi==2026.7.22
     #   httpcore
     #   httpx
 cffi==2.1.1
-    # via argon2-cffi-bindings
+    # via
+    #   argon2-cffi-bindings
+    #   cryptography
 click==8.5.0
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
+cryptography==50.0.2
+    # via poscenter-loyalty-backend (backend/pyproject.toml)
 fastapi==0.143.2
     # via poscenter-loyalty-backend (backend/pyproject.toml)
 greenlet==3.5.6
@@ -66,6 +70,8 @@ packaging==26.3
     # via pytest
 pathspec==1.1.1
     # via mypy
+pillow==13.0.0
+    # via poscenter-loyalty-backend (backend/pyproject.toml)
 pluggy==1.7.0
     # via pytest
 pycparser==3.11 ; implementation_name != 'PyPy'
@@ -93,6 +99,8 @@ python-dotenv==1.2.4
     # via
     #   poscenter-loyalty-backend (backend/pyproject.toml)
     #   pydantic-settings
+python-multipart==0.0.32
+    # via poscenter-loyalty-backend (backend/pyproject.toml)
 redis==8.1.0
     # via poscenter-loyalty-backend (backend/pyproject.toml)
 ruff==0.17.1

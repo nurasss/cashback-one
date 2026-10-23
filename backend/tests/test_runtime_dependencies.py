@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # import name -> distribution name where they differ
-DIST_ALIASES = {"starlette": "fastapi", "jwt": "pyjwt", "dotenv": "python-dotenv", "argon2": "argon2-cffi", "yaml": "pyyaml"}
+DIST_ALIASES = {"starlette": "fastapi", "jwt": "pyjwt", "dotenv": "python-dotenv", "argon2": "argon2-cffi", "yaml": "pyyaml", "PIL": "pillow"}
 
 
 def _runtime_dependencies() -> set[str]:

@@ -3,7 +3,7 @@ import re
 from functools import lru_cache
 from typing import Any
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _FORBIDDEN_WEAK_SECRETS: set[str] = {
@@ -92,6 +92,30 @@ class Settings(BaseSettings):
         default="",
         description="Public URL for admin web console (used in manager invitations/credentials).",
     )
+
+    # Media & FTPS hosting configuration
+    media_ftps_host: str = Field(default="", description="FTPS hostname for hosting media storage.")
+    media_ftps_port: int = Field(default=21, ge=1, le=65535, description="FTPS port (default 21).")
+    media_ftps_user: str = Field(default="", description="FTPS username for media storage.")
+    media_ftps_password: SecretStr = Field(default=SecretStr(""), description="FTPS password for media storage.")
+    media_ftps_root_dir: str = Field(default="", description="Root path on hosting where files are uploaded.")
+    media_public_base_url: str = Field(
+        default="https://cashback-qr.poscenter.kz/media",
+        description="Public base URL where uploaded media is served.",
+    )
+    media_max_upload_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1024,
+        description="Maximum allowed image upload size in bytes (default 10MB).",
+    )
+
+    @property
+    def is_media_storage_configured(self) -> bool:
+        return bool(
+            self.media_ftps_host
+            and self.media_ftps_user
+            and self.media_ftps_password.get_secret_value()
+        )
 
     # Production runtime, connection pool, and security settings (TASK-012)
     debug: bool = Field(default=False, description="Debug mode. Must be False in production.")

@@ -2,10 +2,12 @@ import uuid
 from datetime import datetime
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_deps import AdminScope, get_admin_scope, require_admin_origin
+from app.core.config import Settings, get_settings
+from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.admin import AdminUser
 from app.schemas.admin import (
@@ -38,6 +40,7 @@ from app.schemas.admin import (
     UserSearchRequest,
 )
 from app.schemas.admin_content import (
+    ImageUploadResponse,
     NotificationAdminItem,
     NotificationCreateRequest,
     PromotionAdminItem,
@@ -70,6 +73,8 @@ from app.services.admin_queries import (
     search_cards,
     search_users,
 )
+from app.services.image_service import process_and_store_image
+from app.services.media_storage import MediaStorage, get_media_storage
 
 router = APIRouter(dependencies=[Depends(require_admin_origin)])
 
@@ -151,9 +156,13 @@ async def admin_update_business(
     scope: Annotated[AdminScope, Depends(get_admin_scope)],
     admin: Annotated[AdminUser, Depends(authenticate_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[MediaStorage, Depends(get_media_storage)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> BusinessDetail:
     scope.require_superadmin()
-    business = await update_business(db, admin, business_id, body)
+    business = await update_business(
+        db, admin, business_id, body, storage=storage, settings=settings
+    )
     return await get_business(db, business.id)
 
 
@@ -325,8 +334,12 @@ async def admin_update_promotion(
     body: PromotionUpdateRequest,
     admin: Annotated[AdminUser, Depends(authenticate_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[MediaStorage, Depends(get_media_storage)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> PromotionAdminItem:
-    return await admin_content.update_promotion(db, admin, promotion_id, body)
+    return await admin_content.update_promotion(
+        db, admin, promotion_id, body, storage=storage, settings=settings
+    )
 
 
 @router.delete("/promotions/{promotion_id}", status_code=204)
@@ -334,8 +347,12 @@ async def admin_delete_promotion(
     promotion_id: uuid.UUID,
     admin: Annotated[AdminUser, Depends(authenticate_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[MediaStorage, Depends(get_media_storage)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Response:
-    await admin_content.delete_promotion(db, admin, promotion_id)
+    await admin_content.delete_promotion(
+        db, admin, promotion_id, storage=storage, settings=settings
+    )
     return Response(status_code=204)
 
 
@@ -366,3 +383,50 @@ async def admin_delete_notification(
 ) -> Response:
     await admin_content.delete_notification(db, admin, notification_id)
     return Response(status_code=204)
+
+
+@router.post("/media/images", response_model=ImageUploadResponse)
+async def admin_upload_image(
+    file: Annotated[UploadFile, File(...)],
+    purpose: Annotated[str, Form(...)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[MediaStorage, Depends(get_media_storage)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ImageUploadResponse:
+    if purpose not in ("promotion", "logo"):
+        raise AppError(
+            "VALIDATION_ERROR",
+            "purpose must be either 'promotion' or 'logo'.",
+            status_code=422,
+        )
+
+    max_bytes = settings.media_max_upload_bytes
+    total_bytes = 0
+    chunks: list[bytes] = []
+    chunk_size = 65536
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > max_bytes:
+            raise AppError(
+                "FILE_TOO_LARGE",
+                f"File size exceeds maximum limit of {max_bytes} bytes.",
+                status_code=413,
+            )
+        chunks.append(chunk)
+
+    raw_bytes = b"".join(chunks)
+    if not raw_bytes:
+        raise AppError("VALIDATION_ERROR", "Uploaded file is empty.", status_code=422)
+
+    return await process_and_store_image(
+        raw_bytes=raw_bytes,
+        purpose=purpose,
+        settings=settings,
+        storage=storage,
+        admin=admin,
+        db=db,
+    )

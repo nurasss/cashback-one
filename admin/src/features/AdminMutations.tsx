@@ -10,6 +10,7 @@ import type {
   ManagerAccessDisclosure,
 } from '../api/types';
 import { useAdminSession } from '../auth/provider';
+import { ImageUploadField } from '../components/ImageUploadField';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
@@ -70,6 +71,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
   const [tiersText, setTiersText] = useState(JSON.stringify(business?.loyalty_tiers ?? null, null, 2));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -164,7 +166,14 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       <label htmlFor="business-name">{t.mutations.businessName}</label>
       <input id="business-name" value={name} maxLength={255} onChange={event => setName(event.target.value)} autoFocus required />
       <label htmlFor="business-logo">{t.mutations.businessLogo}</label>
-      <input id="business-logo" type="url" value={logoUrl} maxLength={1024} onChange={event => setLogoUrl(event.target.value)} />
+      <ImageUploadField
+        id="business-logo"
+        value={logoUrl}
+        onChange={setLogoUrl}
+        purpose="logo"
+        onUploadingChange={setUploadingLogo}
+        disabled={saving}
+      />
       <label htmlFor="business-colors">{t.mutations.businessColors}</label>
       <textarea id="business-colors" rows={5} value={colorsText} onChange={event => setColorsText(event.target.value)} />
       <label htmlFor="business-prefixes">{t.mutations.businessPrefixes}</label>
@@ -177,8 +186,8 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       </select>
       {error && <p className="form-error" role="alert">{error}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={onClose} disabled={saving}>{t.mutations.cancel}</button>
-        <button className="button button-primary" type="submit" disabled={saving}>{saving ? t.mutations.saving : business ? t.mutations.save : t.mutations.create}</button>
+        <button className="button button-secondary" type="button" onClick={onClose} disabled={saving || uploadingLogo}>{t.mutations.cancel}</button>
+        <button className="button button-primary" type="submit" disabled={saving || uploadingLogo}>{saving ? t.mutations.saving : business ? t.mutations.save : t.mutations.create}</button>
       </footer>
     </form>
   </DialogFrame>;

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_deps import AdminScope, scope_for_admin
+from app.core.config import Settings
 from app.core.errors import AppError
 from app.models.admin import AdminUser
 from app.models.entities import Business, Notification, Promotion
@@ -22,6 +23,7 @@ from app.schemas.admin_content import (
     PromotionUpdateRequest,
 )
 from app.services.admin_mutations import _audit
+from app.services.media_storage import MediaStorage, maybe_cleanup_old_media_file
 
 
 def _not_found() -> AppError:
@@ -108,10 +110,17 @@ async def _load_promotion(db: AsyncSession, scope: AdminScope, promotion_id: uui
 
 
 async def update_promotion(
-    db: AsyncSession, admin: AdminUser, promotion_id: uuid.UUID, body: PromotionUpdateRequest
+    db: AsyncSession,
+    admin: AdminUser,
+    promotion_id: uuid.UUID,
+    body: PromotionUpdateRequest,
+    *,
+    storage: MediaStorage | None = None,
+    settings: Settings | None = None,
 ) -> PromotionAdminItem:
     promo = await _load_promotion(db, scope_for_admin(admin), promotion_id)
     before = _promotion_state(promo)
+    old_image_url = promo.image_url
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(promo, field, value)
     if promo.starts_at and promo.ends_at and promo.ends_at <= promo.starts_at:
@@ -120,15 +129,30 @@ async def update_promotion(
     _audit(db, admin, promo.business_id, "promotion_updated", "promotion", before, _promotion_state(promo))
     await db.commit()
     await db.refresh(promo)
+
+    if storage is not None and settings is not None and old_image_url and old_image_url != promo.image_url:
+        await maybe_cleanup_old_media_file(db, storage, old_image_url, settings)
+
     return PromotionAdminItem.model_validate(promo)
 
 
-async def delete_promotion(db: AsyncSession, admin: AdminUser, promotion_id: uuid.UUID) -> None:
+async def delete_promotion(
+    db: AsyncSession,
+    admin: AdminUser,
+    promotion_id: uuid.UUID,
+    *,
+    storage: MediaStorage | None = None,
+    settings: Settings | None = None,
+) -> None:
     promo = await _load_promotion(db, scope_for_admin(admin), promotion_id)
     before = _promotion_state(promo)
+    old_image_url = promo.image_url
     await db.delete(promo)
     _audit(db, admin, promo.business_id, "promotion_deleted", "promotion", before, None)
     await db.commit()
+
+    if storage is not None and settings is not None and old_image_url:
+        await maybe_cleanup_old_media_file(db, storage, old_image_url, settings)
 
 
 async def list_notifications(

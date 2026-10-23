@@ -3,10 +3,11 @@ import { validateRuntimeBaseUrl } from './transport';
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
-  body?: object;
+  body?: object | FormData;
   authenticated?: boolean;
   retryAuthentication?: boolean;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 export interface SessionHooks {
   accessToken(): string | null;
@@ -51,7 +52,8 @@ export class AdminApiClient {
     const relayAbort = () => controller.abort();
     options.signal?.addEventListener('abort', relayAbort);
     if (options.signal?.aborted) controller.abort();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.timeoutMs);
     try {
       const validatedBaseUrl = validateRuntimeBaseUrl(this.baseUrl());
       const response = await this.fetcher(`${validatedBaseUrl}${path}`, {
@@ -61,10 +63,12 @@ export class AdminApiClient {
         headers: {
           Accept: 'application/json',
           'X-Admin-Request': '1',
-          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(!isFormData && options.body ? { 'Content-Type': 'application/json' } : {}),
           ...(token && options.authenticated !== false ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: options.body ? JSON.stringify(options.body) : undefined,
+        body: isFormData
+          ? (options.body as FormData)
+          : options.body ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
       });
       if (options.authenticated !== false && generation !== this.hooks.generation()) throw new ApiError('SESSION_CHANGED');

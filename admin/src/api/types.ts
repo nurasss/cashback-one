@@ -56,3 +56,9 @@ export interface AuditItem {
 }
 export interface AdminAccessToken { access_token: string; token_type: 'bearer'; expires_in: number }
 export interface PageQuery { limit: number; offset: number }
+export interface ImageUploadResponse {
+  url: string;
+  width: number;
+  height: number;
+  bytes: number;
+}

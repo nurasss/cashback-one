@@ -34,6 +34,14 @@ DB_POOL_TIMEOUT_SECONDS=10
 DB_POOL_RECYCLE_SECONDS=1800
 DB_POOL_PRE_PING=true
 DB_STATEMENT_TIMEOUT_MS=15000
+# Media & FTPS hosting storage (optional, for image uploads)
+MEDIA_FTPS_HOST=
+MEDIA_FTPS_PORT=21
+MEDIA_FTPS_USER=
+MEDIA_FTPS_PASSWORD=
+MEDIA_FTPS_ROOT_DIR=
+MEDIA_PUBLIC_BASE_URL=https://cashback-qr.poscenter.kz/media
+MEDIA_MAX_UPLOAD_BYTES=10485760
 # Apple Wallet / Google Wallet passes (optional, uncomment when keys are available)
 # WALLET_PUBLIC_BASE_URL=https://api.cashback-qr.poscenter.kz
 # WALLET_ORGANIZATION_NAME="POSCENTER ONE"

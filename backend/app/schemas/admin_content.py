@@ -114,3 +114,16 @@ class NotificationCreateRequest(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
 
     _text = field_validator("title", "body", mode="before")(_strip_required)
+
+
+ImagePurpose = Literal["promotion", "logo"]
+
+
+class ImageUploadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    width: int
+    height: int
+    bytes: int
+

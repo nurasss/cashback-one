@@ -6,6 +6,7 @@ import type { AppNotification, Promotion, PromotionKind } from '../api/types';
 import { useAdminSession } from '../auth/provider';
 import { DataTable } from '../components/DataTable';
 import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
+import { ImageUploadField } from '../components/ImageUploadField';
 import { DialogFrame } from '../features/AdminMutations';
 import { formatDate } from '../utils/format';
 import { usePage } from '../utils/usePage';
@@ -270,7 +271,7 @@ const toLocalInput = (value: string | null) =>
   value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60_000).toISOString().slice(0, 16) : '';
 const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : null);
 
-function PromotionDialog({ promotion, onClose }: { promotion?: Promotion; onClose: () => void }) {
+export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion; onClose: () => void }) {
   const { session } = useAdminSession();
   const { locale } = useLocale();
   const t = useAdminTranslation();
@@ -291,6 +292,7 @@ function PromotionDialog({ promotion, onClose }: { promotion?: Promotion; onClos
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm(current => ({ ...current, [key]: event.target.value }));
 
@@ -372,7 +374,14 @@ function PromotionDialog({ promotion, onClose }: { promotion?: Promotion; onClos
         <label htmlFor="promo-body">{t.content.promoFieldBody}</label>
         <textarea id="promo-body" rows={4} value={form.body} maxLength={4000} onChange={set('body')} />
         <label htmlFor="promo-image">{t.content.promoFieldImage}</label>
-        <input id="promo-image" type="url" value={form.image_url} maxLength={1024} onChange={set('image_url')} />
+        <ImageUploadField
+          id="promo-image"
+          value={form.image_url}
+          onChange={url => setForm(current => ({ ...current, image_url: url }))}
+          purpose="promotion"
+          onUploadingChange={setUploadingImage}
+          disabled={saving}
+        />
         <label htmlFor="promo-start">{t.content.promoFieldStart}</label>
         <input id="promo-start" type="datetime-local" value={form.starts_at} onChange={set('starts_at')} />
         <label htmlFor="promo-end">{t.content.promoFieldEnd}</label>
@@ -391,10 +400,10 @@ function PromotionDialog({ promotion, onClose }: { promotion?: Promotion; onClos
         </label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="mutation-actions">
-          <button className="button button-secondary" type="button" onClick={onClose} disabled={saving}>
+          <button className="button button-secondary" type="button" onClick={onClose} disabled={saving || uploadingImage}>
             {t.content.cancelBtn}
           </button>
-          <button className="button button-primary" type="submit" disabled={saving}>
+          <button className="button button-primary" type="submit" disabled={saving || uploadingImage}>
             {saving ? t.content.savingBtn : t.content.saveBtn}
           </button>
         </footer>

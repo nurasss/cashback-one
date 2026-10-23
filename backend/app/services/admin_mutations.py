@@ -29,6 +29,7 @@ from app.services.admin_security import (
     random_slug,
 )
 from app.services.agent_auth import issue_agent_key, revoke_agent, rotate_agent_key
+from app.services.media_storage import MediaStorage, maybe_cleanup_old_media_file
 
 _SENSITIVE_AUDIT_KEY = re.compile(
     r"(?:password|passwd|pwd|token|secret|jwt|otp|wappi|key_hash|agent.?key|api.?key|"
@@ -62,6 +63,7 @@ _KNOWN_ADMIN_ACTIONS: set[str] = {
     "notification_deleted",
     "business_manager_created",
     "business_manager_password_reset",
+    "media_uploaded",
 }
 
 _ALLOWED_BUSINESS_STATUSES: set[str] = {"active", "inactive"}
@@ -356,6 +358,22 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 if clean_login:
                     projected["login"] = clean_login
 
+    elif action == "media_uploaded":
+        for k, v in value.items():
+            if k == "purpose":
+                if isinstance(v, str) and v in ("promotion", "logo"):
+                    projected["purpose"] = v
+            elif k == "bytes":
+                if isinstance(v, int) and v >= 0:
+                    projected["bytes"] = v
+            elif k in ("width", "height"):
+                if isinstance(v, int) and v >= 0:
+                    projected[k] = v
+            elif k == "url":
+                clean_url = _clean_str(v, max_length=1024)
+                if clean_url:
+                    projected["url"] = clean_url
+
     if not projected:
         return None
     return projected
@@ -372,7 +390,7 @@ def safe_audit_snapshot(
 
     Requires verified Admin structural provenance:
     - admin_user_id != None
-    - business_id != None (all 7 Admin mutation actions are tenant-scoped)
+    - business_id != None (except media_uploaded which can be global)
 
     Legacy and unknown events project to None to prevent disclosure of arbitrary
     or historical secrets. Known Admin mutation actions project only explicitly
@@ -382,7 +400,9 @@ def safe_audit_snapshot(
         return None
     if not action or action not in _KNOWN_ADMIN_ACTIONS:
         return None
-    if admin_user_id is None or business_id is None:
+    if admin_user_id is None:
+        return None
+    if business_id is None and action != "media_uploaded":
         return None
 
     return _project_action_snapshot(action, value)
@@ -624,6 +644,9 @@ async def update_business(
     actor: AdminUser,
     business_id: uuid.UUID,
     request: BusinessUpdateRequest,
+    *,
+    storage: MediaStorage | None = None,
+    settings: Any | None = None,
 ) -> Business:
     actor_scope = scope_for_admin(actor)
     actor_scope.require_superadmin()
@@ -633,6 +656,7 @@ async def update_business(
     if business is None:
         raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
     before = _business_state(business)
+    old_logo_url = business.logo_url
     fields = request.model_dump(mode="json", exclude_unset=True)
     previous_colors = business.colors
     for field, value in fields.items():
@@ -653,6 +677,16 @@ async def update_business(
     )
     await db.commit()
     await db.refresh(business)
+
+    if (
+        storage is not None
+        and settings is not None
+        and "logo_url" in fields
+        and old_logo_url
+        and old_logo_url != business.logo_url
+    ):
+        await maybe_cleanup_old_media_file(db, storage, old_logo_url, settings)
+
     return business
 
 

@@ -47,6 +47,12 @@ cd admin && VITE_API_BASE_URL=https://api.cashback-qr.poscenter.kz VITE_ALLOW_IN
 
 В конец `/opt/timetrack/Caddyfile` добавлен блок `api.cashback-qr.poscenter.kz { reverse_proxy cashback-backend:8000 }`. Копия прежнего файла: `/opt/timetrack/Caddyfile.bak-cashback-*`. Откат: вернуть копию и выполнить `docker exec timetrack-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`.
 
+С 2026-10-23 в этом блоке два лимита тела запроса: `max_size 12MB` для `path /admin/media/images` (загрузка картинок) и `2MB` для всего остального. Копия до изменения — `/opt/cashback-one/backups/media-20261023T074603Z/Caddyfile.bak`. Файл смонтирован в контейнер по одному пути: записывать на месте (`sudo tee`), не заменять новым файлом, иначе контейнер увидит старую версию.
+
+## Загрузка картинок (media)
+
+Backend кладёт WebP по FTPS в папку сайта `media/promotions/` и `media/logos/`. Настройки в `/opt/cashback-one/.env`: `MEDIA_FTPS_HOST`, `MEDIA_FTPS_PORT`, `MEDIA_FTPS_USER`, `MEDIA_FTPS_PASSWORD`, `MEDIA_FTPS_ROOT_DIR` (папка сайта), `MEDIA_PUBLIC_BASE_URL`. Без них загрузка отвечает 503, остальное работает. Хостинг принимает FTPS только с TLS ≤ 1.2 — это зашито в `media_storage.py`.
+
 ## Первый администратор
 
 Логин `admin` создан при развёртывании. Новых администраторов и менеджеров бизнеса создаёт `python -m app.cli.create_admin` внутри контейнера `cashback-backend` (`docker exec -it cashback-backend python -m app.cli.create_admin`).
