@@ -92,6 +92,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"Last Successful Sync:          {status.last_successful_sync_at or '(never)'}")
         print(f"Last Heartbeat:                {status.last_heartbeat_at or '(never)'}")
         print(f"Last Error:                    {status.last_error or '(none)'}")
+        pos_mode = "включён" if settings.agent_pos_server_enabled else "выключен"
+        print(f"POS-сервис: {pos_mode}, {settings.agent_pos_listen_host}:{settings.agent_pos_listen_port}")
         if status.last_error_at:
             print(f"Last Error Time:               {status.last_error_at}")
         return 0

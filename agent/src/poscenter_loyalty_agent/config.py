@@ -1,9 +1,10 @@
 """Configuration management for POSCENTER Loyalty Windows Agent."""
 import os
 import sys
+from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +24,7 @@ class AgentSettings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        hide_input_in_errors=True,
     )
 
     agent_env: str = Field(
@@ -59,6 +61,12 @@ class AgentSettings(BaseSettings):
         le=300.0,
         description="HTTP request timeout in seconds",
     )
+    agent_pos_server_enabled: bool = False
+    agent_pos_listen_host: str = "0.0.0.0"
+    agent_pos_listen_port: int = 8765
+    agent_pos_token: SecretStr = Field(default=SecretStr(""), repr=False, exclude=True)
+    agent_pos_allowed_networks: str = "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    agent_pos_cloud_timeout_seconds: float = Field(default=5.0, gt=0, le=5, allow_inf_nan=False)
     agent_card_batch_size: int = Field(
         default=100,
         ge=1,
@@ -183,6 +191,33 @@ class AgentSettings(BaseSettings):
         if clean not in ("stub", "fake", "com"):
             raise ValueError(f"Invalid ONE_ADAPTER_MODE '{v}'. Allowed: stub, fake, com")
         return clean
+
+    @model_validator(mode="after")
+    def validate_pos_server(self) -> "AgentSettings":
+        if not self.agent_pos_server_enabled:
+            return self
+        token = self.agent_pos_token.get_secret_value()
+        if len(token) < 32 or any(not 33 <= ord(char) <= 126 for char in token):
+            raise ValueError("AGENT_POS_TOKEN: минимум 32 печатных ASCII-символа без пробелов")
+        try:
+            ip_address(self.agent_pos_listen_host)
+        except ValueError:
+            raise ValueError("AGENT_POS_LISTEN_HOST: требуется IP-адрес IPv4 или IPv6") from None
+        if not 1 <= self.agent_pos_listen_port <= 65535:
+            raise ValueError("AGENT_POS_LISTEN_PORT: требуется порт от 1 до 65535")
+        try:
+            if not self.pos_allowed_networks:
+                raise ValueError("Empty POS CIDR list")
+        except ValueError:
+            raise ValueError("AGENT_POS_ALLOWED_NETWORKS: требуется непустой список CIDR через запятую") from None
+        return self
+
+    @property
+    def pos_allowed_networks(self) -> tuple[IPv4Network | IPv6Network, ...]:
+        parts = self.agent_pos_allowed_networks.split(",")
+        if not all(part.strip() and "/" in part for part in parts):
+            raise ValueError("Invalid POS CIDR list")
+        return tuple(ip_network(part.strip(), strict=True) for part in parts)
 
     @model_validator(mode="after")
     def validate_security_and_paths(self) -> "AgentSettings":

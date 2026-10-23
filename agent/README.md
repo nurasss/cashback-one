@@ -42,5 +42,6 @@ pytest tests/ -v
 ```
 
 ## Documentation
+- POS-сервис динамического QR для Cash (LAN, выключен по умолчанию): [POS_QR_INTEGRATION.md](../docs/POS_QR_INTEGRATION.md)
 - Complete Architecture: [AGENT_ARCHITECTURE.md](../docs/AGENT_ARCHITECTURE.md)
 - Stage 0 Discovery Requirements: [ONE_STAGE0_REQUIRED.md](../docs/ONE_STAGE0_REQUIRED.md)

@@ -23,6 +23,7 @@ from poscenter_loyalty_agent.models import (
     HeartbeatPayload,
     TransactionsSyncPayload,
 )
+from poscenter_loyalty_agent.pos_server import PosServer
 from poscenter_loyalty_agent.process_lock import AgentAlreadyRunningError, ProcessLock
 from poscenter_loyalty_agent.retry import RetryState
 from poscenter_loyalty_agent.source import (
@@ -78,6 +79,7 @@ class AgentRuntime:
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._sync_task: asyncio.Task[None] | None = None
         self._is_running = False
+        self._pos_server: PosServer | None = None
 
     @property
     def is_running(self) -> bool:
@@ -109,6 +111,12 @@ class AgentRuntime:
         self._setup_signals()
 
         try:
+            if self.settings.agent_pos_server_enabled:
+                try:
+                    self._pos_server = PosServer(self.settings)
+                    await asyncio.to_thread(self._pos_server.start)
+                except Exception as exc:
+                    logger.error("POS startup failed (type=%s); sync continues", type(exc).__name__)
             # Heartbeat and sync loop run concurrently and independently
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(), name="HeartbeatLoop")
             self._sync_task = asyncio.create_task(self._sync_loop(), name="SyncLoop")
@@ -132,6 +140,12 @@ class AgentRuntime:
         grace = float(self.settings.shutdown_grace_seconds)
         logger.info("Cleaning up runtime resources (grace period: %.1fs)...", grace)
         self._is_running = False
+
+        if self._pos_server is not None:
+            try:
+                await asyncio.to_thread(self._pos_server.stop)
+            except Exception as exc:
+                logger.warning("POS shutdown failed (type=%s)", type(exc).__name__)
 
         active_tasks = [t for t in (self._sync_task, self._heartbeat_task) if t is not None and not t.done()]
         if active_tasks and grace > 0:
