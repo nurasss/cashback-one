@@ -1,4 +1,4 @@
-// Code 128 (ISO/IEC 15417) for card numbers: 6–15 ASCII digits, kept as a string so leading zeros survive.
+// Code 128 (ISO/IEC 15417) for card numbers: 4–13 ASCII digits, kept as a string so leading zeros survive.
 // Digits are packed in set C (two per symbol). An odd count starts in set B for the first digit, then switches to C.
 
 // Element widths of symbols 0–106: bar, space, bar, space, bar, space (the stop symbol has a seventh element).
@@ -23,9 +23,9 @@ export const CODE_C = 99;
 export const STOP = 106;
 export const QUIET_ZONE_MODULES = 10;
 
-export const isCode128Number = (value: unknown): value is string => typeof value === 'string' && /^[0-9]{6,15}$/.test(value);
+export const isCode128Number = (value: unknown): value is string => typeof value === 'string' && /^[0-9]{4,13}$/.test(value);
 
-/** Symbol values: start, data, checksum, stop. Returns null for anything that is not a 6–15 digit string. */
+/** Symbol values: start, data, checksum, stop. Returns null for anything that is not a 4–13 digit string. */
 export function code128Values(value: string): number[] | null {
   if (!isCode128Number(value)) return null;
   const odd = value.length % 2 === 1;

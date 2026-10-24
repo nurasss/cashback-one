@@ -19,8 +19,8 @@ it('installation identifier persists independently of logout', async () => {
   jest.mocked(SecureStore.getItemAsync).mockResolvedValue(null); expect(await deviceId()).toBe('installation-id');
   expect(SecureStore.setItemAsync).toHaveBeenCalledWith('cashback-one.device.v1', 'installation-id', expect.any(Object));
 });
-it.each(['012345', '12345678901', '0123456789012', '0000000000000', '999999999999999'])('accepts exact barcode %s', value => { expect(isBarcode(value)).toBe(true); });
-it.each(['123', '12345', '1234567890123456', '01234567890a2', ' 0123456789012', 'https://0123456789012'])('rejects invalid barcode %s', value => { expect(isBarcode(value)).toBe(false); });
+it.each(['0001', '0000', '012345', '12345678901', '0123456789012', '9999999999999'])('accepts exact barcode %s', value => { expect(isBarcode(value)).toBe(true); });
+it.each(['123', '12', '12345678901234', '1234567890123456', '01234567890a2', ' 0123456789012', 'https://0123456789012'])('rejects invalid barcode %s', value => { expect(isBarcode(value)).toBe(false); });
 it('Decimal formatting does not lose numeric precision', () => { expect(decimalText('99999999999999.9999')).toBe('99 999 999 999 999,9999'); expect(decimalText('50.0000')).toBe('50'); });
 it('only documented transaction types have business labels', () => { expect(transactionLabel('accrual')).toBe('Начисление'); expect(transactionLabel('redemption')).toBe('Списание'); expect(transactionLabel('adjustment')).toBe('adjustment'); });
 it('normalizes machine error without leaking server PII', () => {

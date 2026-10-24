@@ -14,10 +14,6 @@ const vectors: { number: string; widths: string; values: number[]; pb?: true }[]
   { number: '00123456', widths: '2112322122221122321311233311211123312331112', values: [105, 0, 12, 34, 56, 43, 106], pb: true },
   { number: '0123456789', widths: '2112322221223121311131231411222121411421122331112', values: [105, 1, 23, 45, 67, 89, 73, 106], pb: true },
   { number: '0123456789012', widths: '2112141231221131411122321311233311212411122141211122321223122331112', values: [104, 16, 99, 12, 34, 56, 78, 90, 12, 7, 106] },
-  { number: '01234567890123', widths: '2112322221223121311131231411222121412221223121311311232331112', values: [105, 1, 23, 45, 67, 89, 1, 23, 34, 106], pb: true },
-  { number: '012345678901234', widths: '2112141231221131411122321311233311212411122141211122321311231213222331112', values: [104, 16, 99, 12, 34, 56, 78, 90, 12, 34, 4, 106] },
-  { number: '123456789012345', widths: '2112141232211131413121311131231411222121412221223121311131232211142331112', values: [104, 17, 99, 23, 45, 67, 89, 1, 23, 45, 76, 106] },
-  { number: '000000000000000', widths: '2112141231221131412122222122222122222122222122222122222122222212132331112', values: [104, 16, 99, 0, 0, 0, 0, 0, 0, 0, 9, 106] },
 ];
 
 describe('Code 128 symbol table', () => {
@@ -61,7 +57,7 @@ describe('Code 128 encoding of card numbers', () => {
   });
 
   it('keeps every digit, including leading zeros, for every allowed length', () => {
-    for (let length = 6; length <= 15; length += 1) {
+    for (let length = 4; length <= 13; length += 1) {
       const number = '0'.repeat(length - 1) + '7';
       const values = code128Values(number)!;
       // data symbols (without start, checksum, stop and the set switch) must reproduce the string exactly
@@ -75,7 +71,7 @@ describe('Code 128 encoding of card numbers', () => {
   it('measures symbol width as 11 modules per symbol plus the 13-module stop', () => {
     expect(code128Bars('012345')?.modules).toBe(11 * 5 + 13); // start + 3 pairs + checksum, then stop
     expect(code128Bars('1234567')?.modules).toBe(11 * 7 + 13); // start B + digit + set C + 3 pairs + checksum
-    expect(code128Bars('123456789012345')?.modules).toBe(11 * 11 + 13);
+    expect(code128Bars('1234567890123')?.modules).toBe(11 * 10 + 13); // 13 digits: start B + digit + set C + 6 pairs + checksum
     expect(QUIET_ZONE_MODULES).toBeGreaterThanOrEqual(10);
   });
 
@@ -90,7 +86,7 @@ describe('Code 128 encoding of card numbers', () => {
     expect(last.width).toBe(2);
   });
 
-  it.each(['', '12345', '1234567890123456', '12345a', ' 123456', '123 456', '１２３４５６', '12.3456', '-123456'])('rejects %j', input => {
+  it.each(['', '123', '12345678901234', '1234567890123456', '12345a', ' 123456', '123 456', '１２３４５６', '12.3456', '-123456'])('rejects %j', input => {
     expect(isCode128Number(input)).toBe(false);
     expect(code128Values(input)).toBeNull();
     expect(code128Widths(input)).toBeNull();
@@ -103,9 +99,28 @@ describe('Code 128 encoding of card numbers', () => {
     expect(isCode128Number(undefined)).toBe(false);
   });
 
-  it('accepts exactly 6 and 15 digits', () => {
-    expect(isCode128Number('000000')).toBe(true);
-    expect(isCode128Number('999999999999999')).toBe(true);
+  it('accepts exactly 4 and 13 digits', () => {
+    expect(isCode128Number('0000')).toBe(true);
+    expect(isCode128Number('9999999999999')).toBe(true);
+  });
+
+  // 4-digit numbers are new with the 4–13 card number rule. The reference symbol values and checksums are computed
+  // by hand from the spec: '0000' → (105 + 0·1 + 0·2) mod 103 = 2, '0001' → (105 + 0·1 + 1·2) mod 103 = 4,
+  // '1234' → (105 + 12·1 + 34·2) mod 103 = 82. The widths round-trip through the table-based decoder below.
+  it('encodes a 4-digit card number correctly, keeping leading zeros', () => {
+    expect(code128Values('0000')).toEqual([105, 0, 0, 2, 106]);
+    expect(code128Values('0001')).toEqual([105, 0, 1, 4, 106]);
+    expect(code128Values('1234')).toEqual([105, 12, 34, 82, 106]);
+    expect(code128Bars('0001')?.modules).toBe(11 * 4 + 13); // start + 2 pairs + checksum, then stop
+    const lookup = new Map(CODE128_PATTERNS.map((pattern, index) => [pattern, index]));
+    for (const number of ['0000', '0001', '1234']) {
+      const widths = code128Widths(number)!.join('');
+      const symbols: number[] = [];
+      for (let i = 0; i + 6 <= widths.length - 7; i += 6) symbols.push(lookup.get(widths.slice(i, i + 6))!);
+      expect(widths.slice(-7)).toBe(CODE128_PATTERNS[STOP]);
+      expect([...symbols, STOP]).toEqual(code128Values(number));
+      expect(symbols.slice(1, -1).map(value => String(value).padStart(2, '0')).join('')).toBe(number);
+    }
   });
 
   // Extra consistency check with our own table: decode the widths back to symbols and compare. This is circular on its own

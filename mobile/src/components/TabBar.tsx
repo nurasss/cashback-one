@@ -7,7 +7,8 @@ import { PressScale } from './motion';
 import { NewDot } from './ui';
 
 // Panel height excluding the system bottom inset: top padding + items + bottom padding.
-export const TAB_BAR_HEIGHT = 10 + 56 + 16;
+// The QR item is a 48px button plus a label, taller than the 24px icons of the other tabs.
+export const TAB_BAR_HEIGHT = 10 + 68 + 16;
 
 export type TabRoute = 'index' | 'promotions' | 'qr' | 'notifications' | 'profile';
 const tabs: { route: TabRoute; icon: IconName; label: 'tabHome' | 'tabPromotions' | 'tabQr' | 'tabNotifications' | 'tabProfile' }[] = [
@@ -28,11 +29,13 @@ export function TabBar({ active, onSelect, badges }: {
       const selected = tab.route === active;
       const label = tr(tab.label);
       if (tab.route === 'qr') {
-        return <View key={tab.route} style={styles.centerSlot}>
-          <PressScale accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected }} onPress={() => onSelect('qr')} scale={0.9}
-            style={styles.qrButton}>
-            <Icon name="qr" size={24} color={t.colors.onPrimary} />
+        return <View key={tab.route} style={styles.item}>
+          <PressScale accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected }} onPress={() => onSelect('qr')} scale={0.9}
+            style={[styles.qrButton, selected && styles.qrButtonSelected]}>
+            <Icon name="qr" size={26} color={t.colors.onPrimary} />
           </PressScale>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}
+            style={[styles.label, { color: selected ? t.colors.primary : t.colors.muted }]}>{label}</Text>
         </View>;
       }
       const hasNew = (tab.route === 'promotions' && badges.promotions) || (tab.route === 'notifications' && badges.notifications > 0);
@@ -57,10 +60,11 @@ const styles = StyleSheet.create({
   },
   item: { flex: 1, alignItems: 'center', gap: 6, minHeight: 56, justifyContent: 'flex-end', paddingHorizontal: 2 },
   label: { fontFamily: fonts.medium, fontSize: 11, letterSpacing: -0.2 },
-  centerSlot: { flex: 1, alignItems: 'center' },
+  // Flush with the other tabs: no negative margin, aligned to the bottom edge like the icon+label rows.
   qrButton: {
-    width: 52, height: 52, borderRadius: 26, marginTop: -26, marginBottom: 8, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center',
+    width: 48, height: 48, borderRadius: 24, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center',
     shadowColor: t.colors.primary, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8,
   },
+  qrButtonSelected: { borderWidth: 2, borderColor: t.colors.surface },
   dot: { position: 'absolute', top: -2, right: -4 },
 });

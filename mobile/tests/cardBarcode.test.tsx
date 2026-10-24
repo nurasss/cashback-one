@@ -77,14 +77,14 @@ describe('CardBarcode', () => {
     const original = Dimensions.get('window');
     const setWindow = (width: number) => (Dimensions as unknown as { set: (value: unknown) => void }).set({ window: { ...original, width }, screen: { ...original, width } });
     setWindow(320);
-    const screen = render(<I18nProvider><CardBarcode card={{ ...card, barcode: '123456789012345' }} /></I18nProvider>);
+    const screen = render(<I18nProvider><CardBarcode card={{ ...card, barcode: '1234567890123' }} /></I18nProvider>);
     try {
       const svgWidth = screen.getByTestId('card-barcode-svg').props.width as number;
       expect(svgWidth).toBeGreaterThan(0);
       expect(svgWidth).toBeLessThanOrEqual(320 - 80);
-      expect(drawnBars(pathData(screen))).toEqual(code128Bars('123456789012345')!.bars);
+      expect(drawnBars(pathData(screen))).toEqual(code128Bars('1234567890123')!.bars);
       // at least one whole device pixel per module
-      expect(svgWidth / (code128Bars('123456789012345')!.modules + QUIET_ZONE_MODULES * 2)).toBeGreaterThanOrEqual(1 / 3);
+      expect(svgWidth / (code128Bars('1234567890123')!.modules + QUIET_ZONE_MODULES * 2)).toBeGreaterThanOrEqual(1 / 3);
     } finally {
       screen.unmount();
       setWindow(original.width);
@@ -93,7 +93,7 @@ describe('CardBarcode', () => {
 
   it('draws nothing without a card or with an invalid number, and no code for a blocked card', () => {
     expect(render(<I18nProvider><CardBarcode card={undefined} /></I18nProvider>).toJSON()).toBeNull();
-    for (const barcode of ['12345', '1234567890123456', '12a456', '']) {
+    for (const barcode of ['123', '12345678901234', '1234567890123456', '12a456', '']) {
       expect(render(<I18nProvider><CardBarcode card={{ ...card, barcode }} /></I18nProvider>).toJSON()).toBeNull();
     }
     const blocked = render(<I18nProvider><CardBarcode card={{ ...card, is_blocked: true }} /></I18nProvider>);
