@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
-it('offers APK 1.0.3 without JavaScript and uses an absolute social image URL', () => {
+it('offers APK 1.0.8 without JavaScript and uses an absolute social image URL', () => {
   const html = readFileSync('index.html', 'utf8');
   const noscript = html.match(/<noscript>([\s\S]*?)<\/noscript>/)?.[1];
-  expect(noscript).toContain('href="/app/cashback-one-1.0.3.apk"');
-  expect(noscript).toContain('APK 1.0.3');
+  expect(noscript).toContain('href="/app/cashback-one-1.0.8.apk"');
+  expect(noscript).toContain('APK 1.0.8');
   expect(html).not.toContain('cashback-one-1.0.2.apk');
   expect(html).toContain('content="https://cashback-qr.poscenter.kz/logo.png"');
 });

@@ -108,6 +108,6 @@ describe('Independent localization acceptance', () => {
       expect(t.bonus.pointsText1).toContain('жеңілдіктерді');
     }
     expect(screen.queryByText(/когда магазин передаст данные/)).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: t.hero.downloadBtn })).toHaveAttribute('href', '/app/cashback-one-1.0.3.apk');
+    expect(screen.getByRole('link', { name: t.hero.downloadBtn })).toHaveAttribute('href', '/app/cashback-one-1.0.8.apk');
   });
 });

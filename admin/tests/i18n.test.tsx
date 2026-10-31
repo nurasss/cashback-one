@@ -190,7 +190,7 @@ describe('4. Public Landing Localization & State Invariants', () => {
     const apkLinks = screen.getAllByRole('link', { name: /Скачать для Android/i });
     expect(apkLinks.length).toBeGreaterThan(0);
     for (const link of apkLinks) {
-      expect(link).toHaveAttribute('href', '/app/cashback-one-1.0.3.apk');
+      expect(link).toHaveAttribute('href', '/app/cashback-one-1.0.8.apk');
     }
 
     // Утверждённое пояснение про задержку баланса
@@ -224,11 +224,11 @@ describe('4. Public Landing Localization & State Invariants', () => {
     expect(screen.queryByText('Версии для iPhone пока нет.')).not.toBeInTheDocument();
     expect(screen.queryByText('Әзірше iPhone нұсқасы жоқ.')).not.toBeInTheDocument();
 
-    // Ссылка на APK остаётся 1.0.3
+    // Ссылка на APK остаётся 1.0.8
     const kkApkLinks = screen.getAllByRole('link', { name: /Android үшін жүктеп алу/i });
     expect(kkApkLinks.length).toBeGreaterThan(0);
     for (const link of kkApkLinks) {
-      expect(link).toHaveAttribute('href', '/app/cashback-one-1.0.3.apk');
+      expect(link).toHaveAttribute('href', '/app/cashback-one-1.0.8.apk');
     }
 
     // Утверждённое пояснение на казахском

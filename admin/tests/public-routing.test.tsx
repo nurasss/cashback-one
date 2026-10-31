@@ -51,7 +51,7 @@ describe('Public Landing Isolation', () => {
     const downloadLinks = screen.getAllByRole('link', { name: /Скачать для Android/i });
     expect(downloadLinks.length).toBeGreaterThanOrEqual(1);
     for (const link of downloadLinks) {
-      expect(link).toHaveAttribute('href', '/app/cashback-one-1.0.3.apk');
+      expect(link).toHaveAttribute('href', '/app/cashback-one-1.0.8.apk');
     }
     expect(screen.queryByRole('link', { name: 'Конфиденциальность' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Условия' })).not.toBeInTheDocument();

@@ -88,7 +88,7 @@ export function LandingPage() {
 
                 <div className="landing-hero-actions">
                   <a
-                    href="/app/cashback-one-1.0.3.apk"
+                    href="/app/cashback-one-1.0.8.apk"
                     className="landing-btn landing-btn-primary landing-btn-lg"
                     download
                   >
