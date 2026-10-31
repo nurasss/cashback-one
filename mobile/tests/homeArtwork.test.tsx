@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
-import { Text } from 'react-native';
+import { Image, Text } from 'react-native';
 import Home from '../app/(app)/(tabs)/index';
 import { ActiveCardProvider } from '../src/features/activeCard';
-import { PermanentOffersGrid } from '../src/features/home';
-import { LOCAL_BANNER, PERMANENT_OFFERS } from '../src/features/promotionsArtwork';
+import { getCarouselAutoplaySlot, getCarouselLogicalIndex, getLoopSlides, PermanentOffersGrid } from '../src/features/home';
+import { LOCAL_BANNERS, PERMANENT_OFFERS } from '../src/features/promotionsArtwork';
 import { I18nProvider } from '../src/i18n';
 import { kz } from '../src/i18n/kz';
 import { ru } from '../src/i18n/ru';
@@ -141,7 +141,7 @@ describe('Home artwork and permanent promotions', () => {
     screen.unmount();
   });
 
-  it('renders exactly one local slide and no pagination dots when API banners is empty', async () => {
+  it('renders the three local banners in order when API banners is empty', async () => {
     serve({
       '/me/cards': [card],
       '/me/profile': profile,
@@ -152,18 +152,24 @@ describe('Home artwork and permanent promotions', () => {
     await waitFor(() => expect(screen.getByTestId('banner-carousel')).toBeTruthy());
     fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 180 } } });
 
-    // Exactly one slide rendered in the carousel (slot 0)
-    expect(screen.getByTestId('banner-slide-0')).toBeTruthy();
-    expect(screen.queryByTestId('banner-slide-1')).toBeNull();
-
-    const localSlide = screen.getByTestId('banner-slide-0');
-    expect(localSlide.props.accessibilityLabel).toBe(ru.bannerCarPrize);
-
-    // No pagination dots view when count === 1
-    expect(screen.queryByTestId('banner-dot-0', { includeHiddenElements: true })).toBeNull();
+    // The loop has a last-slide clone, three local slides, and a first-slide clone.
+    expect(screen.getByTestId('banner-slide-0').props.accessibilityLabel).toBe(ru.bannerStickers);
+    expect(screen.getByTestId('banner-slide-1').props.accessibilityLabel).toBe(ru.bannerCarPrize);
+    expect(screen.getByTestId('banner-slide-2').props.accessibilityLabel).toBe(ru.bannerCoffeeMachine);
+    expect(screen.getByTestId('banner-slide-3').props.accessibilityLabel).toBe(ru.bannerStickers);
+    expect(screen.getByTestId('banner-slide-4').props.accessibilityLabel).toBe(ru.bannerCarPrize);
+    expect(screen.queryByTestId('banner-slide-5')).toBeNull();
+    expect(screen.getByTestId('banner-dot-0', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('banner-dot-1', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('banner-dot-2', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.queryByTestId('banner-dot-3', { includeHiddenElements: true })).toBeNull();
+    expect(LOCAL_BANNERS.map(banner => banner.aspectRatio)).toEqual([675 / 294, 2000 / 862, 2000 / 860]);
+    for (const slot of [1, 2, 3]) {
+      expect(screen.getByTestId(`banner-slide-${slot}`).findByType(Image).props.resizeMode).toBe('contain');
+    }
 
     // Clicking the local banner opens /promotions
-    fireEvent.press(localSlide);
+    fireEvent.press(screen.getByTestId('banner-slide-1'));
     expect(mockPush).toHaveBeenCalledWith('/promotions');
     screen.unmount();
   });
@@ -182,7 +188,7 @@ describe('Home artwork and permanent promotions', () => {
       subtitle: 'Вторая серверная акция',
     };
 
-    // N = 2 server banners -> N + 1 = 3 logical slides
+    // Three local banners are followed by the two server banners.
     serve({
       '/me/cards': [card],
       '/me/profile': profile,
@@ -195,43 +201,38 @@ describe('Home artwork and permanent promotions', () => {
 
     await waitFor(() => expect(screen.getAllByLabelText(/Акция А/).length).toBeGreaterThan(0));
 
-    // Total rendered slides with loop clones = (N + 1) + 2 = 5
-    // loopSlides = [bannerB (clone), LocalBanner, bannerA, bannerB, LocalBanner (clone)]
-    const slot0 = screen.getByTestId('banner-slide-0');
-    const slot1 = screen.getByTestId('banner-slide-1');
-    const slot2 = screen.getByTestId('banner-slide-2');
-    const slot3 = screen.getByTestId('banner-slide-3');
-    const slot4 = screen.getByTestId('banner-slide-4');
-    expect(screen.queryByTestId('banner-slide-5')).toBeNull();
+    // Five logical slides plus two loop clones.
+    const slots = Array.from({ length: 7 }, (_, index) => screen.getByTestId(`banner-slide-${index}`));
+    expect(screen.queryByTestId('banner-slide-7')).toBeNull();
 
-    // Slot 0 (clone of last slide bannerB)
-    expect(slot0.props.accessibilityLabel).toContain('Акция Б');
-    // Slot 1 (logical slide 0: Local banner)
-    expect(slot1.props.accessibilityLabel).toBe(ru.bannerCarPrize);
-    // Slot 2 (logical slide 1: bannerA)
-    expect(slot2.props.accessibilityLabel).toContain('Акция А');
-    // Slot 3 (logical slide 2: bannerB)
-    expect(slot3.props.accessibilityLabel).toContain('Акция Б');
-    // Slot 4 (clone of first slide Local banner)
-    expect(slot4.props.accessibilityLabel).toBe(ru.bannerCarPrize);
+    // Slot 0 is the clone of the final server slide.
+    expect(slots[0]!.props.accessibilityLabel).toContain('Акция Б');
+    expect(slots[1]!.props.accessibilityLabel).toBe(ru.bannerCarPrize);
+    expect(slots[2]!.props.accessibilityLabel).toBe(ru.bannerCoffeeMachine);
+    expect(slots[3]!.props.accessibilityLabel).toBe(ru.bannerStickers);
+    expect(slots[4]!.props.accessibilityLabel).toContain('Акция А');
+    expect(slots[5]!.props.accessibilityLabel).toContain('Акция Б');
+    expect(slots[6]!.props.accessibilityLabel).toBe(ru.bannerCarPrize);
 
     // Check click on logical Local banner -> /promotions
-    fireEvent.press(slot1);
+    fireEvent.press(slots[1]!);
     expect(mockPush).toHaveBeenCalledWith('/promotions');
 
     // Check click on logical bannerA -> /promotion/banner-a
-    fireEvent.press(slot2);
+    fireEvent.press(slots[4]!);
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'banner-a' } });
 
     // Check click on logical bannerB -> /promotion/banner-b
-    fireEvent.press(slot3);
+    fireEvent.press(slots[5]!);
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'banner-b' } });
 
-    // Exactly N + 1 (= 3) dots in pagination indicator
+    // Exactly five dots, one per logical slide.
     expect(screen.getByTestId('banner-dot-0', { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByTestId('banner-dot-1', { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByTestId('banner-dot-2', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.queryByTestId('banner-dot-3', { includeHiddenElements: true })).toBeNull();
+    expect(screen.getByTestId('banner-dot-3', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('banner-dot-4', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.queryByTestId('banner-dot-5', { includeHiddenElements: true })).toBeNull();
 
     screen.unmount();
   });
@@ -253,7 +254,7 @@ describe('Home artwork and permanent promotions', () => {
     // Verify all mockRequest calls were to expected standard endpoints
     for (const call of mockRequest.mock.calls) {
       const path = String(call[0]);
-      expect(path).not.toMatch(new RegExp(LOCAL_BANNER.id));
+      for (const banner of LOCAL_BANNERS) expect(path).not.toMatch(new RegExp(banner.id));
       expect(path).not.toMatch(/hits-discount|weekly-promo|card-bonus|fresh-products/);
     }
     screen.unmount();
@@ -290,6 +291,23 @@ describe('Home artwork and permanent promotions', () => {
 
     fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 180 } } });
     expect(screen.getAllByLabelText(kz.bannerCarPrize).length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText(kz.bannerCoffeeMachine).length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText(kz.bannerStickers).length).toBeGreaterThan(0);
     screen.unmount();
+  });
+
+  it('keeps carousel looping and autoplay targets valid with any slide count', () => {
+    expect(getLoopSlides(['only'])).toEqual(['only']);
+    for (const count of [3, 5, 8]) {
+      const slides = Array.from({ length: count }, (_, index) => index);
+      const loopSlides = getLoopSlides(slides);
+      expect(loopSlides).toHaveLength(count + 2);
+      expect(loopSlides[0]).toBe(count - 1);
+      expect(loopSlides[count + 1]).toBe(0);
+      expect(getCarouselAutoplaySlot(0, count)).toBe(2);
+      expect(getCarouselLogicalIndex(getCarouselAutoplaySlot(count - 1, count), count)).toBe(0);
+      expect(getCarouselLogicalIndex(0, count)).toBe(count - 1);
+      expect(getCarouselLogicalIndex(count, count)).toBe(count - 1);
+    }
   });
 });

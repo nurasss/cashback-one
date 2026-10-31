@@ -3,8 +3,9 @@
     "name": "Cashback One",
     "slug": "cashback-one",
     "scheme": "cashbackone",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "plugins": [
       "expo-router",
@@ -32,7 +33,11 @@
     },
     "android": {
       "package": "kz.cashbackone.mobile",
-      "versionCode": 7,
+      "versionCode": 8,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon-foreground.png",
+        "backgroundColor": "#FD6156"
+      },
       "softwareKeyboardLayoutMode": "resize",
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW"

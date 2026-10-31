@@ -39,10 +39,16 @@ export const ru = {
   bind: 'Привязать карту', noOffers: 'Скоро здесь появятся предложения',
   balanceDelayNote: 'Баланс обновляется не сразу. Новые начисления и списания появляются 2 раза в сутки.',
   bannerCarPrize: 'Выиграй авто и другие ценные призы',
+  bannerCoffeeMachine: 'Выиграй кофемашину и годовой запас кофе',
+  bannerStickers: 'Стикеры в подарок к заказам от 10 000 ₸',
   offerHitsDiscount: 'Скидка на хиты. Покупайте выгодно',
   offerWeeklyPromo: 'Акция недели. Товары по лучшим ценам',
   offerCardBonus: 'Выгодно с картой. Больше бонусов',
   offerFreshProducts: 'Суперцена. Свежие продукты',
+  offerHitsDiscountBody: 'По всем вопросам применения скидок / баллов обращайтесь в магазин.',
+  offerCardBonusBody: 'По всем вопросам применения скидок / баллов обращайтесь в магазин.',
+  offerWeeklyPromoBody: 'По всем вопросам применения скидок / баллов обращайтесь в магазин.',
+  offerFreshProductsBody: 'По всем вопросам применения скидок / баллов обращайтесь в магазин.',
   // QR
   showToCashier: 'Покажите QR кассиру', qrRefreshIn: 'Код обновится через {seconds} сек.', qrUnavailable: 'Не удалось получить QR-код. Проверьте интернет.',
   cardBlocked: 'Карта заблокирована',
@@ -59,7 +65,7 @@ export const ru = {
   filterAll: 'Все', filterAccrual: 'Начисления', filterRedemption: 'Списания', noHistory: 'Операций пока нет',
   accrual: 'Начисление', redemption: 'Списание', balanceAfter: 'Баланс', lastLoaded: 'Обновлено',
   // Promotions
-  promotions: 'Акции', noPromotions: 'Сейчас нет активных акций', validUntil: 'До {date}', promotion: 'Акция',
+  promotions: 'Акции', noPromotions: 'Сейчас нет активных акций', promotionNotFound: 'Акция не найдена', validUntil: 'До {date}', promotion: 'Акция',
   // Notifications
   notifications: 'Уведомления', noNotifications: 'Новых уведомлений нет',
   // Profile

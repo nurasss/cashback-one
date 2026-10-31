@@ -8,7 +8,7 @@ import { useI18n } from '../i18n';
 import { fonts, theme as t } from '../theme';
 import type { Promotion, Tier } from '../types/api';
 import { pointsText } from '../utils/format';
-import { LOCAL_BANNER, PERMANENT_OFFERS } from './promotionsArtwork';
+import { LOCAL_BANNERS, PERMANENT_OFFERS } from './promotionsArtwork';
 
 export function BalanceHeader({ phone, balance }: { phone: string; balance: string }) {
   const { t: tr } = useI18n();
@@ -22,8 +22,24 @@ export function BalanceHeader({ phone, balance }: { phone: string; balance: stri
 }
 
 type CarouselSlide =
-  | { kind: 'local'; id: string; image: ImageSourcePropType; label: string }
+  | { kind: 'local'; id: string; image: ImageSourcePropType; label: string; aspectRatio: number }
   | { kind: 'remote'; id: string; banner: Promotion };
+
+export function getLoopSlides<T>(slides: readonly T[]): T[] {
+  if (slides.length <= 1) return [...slides];
+  return [slides[slides.length - 1]!, ...slides, slides[0]!];
+}
+
+export function getCarouselAutoplaySlot(index: number, count: number): number {
+  return count > 1 ? index + 2 : 0;
+}
+
+export function getCarouselLogicalIndex(rawSlot: number, count: number): number {
+  if (count <= 1) return 0;
+  if (rawSlot <= 0) return count - 1;
+  if (rawSlot >= count + 1) return 0;
+  return rawSlot - 1;
+}
 
 // Banner = data-driven card: the opening word is highlighted, with campaign artwork on the right.
 // Looping carousel: neighbours are scaled down, autoplay pauses while the user drags, the active dot stretches into a pill.
@@ -31,7 +47,13 @@ export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[
   const { t: tr } = useI18n();
   const handleOpenAll = openAll ?? (() => router.push('/promotions'));
   const slides: CarouselSlide[] = [
-    { kind: 'local', id: LOCAL_BANNER.id, image: LOCAL_BANNER.image, label: tr(LOCAL_BANNER.labelKey) },
+    ...LOCAL_BANNERS.map(banner => ({
+      kind: 'local' as const,
+      id: banner.id,
+      image: banner.image,
+      label: tr(banner.labelKey),
+      aspectRatio: banner.aspectRatio,
+    })),
     ...banners.map(banner => ({ kind: 'remote' as const, id: banner.id, banner })),
   ];
   const [index, setIndex] = useState(0);
@@ -47,7 +69,7 @@ export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[
     if (count <= 1) return;
     if (rawIndex <= 0) scrollRef.current?.scrollTo({ x: step * count, animated: false });
     if (rawIndex >= count + 1) scrollRef.current?.scrollTo({ x: step, animated: false });
-    setIndex(rawIndex <= 0 ? count - 1 : rawIndex > count ? 0 : rawIndex - 1);
+    setIndex(getCarouselLogicalIndex(rawIndex, count));
   }, [step, count]);
 
   useEffect(() => {
@@ -61,14 +83,14 @@ export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[
     let settleTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setInterval(() => {
       if (dragging.current) return;
-      const next = index + 2;
-      scrollRef.current?.scrollTo({ x: next * step, animated: true });
-      settleTimer = setTimeout(() => { if (!dragging.current) settle(next); }, 450);
+      const nextSlot = getCarouselAutoplaySlot(index, count);
+      scrollRef.current?.scrollTo({ x: nextSlot * step, animated: true });
+      settleTimer = setTimeout(() => { if (!dragging.current) settle(nextSlot); }, 450);
     }, 5000);
     return () => { clearInterval(timer); if (settleTimer) clearTimeout(settleTimer); };
   }, [index, count, cardWidth, step, settle]);
 
-  const loopSlides = count > 1 ? [slides[count - 1]!, ...slides, slides[0]!] : slides;
+  const loopSlides = getLoopSlides(slides);
   const initialOffset = count > 1 ? step : 0;
   return <View testID="banner-carousel" style={styles.carousel} onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}>
     {cardWidth > 0 && <Animated.ScrollView ref={scrollRef as never} horizontal showsHorizontalScrollIndicator={false} snapToInterval={step} decelerationRate="fast"
@@ -83,7 +105,7 @@ export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[
       {loopSlides.map((slide, slot) => {
         if (slide.kind === 'local') {
           return <Pressable key={`${slide.id}-${slot}`} testID={`banner-slide-${slot}`} accessibilityRole="button" accessibilityLabel={slide.label}
-            onPress={handleOpenAll} style={[styles.banner, styles.bannerLocal, { width: cardWidth }]}>
+            onPress={handleOpenAll} style={[styles.banner, styles.bannerLocal, { width: cardWidth, aspectRatio: slide.aspectRatio }]}>
             <Image source={slide.image} style={styles.bannerFullImage} resizeMode="contain" accessibilityIgnoresInvertColors />
           </Pressable>;
         }
@@ -182,7 +204,7 @@ const styles = StyleSheet.create({
   brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 13, color: t.colors.onPrimary, letterSpacing: 0.4 },
   carousel: { gap: 12, paddingBottom: 12 },
   banner: { aspectRatio: 2.4, borderRadius: 22, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
-  bannerLocal: { aspectRatio: 675 / 294, backgroundColor: 'transparent' },
+  bannerLocal: { backgroundColor: 'transparent' },
   bannerFullImage: { width: '100%', height: '100%' },
   bannerImage: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '49%', height: '90%' },
   bannerText: { width: '50%', paddingLeft: 18, gap: 6, zIndex: 1 },
