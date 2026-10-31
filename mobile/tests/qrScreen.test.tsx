@@ -1,13 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
-import { Dimensions } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
 import Home from '../app/(app)/(tabs)/index';
 import QrScreen from '../app/(app)/(tabs)/qr';
 import { ActiveCardProvider } from '../src/features/activeCard';
-import { CardBarcode } from '../src/features/CardBarcode';
-import { code128Bars, QUIET_ZONE_MODULES } from '../src/features/code128';
 import { I18nProvider } from '../src/i18n';
 import { kz } from '../src/i18n/kz';
 import { ru } from '../src/i18n/ru';
@@ -45,107 +41,41 @@ function serve(routes: Record<string, unknown>) {
   });
 }
 const qrReply = () => ({ token, expires_at: new Date(Date.now() + 60_000).toISOString(), ttl_seconds: 60 });
-const barcodePath = (screen: ReturnType<typeof render>) => within(screen.getByTestId('card-barcode')).UNSAFE_getByType(Path);
-const pathData = (screen: ReturnType<typeof render>) => barcodePath(screen).props.d as string;
-// Read the drawn bars back out of the SVG path ("M{x} 0h{w}v{h}h-{w}z" per bar) in module units without quiet zone.
-const drawnBars = (d: string) => Array.from(d.matchAll(/M(\d+) 0h(\d+)v\d+h-\d+z/g), m => ({ x: Number(m[1]) - QUIET_ZONE_MODULES, width: Number(m[2]) }));
 beforeEach(() => { jest.clearAllMocks(); mockRequest.mockReset(); });
 
-describe('CardBarcode', () => {
-  it('draws the Code 128 bars of the exact card number with the business name and a readable number', () => {
-    const screen = render(<I18nProvider><CardBarcode card={card} /></I18nProvider>);
-    expect(drawnBars(pathData(screen))).toEqual(code128Bars('0123456789012')!.bars);
-    expect(screen.getByText('Shop')).toBeTruthy();
-    expect(screen.getByText('0123456789012')).toBeTruthy(); // leading zero kept
-    expect(screen.getByLabelText(/Штрихкод карты: Shop\. Номер карты 0 1 2 3 4 5 6 7 8 9 0 1 2/)).toBeTruthy();
-  });
-
-  it('uses a white background, black bars and full quiet zones inside the viewBox', () => {
-    const screen = render(<I18nProvider><CardBarcode card={card} /></I18nProvider>);
-    const { modules } = code128Bars('0123456789012')!;
-    const bars = drawnBars(pathData(screen));
-    expect(within(screen.getByTestId('card-barcode')).UNSAFE_getByType(Svg).props.viewBox).toBe(`0 0 ${modules + QUIET_ZONE_MODULES * 2} 96`);
-    expect(barcodePath(screen).props.fill).toBe('#000000');
-    expect(bars[0]!.x + QUIET_ZONE_MODULES).toBe(QUIET_ZONE_MODULES); // first bar starts after a full quiet zone
-    const last = bars.at(-1)!;
-    expect(last.x + last.width + QUIET_ZONE_MODULES).toBe(modules + QUIET_ZONE_MODULES); // and the stop bar ends before the right one
-    expect(QUIET_ZONE_MODULES).toBeGreaterThanOrEqual(10);
-    expect(JSON.stringify(screen.toJSON())).toContain('"backgroundColor":"#FFFFFF"');
-  });
-
-  it('fits a narrow screen without cropping the code', () => {
-    const original = Dimensions.get('window');
-    const setWindow = (width: number) => (Dimensions as unknown as { set: (value: unknown) => void }).set({ window: { ...original, width }, screen: { ...original, width } });
-    setWindow(320);
-    const screen = render(<I18nProvider><CardBarcode card={{ ...card, barcode: '1234567890123' }} /></I18nProvider>);
-    try {
-      const svgWidth = screen.getByTestId('card-barcode-svg').props.width as number;
-      expect(svgWidth).toBeGreaterThan(0);
-      expect(svgWidth).toBeLessThanOrEqual(320 - 80);
-      expect(drawnBars(pathData(screen))).toEqual(code128Bars('1234567890123')!.bars);
-      // at least one whole device pixel per module
-      expect(svgWidth / (code128Bars('1234567890123')!.modules + QUIET_ZONE_MODULES * 2)).toBeGreaterThanOrEqual(1 / 3);
-    } finally {
-      screen.unmount();
-      setWindow(original.width);
-    }
-  });
-
-  it('draws nothing without a card or with an invalid number, and no code for a blocked card', () => {
-    expect(render(<I18nProvider><CardBarcode card={undefined} /></I18nProvider>).toJSON()).toBeNull();
-    for (const barcode of ['123', '12345678901234', '1234567890123456', '12a456', '']) {
-      expect(render(<I18nProvider><CardBarcode card={{ ...card, barcode }} /></I18nProvider>).toJSON()).toBeNull();
-    }
-    const blocked = render(<I18nProvider><CardBarcode card={{ ...card, is_blocked: true }} /></I18nProvider>);
-    expect(blocked.queryByTestId('card-barcode-svg')).toBeNull();
-    expect(blocked.queryByText('0123456789012')).toBeNull();
-    expect(blocked.getByText(ru.cardBlocked)).toBeTruthy();
-    expect(blocked.getByText('Shop')).toBeTruthy();
-  });
-});
-
-describe('QR screen modes', () => {
-  it('keeps the dynamic QR by default and never puts the card number into it', async () => {
+describe('QR screen', () => {
+  it('shows the dynamic QR without a barcode and never puts the card number into it', async () => {
     serve({ '/me/cards/card-id/qr': qrReply(), '/me/cards': [card] });
     const screen = mountWith(<QrScreen />);
     await waitFor(() => expect(screen.getByTestId('qr-payload').props.children).toBe(token));
-    expect(screen.queryByTestId('card-barcode')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'QR-код' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Штрихкод' })).toBeNull();
     screen.unmount();
   });
 
-  it('shows a separate Code 128 for the selected card in barcode mode and the QR again on return', async () => {
+  it('requests the QR of the card chosen by the customer', async () => {
     serve({ '/me/cards/card-id/qr': qrReply(), '/me/cards/card-2/qr': qrReply(), '/me/cards': [card, second] });
     const screen = mountWith(<QrScreen />);
     await waitFor(() => expect(screen.getByTestId('qr-payload')).toBeTruthy());
-    fireEvent.press(screen.getByRole('button', { name: ru.modeBarcode }));
-    expect(screen.queryByTestId('qr-payload')).toBeNull();
-    expect(drawnBars(pathData(screen))).toEqual(code128Bars('0123456789012')!.bars);
-    expect(screen.getAllByText('Shop').length).toBeGreaterThan(0);
-    fireEvent.press(screen.getByRole('button', { name: 'Market' })); // choose the second card
-    await waitFor(() => expect(screen.getByText('000123456')).toBeTruthy());
-    expect(drawnBars(pathData(screen))).toEqual(code128Bars('000123456')!.bars);
-    fireEvent.press(screen.getByRole('button', { name: ru.modeQr }));
-    await waitFor(() => expect(screen.getByTestId('qr-payload').props.children).toBe(token));
+    fireEvent.press(screen.getByRole('button', { name: 'Market' }));
+    await waitFor(() => expect(mockRequest.mock.calls.some(call => String(call[0]).startsWith('/me/cards/card-2/qr'))).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('qr-payload')).toBeTruthy());
     screen.unmount();
   });
 
-  it('blocked card: no QR request and no barcode', async () => {
+  it('blocked card: no QR request', async () => {
     serve({ '/me/cards': [{ ...card, is_blocked: true }] });
     const screen = mountWith(<QrScreen />);
     await waitFor(() => expect(screen.getByText(ru.cardBlocked)).toBeTruthy());
     expect(mockRequest.mock.calls.some(call => String(call[0]).endsWith('/qr'))).toBe(false);
-    fireEvent.press(screen.getByRole('button', { name: ru.modeBarcode }));
-    expect(screen.queryByTestId('card-barcode-svg')).toBeNull();
-    expect(screen.getByText(ru.cardBlocked)).toBeTruthy();
     screen.unmount();
   });
 
-  it('no card: neither mode switch nor code', async () => {
+  it('no card: no code', async () => {
     serve({ '/me/cards': [] });
     const screen = mountWith(<QrScreen />);
     await waitFor(() => expect(screen.getByText(ru.noCardTitle)).toBeTruthy());
-    expect(screen.queryByRole('button', { name: ru.modeBarcode })).toBeNull();
-    expect(screen.queryByTestId('card-barcode')).toBeNull();
+    expect(screen.queryByTestId('qr-payload')).toBeNull();
     screen.unmount();
   });
 });

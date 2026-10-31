@@ -52,7 +52,6 @@ export const ru = {
   // QR
   showToCashier: 'Покажите QR кассиру', qrRefreshIn: 'Код обновится через {seconds} сек.', qrUnavailable: 'Не удалось получить QR-код. Проверьте интернет.',
   cardBlocked: 'Карта заблокирована',
-  modeQr: 'QR-код', modeBarcode: 'Штрихкод', barcodeTitle: 'Штрихкод карты', barcodeCaption: 'Номер карты',
   addToAppleWallet: 'Добавить в Apple Wallet',
   addToGoogleWallet: 'Добавить в Google Wallet',
   // Status

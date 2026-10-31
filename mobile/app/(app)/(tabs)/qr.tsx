@@ -8,7 +8,6 @@ import { useSession } from '../../../src/auth/provider';
 import { Button, Chip, EmptyState, ErrorNotice, Loading, ScreenHeader, styles } from '../../../src/components/ui';
 import { Icon } from '../../../src/components/icons';
 import { useActiveCard } from '../../../src/features/activeCard';
-import { CardBarcode } from '../../../src/features/CardBarcode';
 import { DynamicQr } from '../../../src/features/DynamicQr';
 import { FadeIn, PressScale } from '../../../src/components/motion';
 import { useI18n } from '../../../src/i18n';
@@ -19,8 +18,7 @@ export default function QrScreen() {
   const { t } = useI18n();
   const { api } = useSession();
   const { card, cards, select } = useActiveCard();
-  const [mode, setMode] = useState<'qr' | 'barcode'>('qr');
-  const qr = useCardQr(mode === 'qr' && card && !card.is_blocked ? card.id : undefined);
+  const qr = useCardQr(card && !card.is_blocked ? card.id : undefined);
   const wallet = useWalletAvailability({ enabled: Platform.OS !== 'web' });
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<unknown | null>(null);
@@ -55,13 +53,7 @@ export default function QrScreen() {
       {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
         <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
       </EmptyState> : <>
-        <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'center' }}>
-          <Chip label={t('modeQr')} selected={mode === 'qr'} onPress={() => setMode('qr')} />
-          <Chip label={t('modeBarcode')} selected={mode === 'barcode'} onPress={() => setMode('barcode')} />
-        </View>
-        {mode === 'qr'
-          ? <FadeIn><DynamicQr qr={qr.data} loading={qr.isPending || qr.isFetching} failed={qr.isError} blocked={card.is_blocked} /></FadeIn>
-          : <FadeIn><CardBarcode card={card} /></FadeIn>}
+        <FadeIn><DynamicQr qr={qr.data} loading={qr.isPending || qr.isFetching} failed={qr.isError} blocked={card.is_blocked} /></FadeIn>
         {isWalletAvailable && !card.is_blocked && (
           <FadeIn>
             <View style={{ gap: 8, alignItems: 'center', alignSelf: 'stretch' }}>

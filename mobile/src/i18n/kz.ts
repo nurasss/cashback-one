@@ -50,7 +50,6 @@ export const kz: Dictionary = {
   offerFreshProductsBody: 'Жеңілдіктерді / балдарды қолдану туралы барлық сұрақтар бойынша дүкенге хабарласыңыз.',
   showToCashier: 'QR-ды кассирге көрсетіңіз', qrRefreshIn: 'Код {seconds} сек. кейін жаңарады', qrUnavailable: 'QR-кодты алу мүмкін болмады. Интернетті тексеріңіз.',
   cardBlocked: 'Карта бұғатталған',
-  modeQr: 'QR-код', modeBarcode: 'Штрихкод', barcodeTitle: 'Карта штрихкоды', barcodeCaption: 'Карта нөмірі',
   addToAppleWallet: 'Apple Wallet-ке қосу',
   addToGoogleWallet: 'Google Wallet-ке қосу',
   myStatus: 'Менің мәртебем', untilStatus: '{level} мәртебесіне дейін', remainingAmount: '{amount} ₸', moreToSpend: 'тағы {amount} ₸', maxStatus: 'Сізде ең жоғары мәртебе',
