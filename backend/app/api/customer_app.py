@@ -1,13 +1,14 @@
 """Customer app endpoints: profile, promotions, notifications, badges, dynamic card QR and wallet passes."""
+import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.core.config import settings
+from app.core.config import Settings, get_settings, settings
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.entities import Business, Card, User, UserCard
@@ -24,7 +25,16 @@ from app.schemas.customer_app import (
     WalletLinkResponse,
 )
 from app.services import content_service, wallet_passes
+from app.services.image_service import process_and_store_image
+from app.services.media_storage import (
+    MediaStorage,
+    get_media_storage,
+    maybe_cleanup_old_media_file,
+)
 from app.services.qr_tokens import issue_card_token
+from app.services.rate_limiter import RateLimiter, get_rate_limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/me", tags=["Customer App"])
 
@@ -47,6 +57,108 @@ async def update_profile(
             continue
         setattr(current_user, field, value)
     await session.commit()
+    return ProfileResponse.model_validate(current_user)
+
+
+@router.post("/avatar", response_model=ProfileResponse)
+async def upload_avatar(
+    file: Annotated[UploadFile, File(...)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[MediaStorage, Depends(get_media_storage)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    settings_obj: Annotated[Settings, Depends(get_settings)],
+) -> ProfileResponse:
+    rate_key = f"avatar_upload:user:{current_user.id}"
+    if await limiter.is_rate_limited(
+        rate_key,
+        settings_obj.avatar_upload_user_limit,
+        settings_obj.avatar_upload_window_seconds,
+    ):
+        raise AppError(
+            "RATE_LIMIT_EXCEEDED",
+            "Too many avatar upload attempts. Please try again later.",
+            status_code=429,
+        )
+
+    max_bytes = settings_obj.avatar_max_upload_bytes
+    total_bytes = 0
+    chunks: list[bytes] = []
+    chunk_size = 65536
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > max_bytes:
+            raise AppError(
+                "FILE_TOO_LARGE",
+                f"File size exceeds maximum limit of {max_bytes} bytes.",
+                status_code=413,
+            )
+        chunks.append(chunk)
+
+    raw_bytes = b"".join(chunks)
+    if not raw_bytes:
+        raise AppError("VALIDATION_ERROR", "Uploaded file is empty.", status_code=422)
+
+    img_res = await process_and_store_image(
+        raw_bytes=raw_bytes,
+        purpose="avatar",
+        settings=settings_obj,
+        storage=storage,
+    )
+    new_url = img_res.url
+    old_url = current_user.avatar_url
+    current_user.avatar_url = new_url
+
+    try:
+        await session.commit()
+    except Exception:
+        base = settings_obj.media_public_base_url.rstrip("/") + "/"
+        if new_url.startswith(base):
+            rel_path = new_url[len(base):]
+            try:
+                await storage.delete(rel_path)
+            except (AppError, OSError, ValueError):
+                logger.warning("Failed to cleanup new avatar file after DB error")
+        raise
+
+    if old_url:
+        try:
+            await maybe_cleanup_old_media_file(
+                db=session,
+                storage=storage,
+                old_url=old_url,
+                settings=settings_obj,
+            )
+        except (AppError, OSError, ValueError) as exc:
+            logger.warning("Failed to cleanup old avatar: %s", exc)
+
+    return ProfileResponse.model_validate(current_user)
+
+
+@router.delete("/avatar", response_model=ProfileResponse)
+async def delete_avatar(
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[MediaStorage, Depends(get_media_storage)],
+    settings_obj: Annotated[Settings, Depends(get_settings)],
+) -> ProfileResponse:
+    old_url = current_user.avatar_url
+    if old_url is not None:
+        current_user.avatar_url = None
+        await session.commit()
+        try:
+            await maybe_cleanup_old_media_file(
+                db=session,
+                storage=storage,
+                old_url=old_url,
+                settings=settings_obj,
+            )
+        except (AppError, OSError, ValueError) as exc:
+            logger.warning("Failed to cleanup old avatar on delete: %s", exc)
+
     return ProfileResponse.model_validate(current_user)
 
 

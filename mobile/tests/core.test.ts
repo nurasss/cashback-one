@@ -2,7 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import { tokenStore, deviceId } from '../src/storage/secure';
 import { ApiClient } from '../src/api/client';
 import { normalizeApiError } from '../src/api/errors';
-import { isBarcode, decimalText, transactionLabel, pointsText, amountText, phoneText, birthDateToApi, birthDateToUi, initials } from '../src/utils/format';
+import { isBarcode, decimalText, transactionLabel, pointsText, amountText, phoneText, phoneInputDigits, phoneInputText, phoneToApi, birthDateToApi, birthDateToUi, birthDateInputText, isAdultBirthDate, initials } from '../src/utils/format';
 import { translate } from '../src/i18n';
 import { isQrToken } from '../src/features/DynamicQr';
 const tokens = { access_token: 'a', refresh_token: 'r', token_type: 'bearer', expires_in: 900 };
@@ -62,4 +62,69 @@ it('Kazakh dictionary interpolates and covers every key', () => {
 it('only server-signed dynamic QR tokens are rendered', () => {
   expect(isQrToken('C1' + 'A'.repeat(48))).toBe(true);
   for (const bad of ['0123456789012', 'C1' + 'A'.repeat(47), 'c1' + 'a'.repeat(48), 'C1' + '0'.repeat(48)]) expect(isQrToken(bad)).toBe(false);
+});
+
+it('handles all 4 phone insertion formats, erase to empty, +7 non-erasable, and non-7 first digit', () => {
+  // 4 insertion formats: +77011234567, 87011234567, 77011234567, 7011234567
+  expect(phoneInputDigits('+77011234567')).toBe('7011234567');
+  expect(phoneInputDigits('87011234567')).toBe('7011234567');
+  expect(phoneInputDigits('77011234567')).toBe('7011234567');
+  expect(phoneInputDigits('7011234567')).toBe('7011234567');
+  expect(phoneInputDigits('+7 701 123 45 67')).toBe('7011234567');
+  expect(phoneInputDigits('+7 701 123 45 678')).toBe('7011234567');
+  expect(phoneInputDigits('+ 701')).toBe('701');
+  expect(phoneInputDigits('7 701')).toBe('701');
+
+  // Erase to empty:
+  expect(phoneInputDigits('+7')).toBe('');
+  expect(phoneInputDigits('+')).toBe('');
+  expect(phoneInputDigits('')).toBe('');
+
+  // +7 never erased in formatted text:
+  expect(phoneInputText('')).toBe('+7');
+  expect(phoneInputText(phoneInputDigits(''))).toBe('+7');
+  expect(phoneInputText(phoneInputDigits('+'))).toBe('+7');
+
+  // Incremental input does not add trailing separator:
+  expect(phoneInputText('7')).toBe('+7 7');
+  expect(phoneInputText('701')).toBe('+7 701');
+  expect(phoneInputText('7011')).toBe('+7 701 1');
+  expect(phoneInputText('701123')).toBe('+7 701 123');
+  expect(phoneInputText('7011234567')).toBe('+7 701 123 45 67');
+
+  // First digit not 7:
+  const non7 = phoneInputDigits('6011234567');
+  expect(non7).toBe('6011234567');
+  expect(non7.startsWith('7')).toBe(false);
+
+  // phoneToApi format:
+  expect(phoneToApi('7011234567')).toBe('+77011234567');
+});
+
+it('birthDateInputText formats mask on typing and erasing, isAdultBirthDate tests calendar boundaries and leap year', () => {
+  // Mask on typing and erasing:
+  expect(birthDateInputText('19')).toBe('19');
+  expect(birthDateInputText('191')).toBe('19.1');
+  expect(birthDateInputText('19111990')).toBe('19.11.1990');
+  // Backspace (erasing):
+  expect(birthDateInputText('19.')).toBe('19');
+  expect(birthDateInputText('19.11.')).toBe('19.11');
+
+  // 31.02 invalid date:
+  expect(isAdultBirthDate('31.02.1990')).toBe(false);
+
+  // Calendar 18 years boundary:
+  const refDate = new Date('2026-11-01T12:00:00Z');
+  // Exactly 18 years today:
+  expect(isAdultBirthDate('01.11.2008', refDate)).toBe(true);
+  // 18 years tomorrow (currently 17):
+  expect(isAdultBirthDate('02.11.2008', refDate)).toBe(false);
+
+  // 29 February leap year: born 29.02.2004
+  const feb28_2022 = new Date('2022-02-28T12:00:00Z');
+  const mar01_2022 = new Date('2022-03-01T12:00:00Z');
+  const feb29_2024 = new Date('2024-02-29T12:00:00Z');
+  expect(isAdultBirthDate('29.02.2004', feb28_2022)).toBe(false);
+  expect(isAdultBirthDate('29.02.2004', mar01_2022)).toBe(true);
+  expect(isAdultBirthDate('29.02.2004', feb29_2024)).toBe(true);
 });

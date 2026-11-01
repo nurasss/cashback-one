@@ -18,6 +18,10 @@ class RateLimiter(Protocol):
         """
         ...
 
+    async def is_blocked(self, key: str, limit: int, window_seconds: int) -> bool:
+        """Return True if key is currently blocked by rate limit, without incrementing."""
+        ...
+
 
 class InMemoryRateLimiter:
     """Deterministic in-memory rate limiter for explicit unit-test injection only.
@@ -42,6 +46,12 @@ class InMemoryRateLimiter:
         valid_history.append(now)
         self._records[key] = valid_history
         return False
+
+    async def is_blocked(self, key: str, limit: int, window_seconds: int) -> bool:
+        now = time.monotonic()
+        history = self._records.get(key, [])
+        valid_history = [t for t in history if now - t < window_seconds]
+        return len(valid_history) >= limit
 
     def reset(self) -> None:
         self._records.clear()
@@ -72,6 +82,20 @@ class RedisRateLimiter:
                 str(window_seconds),
             )
             return int(current_count) > limit
+        except (aioredis.RedisError, OSError) as exc:
+            raise AppError(
+                code="AUTH_RATE_LIMIT_UNAVAILABLE",
+                message="Rate limiting service temporarily unavailable",
+                status_code=503,
+            ) from exc
+
+    async def is_blocked(self, key: str, limit: int, window_seconds: int) -> bool:
+        redis_key = f"rate_limit:{key}"
+        try:
+            val = await self.client.get(redis_key)
+            if val is None:
+                return False
+            return int(val) >= limit
         except (aioredis.RedisError, OSError) as exc:
             raise AppError(
                 code="AUTH_RATE_LIMIT_UNAVAILABLE",

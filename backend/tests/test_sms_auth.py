@@ -579,3 +579,187 @@ async def test_fake_sms_provider_forbidden_outside_test_env(
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "SMS_PROVIDER_NOT_CONFIGURED"
 
+
+def test_generate_sms_otp_length() -> None:
+    """generate_sms_otp supports 4 and 6 digits with leading zeros."""
+    for _ in range(50):
+        code4 = generate_sms_otp(length=4)
+        assert len(code4) == 4
+        assert re.fullmatch(r"^\d{4}$", code4) is not None
+
+        code6 = generate_sms_otp(length=6)
+        assert len(code6) == 6
+        assert re.fullmatch(r"^\d{6}$", code6) is not None
+
+
+@pytest.mark.asyncio
+async def test_sms_otp_code_length_request_and_verify(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Request without code_length yields 6 digits, code_length=4 yields 4 digits, both verify, 5 digits rejected."""
+    monkeypatch.setattr(settings, "sms_provider_mode", "fake")
+    provider = get_fake_sms_provider()
+
+    # 1. Request without code_length -> 6 digits
+    req6 = await client.post(
+        "/auth/sms/request",
+        json={"phone": "+77011110001", "device_id": "dev-len-6"},
+    )
+    assert req6.status_code == 200
+    otp6 = provider.sent_messages[-1][1]
+    assert otp6 is not None
+    assert len(otp6) == 6
+
+    # Verify 6-digit code
+    v6 = await client.post(
+        "/auth/sms/verify",
+        json={"phone": "+77011110001", "device_id": "dev-len-6", "code": otp6},
+    )
+    assert v6.status_code == 200
+    assert "access_token" in v6.json()
+
+    # 2. Request with code_length=4 -> 4 digits
+    req4 = await client.post(
+        "/auth/sms/request",
+        json={"phone": "+77011110002", "device_id": "dev-len-4", "code_length": 4},
+    )
+    assert req4.status_code == 200
+    otp4 = provider.sent_messages[-1][1]
+    assert otp4 is not None
+    assert len(otp4) == 4
+
+    # Verify 4-digit code
+    v4 = await client.post(
+        "/auth/sms/verify",
+        json={"phone": "+77011110002", "device_id": "dev-len-4", "code": otp4},
+    )
+    assert v4.status_code == 200
+    assert "access_token" in v4.json()
+
+    # 3. 5-digit code is rejected by schema validator
+    v5 = await client.post(
+        "/auth/sms/verify",
+        json={"phone": "+77011110002", "device_id": "dev-len-4", "code": "12345"},
+    )
+    assert v5.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_sms_otp_verify_ip_rate_limiting(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """IP rate limit triggers on wrong attempts and is not consumed by valid codes."""
+    monkeypatch.setattr(settings, "sms_provider_mode", "fake")
+    monkeypatch.setattr(settings, "sms_otp_verify_ip_limit", 3)
+    monkeypatch.setattr(settings, "sms_otp_verify_ip_window_seconds", 600)
+    provider = get_fake_sms_provider()
+
+    # Create a code for testing
+    req = await client.post(
+        "/auth/sms/request",
+        json={"phone": "+77011110003", "device_id": "dev-ip-1", "code_length": 4},
+    )
+    assert req.status_code == 200
+    correct_otp = provider.sent_messages[-1][1]
+    assert correct_otp is not None
+
+    # 1. Successful verification on another phone/device does NOT increment or spend IP limit
+    req_good = await client.post(
+        "/auth/sms/request",
+        json={"phone": "+77011110004", "device_id": "dev-ip-good", "code_length": 4},
+    )
+    assert req_good.status_code == 200
+    good_otp = provider.sent_messages[-1][1]
+    assert good_otp is not None
+
+    v_good = await client.post(
+        "/auth/sms/verify",
+        json={"phone": "+77011110004", "device_id": "dev-ip-good", "code": good_otp},
+    )
+    assert v_good.status_code == 200
+
+    # 2. 3 incorrect attempts (limit=3) from this client IP:
+    for _ in range(3):
+        v_bad = await client.post(
+            "/auth/sms/verify",
+            json={"phone": "+77011110003", "device_id": "dev-ip-1", "code": "0000"},
+        )
+        assert v_bad.status_code == 400
+        assert v_bad.json()["error"]["code"] in ("INVALID_CODE", "OTP_MAX_ATTEMPTS_EXCEEDED")
+
+    # 4th incorrect attempt hits 429 RATE_LIMIT_EXCEEDED
+    v_limited = await client.post(
+        "/auth/sms/verify",
+        json={"phone": "+77011110003", "device_id": "dev-ip-1", "code": "0000"},
+    )
+    assert v_limited.status_code == 429
+    assert v_limited.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_sms_otp_verify_ip_rate_limit_blocks_valid_code(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When IP rate limit is reached, even a VALID code is rejected with 429,
+    tokens are not issued, OTP record remains pending, and OTP attempts are not spent.
+    After the window expires, the same valid code succeeds."""
+    import asyncio
+
+    monkeypatch.setattr(settings, "sms_provider_mode", "fake")
+    monkeypatch.setattr(settings, "sms_otp_verify_ip_limit", 3)
+    monkeypatch.setattr(settings, "sms_otp_verify_ip_window_seconds", 1)
+    provider = get_fake_sms_provider()
+
+    phone = "+77011110099"
+    device_id = "dev-ip-valid-test"
+
+    # Request code
+    req = await client.post(
+        "/auth/sms/request",
+        json={"phone": phone, "device_id": device_id, "code_length": 4},
+    )
+    assert req.status_code == 200
+    valid_code = provider.sent_messages[-1][1]
+    assert valid_code is not None
+
+    # Exhaust IP limit with 3 wrong attempts (limit is 3)
+    for _ in range(3):
+        res_bad = await client.post(
+            "/auth/sms/verify",
+            json={"phone": phone, "device_id": device_id, "code": "0000"},
+        )
+        assert res_bad.status_code == 400
+
+    # 4th request has the VALID code, but IP is rate limited
+    res_valid_blocked = await client.post(
+        "/auth/sms/verify",
+        json={"phone": phone, "device_id": device_id, "code": valid_code},
+    )
+    assert res_valid_blocked.status_code == 429
+    assert res_valid_blocked.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+
+    # Check OTP in DB: status must still be pending, attempts must NOT have incremented on the 429 call
+    otp = (
+        await db_session.execute(
+            select(OtpCode).where(OtpCode.phone == phone, OtpCode.device_id == device_id)
+        )
+    ).scalar_one()
+    assert otp.status == "pending"
+    assert otp.attempts == 3
+
+    # Wait for window (1 second) to expire
+    await asyncio.sleep(1.05)
+
+    # After window expires, the same valid code passes
+    res_valid_ok = await client.post(
+        "/auth/sms/verify",
+        json={"phone": phone, "device_id": device_id, "code": valid_code},
+    )
+    assert res_valid_ok.status_code == 200
+    assert "access_token" in res_valid_ok.json()
+
+    # OTP is now consumed
+    await db_session.refresh(otp)
+    assert otp.status == "consumed"
+
+

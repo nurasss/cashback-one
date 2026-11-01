@@ -116,6 +116,7 @@ class User(Base, UUIDPrimaryKey):
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     iin: Mapped[str | None] = mapped_column(String(12), nullable=True)
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Read markers driving "new" badges in the app
     promotions_seen_at: Mapped[datetime | None] = mapped_column(

@@ -1,6 +1,6 @@
 import { useKeyboardLift } from '../components/useKeyboardLift';
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, Image, Keyboard, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, type IconName } from '../components/icons';
 import { Button, ErrorNotice } from '../components/ui';
@@ -28,10 +28,56 @@ export function LanguageSwitch({ value, onChange, disabled }: { value: Language;
   </View>;
 }
 
-export function Avatar({ initials }: { initials: string }) {
-  return <View style={styles.avatar} accessibilityElementsHidden>
-    {initials ? <Text style={styles.avatarText}>{initials}</Text> : null}
-  </View>;
+export function Avatar({
+  initials,
+  avatarUrl,
+  onPress,
+  loading = false,
+}: {
+  initials: string;
+  avatarUrl?: string | null;
+  onPress?: () => void;
+  loading?: boolean;
+}) {
+  const { t: tr } = useI18n();
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [avatarUrl]);
+
+  const showImage = Boolean(avatarUrl && !imageError);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={tr('avatarChange')}
+      onPress={onPress}
+      disabled={loading || !onPress}
+      style={styles.avatarWrap}
+    >
+      <View style={styles.avatar}>
+        {showImage ? (
+          <Image
+            source={{ uri: avatarUrl! }}
+            onError={() => setImageError(true)}
+            style={styles.avatarImage}
+            accessibilityElementsHidden
+          />
+        ) : (
+          initials ? <Text style={styles.avatarText}>{initials}</Text> : null
+        )}
+        {loading ? (
+          <View style={styles.avatarLoadingOverlay}>
+            <ActivityIndicator size="small" color={t.colors.primary} />
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.avatarBadge}>
+        <Icon name="scan" size={14} color={t.colors.onPrimary} />
+      </View>
+    </Pressable>
+  );
 }
 
 export function ProfileRow({ label, value, placeholder, onPress, icon }: { label: string; value?: string; placeholder?: string; onPress: () => void; icon?: IconName }) {
@@ -45,13 +91,13 @@ export function ProfileRow({ label, value, placeholder, onPress, icon }: { label
 }
 
 // Bottom sheet editor for one profile field: free text or a fixed list of options.
-export function FieldSheet({ title, initial, hint, options, keyboardType = 'default', placeholder, maxLength, validate, onDone, onClose }: {
+export function FieldSheet({ title, initial, hint, options, keyboardType = 'default', placeholder, maxLength, validate, format, onDone, onClose }: {
   title: string; initial: string; options?: { value: string; label: string }[]; keyboardType?: 'default' | 'email-address' | 'number-pad';
-  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; onDone: (value: string) => void | Promise<void>; onClose: () => void;
+  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; format?: (value: string) => string; onDone: (value: string) => void | Promise<void>; onClose: () => void;
 }) {
   const { t: tr } = useI18n();
   const insets = useSafeInsets();
-  const [value, setValue] = useState(initial);
+  const [value, setValue] = useState(format ? format(initial) : initial);
   const selectedY = useRef(0);
   const [error, setError] = useState<string | null>(null);
   // `onDone` may save asynchronously: block repeat submits while it runs and keep the input and the error inside the sheet if it fails.
@@ -97,7 +143,7 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
               <Text style={styles.optionText}>{option.label}</Text>
               {value === option.value && <Icon name="check" size={22} color={t.colors.primary} />}
             </Pressable>) : <View style={styles.inputWrap}>
-              <TextInput value={value} onChangeText={next => { setValue(next); setError(null); setSaveError(null); }} editable={!pending} accessibilityLabel={title} placeholder={placeholder}
+              <TextInput value={value} onChangeText={next => { const formatted = format ? format(next) : next; setValue(formatted); setError(null); setSaveError(null); }} editable={!pending} accessibilityLabel={title} placeholder={placeholder}
                 placeholderTextColor={t.colors.placeholder} keyboardType={keyboardType} maxLength={maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
                 style={[styles.input, error ? { borderWidth: 1, borderColor: t.colors.error } : null]} onSubmitEditing={() => { void finish(value); }} />
               {error && <Text style={styles.error}>{error}</Text>}
@@ -118,8 +164,24 @@ const styles = StyleSheet.create({
   switchSelected: { backgroundColor: t.colors.primary },
   switchText: { fontFamily: fonts.semibold, fontSize: 13, color: t.colors.muted },
   switchTextSelected: { color: t.colors.onPrimary },
-  avatar: { width: 96, height: 96, borderRadius: 48, marginVertical: 8, backgroundColor: t.colors.input, alignSelf: 'center', alignItems: 'center', justifyContent: 'center' },
+  avatarWrap: { alignSelf: 'center', marginVertical: 8, position: 'relative' },
+  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: t.colors.input, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImage: { width: 96, height: 96, borderRadius: 48 },
   avatarText: { fontFamily: fonts.bold, fontSize: 32, color: t.colors.muted },
+  avatarLoadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' },
+  avatarBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: t.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: t.colors.surface,
+  },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 },
   rowLabel: { fontFamily: fonts.semibold, fontSize: 14, color: t.colors.text },
   rowValue: { flex: 1, textAlign: 'right', fontFamily: fonts.regular, fontSize: 14, color: t.colors.muted },

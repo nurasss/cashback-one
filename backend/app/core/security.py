@@ -99,9 +99,10 @@ def decode_access_token(token: str) -> dict[str, Any]:
         ) from err
 
 
-def generate_sms_otp() -> str:
-    """Generate cryptographically secure 6-digit numeric OTP."""
-    return f"{secrets.randbelow(1_000_000):06d}"
+def generate_sms_otp(length: int = 6) -> str:
+    """Generate cryptographically secure numeric OTP with leading zeros."""
+    upper = 10**length
+    return f"{secrets.randbelow(upper):0{length}d}"
 
 
 def hash_sms_otp(phone: str, otp: str, secret_key: str | None = None) -> str:

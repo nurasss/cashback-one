@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -75,6 +76,10 @@ class SmsOtpRequest(BaseModel):
         max_length=128,
         description="Unique device identifier of the mobile installation",
     )
+    code_length: Literal[4, 6] = Field(
+        default=6,
+        description="Length of OTP numeric code (4 or 6 digits)",
+    )
 
     @field_validator("phone")
     @classmethod
@@ -115,7 +120,7 @@ class SmsOtpVerifyRequest(BaseModel):
         max_length=128,
         description="Unique device identifier of the mobile installation",
     )
-    code: str = Field(..., description="6-digit verification code")
+    code: str = Field(..., description="4 or 6-digit verification code")
 
     @field_validator("phone")
     @classmethod
@@ -144,7 +149,7 @@ class SmsOtpVerifyRequest(BaseModel):
     @classmethod
     def validate_code(cls, v: str) -> str:
         stripped = v.strip()
-        if not re.fullmatch(r"^\d{6}$", stripped):
-            raise ValueError("Verification code must be exactly 6 digits")
+        if not re.fullmatch(r"^\d{4}(\d{2})?$", stripped):
+            raise ValueError("Verification code must be 4 or 6 digits")
         return stripped
 

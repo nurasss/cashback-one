@@ -27,16 +27,16 @@ ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP", "GIF"}
 async def process_and_store_image(
     *,
     raw_bytes: bytes,
-    purpose: Literal["promotion", "logo"] | str,
+    purpose: Literal["promotion", "logo", "avatar"] | str,
     settings: Settings,
     storage: MediaStorage,
-    admin: AdminUser,
-    db: AsyncSession,
+    admin: AdminUser | None = None,
+    db: AsyncSession | None = None,
 ) -> ImageUploadResponse:
-    if purpose not in ("promotion", "logo"):
+    if purpose not in ("promotion", "logo", "avatar"):
         raise AppError(
             "VALIDATION_ERROR",
-            "purpose must be either 'promotion' or 'logo'.",
+            "purpose must be 'promotion', 'logo', or 'avatar'.",
             status_code=422,
         )
 
@@ -90,12 +90,11 @@ async def process_and_store_image(
             status_code=415,
         ) from None
 
-    # For GIF: take the first frame
-    if format_name == "GIF":
-        try:
-            img.seek(0)
-        except (EOFError, OSError):
-            logger.debug("GIF frame seek failed softly")
+    # For animated images (GIF/WebP): take the first frame only
+    try:
+        img.seek(0)
+    except (EOFError, OSError, AttributeError):
+        pass
 
     # Handle EXIF orientation transposition
     try:
@@ -103,16 +102,31 @@ async def process_and_store_image(
     except (OSError, ValueError, SyntaxError):
         logger.debug("EXIF transposition skipped or unsupported")
 
+    # Strip existing EXIF/ICC metadata from memory
+    img.info.pop("exif", None)
+    img.info.pop("icc_profile", None)
+    img.info.pop("photoshop", None)
+
     # Preserve alpha transparency for PNG/GIF/WebP, otherwise convert to RGB
     if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
         img = img.convert("RGBA")
     else:
         img = img.convert("RGB")
 
-    # 3. Resize: downscale only, never upscale
-    max_dim = 1600 if purpose == "promotion" else 512
-    if max(img.width, img.height) > max_dim:
-        img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+    # 3. Resize:
+    if purpose == "avatar":
+        # Crop central square and resize to exactly 512x512
+        min_dim = min(img.width, img.height)
+        left = (img.width - min_dim) // 2
+        top = (img.height - min_dim) // 2
+        img = img.crop((left, top, left + min_dim, top + min_dim))
+        if img.size != (512, 512):
+            img = img.resize((512, 512), Image.Resampling.LANCZOS)
+    else:
+        # Downscale only, never upscale
+        max_dim = 1600 if purpose == "promotion" else 512
+        if max(img.width, img.height) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
 
     final_w, final_h = img.size
 
@@ -123,7 +137,12 @@ async def process_and_store_image(
 
     # 5. Generate secure destination path
     file_id = uuid.uuid4().hex
-    category = "promotions" if purpose == "promotion" else "logos"
+    if purpose == "promotion":
+        category = "promotions"
+    elif purpose == "avatar":
+        category = "avatars"
+    else:
+        category = "logos"
     relative_path = f"{category}/{file_id}.webp"
 
     # 6. Store in media storage
@@ -131,30 +150,31 @@ async def process_and_store_image(
 
     public_url = f"{settings.media_public_base_url.rstrip('/')}/{relative_path}"
 
-    # 7. Audit log (without file content)
-    db.add(
-        AuditLog(
-            actor=admin.login,
-            admin_user_id=admin.id,
-            business_id=admin.business_id,
-            action="media_uploaded",
-            entity="media",
-            before_state=None,
-            after_state=safe_audit_snapshot(
-                "media_uploaded",
-                {
-                    "purpose": purpose,
-                    "bytes": len(webp_bytes),
-                    "width": final_w,
-                    "height": final_h,
-                    "url": public_url,
-                },
+    # 7. Audit log (if admin context provided)
+    if admin is not None and db is not None:
+        db.add(
+            AuditLog(
+                actor=admin.login,
                 admin_user_id=admin.id,
                 business_id=admin.business_id,
-            ),
+                action="media_uploaded",
+                entity="media",
+                before_state=None,
+                after_state=safe_audit_snapshot(
+                    "media_uploaded",
+                    {
+                        "purpose": purpose,
+                        "bytes": len(webp_bytes),
+                        "width": final_w,
+                        "height": final_h,
+                        "url": public_url,
+                    },
+                    admin_user_id=admin.id,
+                    business_id=admin.business_id,
+                ),
+            )
         )
-    )
-    await db.commit()
+        await db.commit()
 
     return ImageUploadResponse(
         url=public_url,

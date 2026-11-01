@@ -108,6 +108,21 @@ class Settings(BaseSettings):
         ge=1024,
         description="Maximum allowed image upload size in bytes (default 10MB).",
     )
+    avatar_max_upload_bytes: int = Field(
+        default=1_500_000,
+        ge=1024,
+        description="Maximum allowed avatar upload size in bytes (default 1.5MB).",
+    )
+    avatar_upload_user_limit: int = Field(
+        default=10,
+        ge=1,
+        description="Max avatar upload attempts per user within rate limit window.",
+    )
+    avatar_upload_window_seconds: int = Field(
+        default=3600,
+        ge=1,
+        description="Rate limit window for avatar upload in seconds.",
+    )
 
     @property
     def is_media_storage_configured(self) -> bool:
@@ -147,6 +162,8 @@ class Settings(BaseSettings):
     sms_otp_request_phone_limit: int = 3
     sms_otp_request_device_limit: int = 5
     sms_otp_request_ip_limit: int = 20
+    sms_otp_verify_ip_limit: int = 20
+    sms_otp_verify_ip_window_seconds: int = 600
     sms_otp_rate_window_seconds: int = 300
     sms_provider_mode: str = Field(
         default="disabled",

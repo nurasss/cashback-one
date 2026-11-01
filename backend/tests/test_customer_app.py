@@ -166,6 +166,47 @@ async def test_profile_read_update_and_validation(client: AsyncClient, db_sessio
     assert res.json()["city"] is None and res.json()["first_name"] == "Айгерим"
 
 
+@pytest.mark.asyncio
+async def test_birth_date_18_years_and_leap_year(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test 18-year calendar boundary, future dates, and February 29 leap year."""
+    from datetime import UTC, datetime
+
+    import app.schemas.customer_app as ca
+
+    _user, headers = await customer(db_session)
+
+    # 1. Today is 2026-11-01:
+    # 2008-11-01 is exactly 18 years old today -> OK
+    # 2008-11-02 is 17 years and 364 days old -> Rejected
+    fake_now = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(ca, "utcnow", lambda: fake_now)
+
+    res_ok = await client.patch("/me/profile", headers=headers, json={"birth_date": "2008-11-01"})
+    assert res_ok.status_code == 200, res_ok.text
+    assert res_ok.json()["birth_date"] == "2008-11-01"
+
+    res_under = await client.patch("/me/profile", headers=headers, json={"birth_date": "2008-11-02"})
+    assert res_under.status_code == 422
+
+    # 2. Leap year: born 2004-02-29
+    # On 2022-02-28 (non-leap year, day before turning 18) -> Rejected
+    monkeypatch.setattr(ca, "utcnow", lambda: datetime(2022, 2, 28, 12, 0, tzinfo=UTC))
+    res_leap_under = await client.patch("/me/profile", headers=headers, json={"birth_date": "2004-02-29"})
+    assert res_leap_under.status_code == 422
+
+    # On 2022-03-01 (turned 18) -> OK
+    monkeypatch.setattr(ca, "utcnow", lambda: datetime(2022, 3, 1, 12, 0, tzinfo=UTC))
+    res_leap_ok = await client.patch("/me/profile", headers=headers, json={"birth_date": "2004-02-29"})
+    assert res_leap_ok.status_code == 200, res_leap_ok.text
+
+    # On 2024-02-29 (turned 20 in leap year) -> OK
+    monkeypatch.setattr(ca, "utcnow", lambda: datetime(2024, 2, 29, 12, 0, tzinfo=UTC))
+    res_leap_20 = await client.patch("/me/profile", headers=headers, json={"birth_date": "2004-02-29"})
+    assert res_leap_20.status_code == 200, res_leap_20.text
+
+
 # --- Loyalty levels ---------------------------------------------------------------------
 
 

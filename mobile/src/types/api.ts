@@ -17,6 +17,7 @@ export type Gender = 'male' | 'female';
 export interface Profile {
   phone: string | null; language: string; first_name: string | null; last_name: string | null; email: string | null; gender: Gender | null;
   city: string | null; address: string | null; birth_date: string | null; iin: string | null; company: string | null;
+  avatar_url?: string | null;
 }
 export interface Promotion {
   id: string; business_id: string | null; kind: 'banner' | 'offer'; title: string; subtitle: string | null; badge: string | null;

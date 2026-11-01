@@ -47,6 +47,7 @@ class ProfileResponse(BaseModel):
     birth_date: date | None = None
     iin: str | None = None
     company: str | None = None
+    avatar_url: str | None = None
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -91,8 +92,12 @@ class ProfileUpdateRequest(BaseModel):
     def validate_birth_date(cls, value: date | None) -> date | None:
         if value is None:
             return None
-        if value > utcnow().date() or value.year < 1900:
+        today = utcnow().date()
+        if value > today or value.year < 1900:
             raise ValueError("Birth date is out of range")
+        age = today.year - value.year - ((today.month, today.day) < (value.month, value.day))
+        if age < 18:
+            raise ValueError("Customer must be at least 18 years old")
         return value
 
 

@@ -331,7 +331,7 @@ async def request_sms(
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
     provider: Annotated[SmsProvider, Depends(get_sms_provider)],
 ) -> SmsOtpRequestResponse:
-    """Request a 6-digit SMS OTP for customer login/verification."""
+    """Request an SMS OTP for customer login/verification."""
     client_ip = request.client.host if request.client else "unknown"
     return await request_sms_otp(
         session=session,
@@ -340,20 +340,26 @@ async def request_sms(
         phone=body.phone,
         device_id=body.device_id,
         client_ip=client_ip,
+        code_length=body.code_length,
     )
 
 
 @router.post("/sms/verify", response_model=TokenResponse)
 async def verify_sms(
     body: SmsOtpVerifyRequest,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
 ) -> TokenResponse:
     """Verify SMS OTP code and issue access & refresh tokens."""
+    client_ip = request.client.host if request.client else "unknown"
     return await verify_sms_otp(
         session=session,
         phone=body.phone,
         device_id=body.device_id,
         code=body.code,
+        client_ip=client_ip,
+        limiter=limiter,
     )
 
 
@@ -366,7 +372,7 @@ async def request_whatsapp_code(
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
     sender: Annotated[WhatsAppSender, Depends(get_whatsapp_sender)],
 ) -> SmsOtpRequestResponse:
-    """Send a 6-digit one-time login code to the customer's WhatsApp."""
+    """Send a one-time login code to the customer's WhatsApp."""
     client_ip = request.client.host if request.client else "unknown"
     return await request_sms_otp(
         session=session,
@@ -376,18 +382,24 @@ async def request_whatsapp_code(
         device_id=body.device_id,
         client_ip=client_ip,
         channel="whatsapp",
+        code_length=body.code_length,
     )
 
 
 @router.post("/whatsapp/verify", response_model=TokenResponse)
 async def verify_whatsapp_code(
     body: SmsOtpVerifyRequest,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
 ) -> TokenResponse:
     """Verify the WhatsApp one-time code and issue access & refresh tokens."""
+    client_ip = request.client.host if request.client else "unknown"
     return await verify_sms_otp(
         session=session,
         phone=body.phone,
         device_id=body.device_id,
         code=body.code,
+        client_ip=client_ip,
+        limiter=limiter,
     )

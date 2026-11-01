@@ -13,11 +13,11 @@ from sqlalchemy import func, select
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
-from app.models.entities import Business, Promotion
+from app.models.entities import Business, Promotion, User
 
 logger = logging.getLogger(__name__)
 
-SAFE_MEDIA_PATH_REGEX = re.compile(r"^(promotions|logos)/[0-9a-f]{32}\.webp$")
+SAFE_MEDIA_PATH_REGEX = re.compile(r"^(promotions|logos|avatars)/[0-9a-f]{32}\.webp$")
 FTPS_OPERATION_ERRORS = (*all_errors, ssl.SSLError, ValueError)
 CLEANUP_ERRORS = (*all_errors, ssl.SSLError, AppError, ValueError)
 
@@ -232,8 +232,8 @@ async def maybe_cleanup_old_media_file(
     """Best-effort cleanup for replaced or deleted media files.
 
     Strictly checks that the URL points to our MEDIA_PUBLIC_BASE_URL,
-    matches ^(promotions|logos)/[0-9a-f]{32}\\.webp$, and is not referenced by
-    any other promotion or business in the database.
+    matches ^(promotions|logos|avatars)/[0-9a-f]{32}\\.webp$, and is not referenced by
+    any other promotion, business, or user avatar in the database.
     """
     if not old_url:
         return
@@ -251,7 +251,10 @@ async def maybe_cleanup_old_media_file(
         biz_count = await db.scalar(
             select(func.count()).select_from(Business).where(Business.logo_url == old_url)
         )
-        if (promo_count or 0) > 0 or (biz_count or 0) > 0:
+        user_count = await db.scalar(
+            select(func.count()).select_from(User).where(User.avatar_url == old_url)
+        )
+        if (promo_count or 0) > 0 or (biz_count or 0) > 0 or (user_count or 0) > 0:
             return
 
         await storage.delete(rel_path)

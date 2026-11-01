@@ -10,7 +10,7 @@ import { useI18n } from '../src/i18n';
 import { deviceId } from '../src/storage/secure';
 import { fonts, theme } from '../src/theme';
 import type { CodeRequestResult, Tokens } from '../src/types/api';
-import { phoneText } from '../src/utils/format';
+import { phoneInputDigits, phoneInputText, phoneText, phoneToApi } from '../src/utils/format';
 
 const RESEND_SECONDS = 30;
 
@@ -18,7 +18,7 @@ export default function Login() {
   const lift = useKeyboardLift();
   const { api, session } = useSession();
   const { t } = useI18n();
-  const [phone, setPhone] = useState('+7');
+  const [phoneDigits, setPhoneDigits] = useState('');
   const [sentPhone, setSentPhone] = useState('');
   const [code, setCode] = useState('');
   const [expiresAt, setExpiresAt] = useState(0);
@@ -31,13 +31,18 @@ export default function Login() {
   const expired = sentPhone !== '' && now >= expiresAt;
   const resendIn = Math.max(0, Math.ceil((resendAt - now) / 1000));
 
+  const phone = phoneInputText(phoneDigits);
+  const hasTenDigits = phoneDigits.length === 10;
+  const isValidPhone = hasTenDigits && phoneDigits.startsWith('7');
+  const invalidPhone = hasTenDigits && !phoneDigits.startsWith('7');
+
   async function run(work: () => Promise<void>) {
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(null);
     try { await work(); } catch (err) { setError(err); } finally { inFlight.current = false; setBusy(false); }
   }
   const requestCode = (target: string) => run(async () => {
-    const result = await api.request<CodeRequestResult>('/auth/whatsapp/request', { method: 'POST', body: { phone: target, device_id: await deviceId() } });
+    const result = await api.request<CodeRequestResult>('/auth/whatsapp/request', { method: 'POST', body: { phone: target, device_id: await deviceId(), code_length: 4 } });
     setSentPhone(target); setCode(''); setExpiresAt(Date.now() + result.expires_in * 1000); setResendAt(Date.now() + RESEND_SECONDS * 1000);
   });
   const verify = () => run(async () => {
@@ -54,15 +59,15 @@ export default function Login() {
           <Text style={[styles.body, { color: theme.colors.muted }]}>{t('loginBody')}</Text>
         </FadeIn>
         {!sentPhone ? <View style={local.form}>
-          <Input label={t('phone')} hint={t('phoneHint')} value={phone} onChangeText={setPhone} editable={!busy}
+          <Input label={t('phone')} hint={t('phoneHint')} error={invalidPhone ? t('invalidPhone') : undefined} value={phone} onChangeText={raw => setPhoneDigits(phoneInputDigits(raw))} editable={!busy}
             keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" maxLength={20} />
-          <Button label={t('requestCode')} disabled={busy || phone.replace(/\D/g, '').length < 10} onPress={() => { void requestCode(phone.trim()); }} />
+          <Button label={t('requestCode')} disabled={busy || !isValidPhone} onPress={() => { void requestCode(phoneToApi(phoneDigits)); }} />
         </View> : <View style={local.form}>
           <Text style={styles.body}>{t('codeSent')} <Text style={{ fontFamily: fonts.semibold }}>{phoneText(sentPhone) || sentPhone}</Text></Text>
-          <Input label={t('code')} hint={t('codeHint')} value={code} onChangeText={value => setCode(value.replace(/\D/g, ''))} editable={!busy}
-            keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={6} autoFocus />
+          <Input label={t('code')} hint={t('codeHint')} value={code} onChangeText={value => setCode(value.replace(/\D/g, '').slice(0, 4))} editable={!busy}
+            keyboardType="number-pad" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={4} autoFocus />
           {expired && <ErrorNotice error={new ApiError('OTP_EXPIRED')} />}
-          <Button label={t('verify')} disabled={busy || !/^\d{6}$/.test(code) || expired} onPress={() => { void verify(); }} />
+          <Button label={t('verify')} disabled={busy || !/^\d{4}$/.test(code) || expired} onPress={() => { void verify(); }} />
           <Button label={t('changePhone')} secondary disabled={busy} onPress={() => { setSentPhone(''); setCode(''); setError(null); }} />
           {resendIn > 0 ? (
             <Text style={local.resendCountdown}>

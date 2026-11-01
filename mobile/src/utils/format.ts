@@ -30,6 +30,35 @@ export function phoneText(phone: string | null | undefined): string {
   return phone ?? '';
 }
 
+export function phoneInputDigits(raw: string): string {
+  const text = (raw ?? '').trim();
+  const hasPrefix = /^\+7|^7\s/.test(text);
+  let digits = text.replace(/\D/g, '');
+  let prefixDiscarded = false;
+  if (hasPrefix) {
+    digits = digits.replace(/^7/, '');
+    prefixDiscarded = true;
+  }
+  if (!prefixDiscarded && digits.length === 11 && (digits.startsWith('7') || digits.startsWith('8'))) {
+    digits = digits.slice(1);
+  }
+  return digits.slice(0, 10);
+}
+
+export function phoneInputText(digits: string): string {
+  const d = digits.slice(0, 10);
+  let res = '+7';
+  if (d.length > 0) res += ` ${d.slice(0, 3)}`;
+  if (d.length > 3) res += ` ${d.slice(3, 6)}`;
+  if (d.length > 6) res += ` ${d.slice(6, 8)}`;
+  if (d.length > 8) res += ` ${d.slice(8, 10)}`;
+  return res;
+}
+
+export function phoneToApi(digits: string): string {
+  return `+7${digits.slice(0, 10)}`;
+}
+
 const locale = (language: Language) => (language === 'kz' ? 'kk-KZ' : 'ru-RU');
 export const dateText = (value: string | number, language: Language = 'ru') =>
   new Date(value).toLocaleString(locale(language), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
@@ -54,6 +83,42 @@ export function birthDateToApi(value: string): string | null | undefined {
   const date = new Date(`${year}-${month}-${day}T00:00:00Z`);
   if (Number.isNaN(date.getTime()) || date.getUTCDate() !== Number(day)) return undefined;
   return `${year}-${month}-${day}`;
+}
+
+export function birthDateInputText(raw: string): string {
+  const digits = (raw ?? '').replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`;
+}
+
+export function isAdultBirthDate(uiValue: string, today = new Date()): boolean {
+  const apiDate = birthDateToApi(uiValue);
+  if (!apiDate) return false;
+  const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(uiValue.trim());
+  if (!match) return false;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+
+  if (year < 1900) return false;
+
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth() + 1;
+  const todayDay = today.getDate();
+
+  if (
+    year > todayYear ||
+    (year === todayYear && (month > todayMonth || (month === todayMonth && day > todayDay)))
+  ) {
+    return false;
+  }
+
+  let age = todayYear - year;
+  if (todayMonth < month || (todayMonth === month && todayDay < day)) {
+    age -= 1;
+  }
+  return age >= 18;
 }
 
 export const initials = (first: string | null | undefined, last: string | null | undefined) =>

@@ -41,14 +41,15 @@ async def request_sms_otp(
     limiter: RateLimiter,
     sms_provider: SmsProvider,
     channel: str = "sms",
+    code_length: int = 6,
 ) -> SmsOtpRequestResponse:
-    """Request a 6-digit SMS OTP for fallback customer login.
+    """Request a numeric SMS OTP for fallback customer login.
 
     Invariants:
     1. Provider readiness checked before rate limiting; disabled provider does not consume quota.
     2. Rate limits enforced on phone (fingerprint), device_id, and client_ip.
     3. Any existing pending OTP for (phone, device_id) is invalidated (superseded).
-    4. 6-digit cryptographically secure code generated; plaintext never saved to DB or logged.
+    4. Cryptographically secure code generated; plaintext never saved to DB or logged.
     5. Code sent via SmsProvider before committing; failure triggers atomic rollback so no
        orphaned active OTP remains in DB.
     """
@@ -135,8 +136,8 @@ async def request_sms_otp(
         .values(status="superseded")
     )
 
-    # Generate 6-digit OTP and HMAC digest
-    plain_otp = generate_sms_otp()
+    # Generate OTP and HMAC digest
+    plain_otp = generate_sms_otp(length=code_length)
     code_hash = hash_sms_otp(clean_phone, plain_otp)
     now = utcnow()
     expires_at = now + timedelta(seconds=settings.sms_otp_ttl_seconds)
@@ -178,8 +179,10 @@ async def verify_sms_otp(
     phone: str,
     device_id: str,
     code: str,
+    client_ip: str | None = None,
+    limiter: RateLimiter | None = None,
 ) -> TokenResponse:
-    """Verify 6-digit SMS OTP, consume it, and issue access and refresh tokens.
+    """Verify SMS OTP, consume it, and issue access and refresh tokens.
 
     Invariants:
     1. Locked with FOR UPDATE to prevent race conditions on attempt counters.
@@ -192,6 +195,21 @@ async def verify_sms_otp(
     clean_device_id = device_id.strip()
     clean_code = code.strip()
     now = utcnow()
+
+    if (
+        limiter is not None
+        and client_ip is not None
+        and await limiter.is_blocked(
+            f"sms_otp_verify:ip:{client_ip}",
+            settings.sms_otp_verify_ip_limit,
+            settings.sms_otp_verify_ip_window_seconds,
+        )
+    ):
+        raise AppError(
+            code="RATE_LIMIT_EXCEEDED",
+            message="Too many verification attempts from this IP. Please try again later.",
+            status_code=429,
+        )
 
     # Per-phone cap on wrong attempts across all codes in the window (anti brute-force)
     window_start = now - timedelta(seconds=settings.sms_otp_phone_failed_attempts_window_seconds)
@@ -254,15 +272,24 @@ async def verify_sms_otp(
     # Verify cryptographic HMAC
     if not verify_sms_otp_hash(clean_phone, clean_code, otp_record.code_hash):
         otp_record.attempts += 1
-        if otp_record.attempts >= settings.sms_otp_max_attempts:
+        is_exhausted = otp_record.attempts >= settings.sms_otp_max_attempts
+        if is_exhausted:
             otp_record.status = "exhausted"
-            await session.commit()
+        await session.commit()
+
+        if limiter is not None and client_ip is not None:
+            await limiter.is_rate_limited(
+                f"sms_otp_verify:ip:{client_ip}",
+                settings.sms_otp_verify_ip_limit,
+                settings.sms_otp_verify_ip_window_seconds,
+            )
+
+        if is_exhausted:
             raise AppError(
                 code="OTP_MAX_ATTEMPTS_EXCEEDED",
                 message="Too many incorrect attempts. Please request a new code.",
                 status_code=400,
             )
-        await session.commit()
         raise AppError(
             code="INVALID_CODE",
             message="Invalid verification code.",

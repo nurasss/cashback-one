@@ -57,9 +57,30 @@ export function useWalletAvailability(options?: { enabled?: boolean }) {
 type RequestCaller = {
   request: <T>(
     path: string,
-    options?: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: object; headers?: Record<string, string>; auth?: boolean; signal?: AbortSignal },
+    options?: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: object | FormData; headers?: Record<string, string>; auth?: boolean; signal?: AbortSignal },
   ) => Promise<T>;
 };
+
+export async function uploadAvatar(api: RequestCaller, uri: string): Promise<Profile> {
+  const form = new FormData();
+  form.append('file', {
+    uri,
+    name: 'avatar.jpg',
+    type: 'image/jpeg',
+  } as unknown as Blob);
+  return api.request<Profile>('/me/avatar', {
+    method: 'POST',
+    auth: true,
+    body: form,
+  });
+}
+
+export async function deleteAvatar(api: RequestCaller): Promise<Profile> {
+  return api.request<Profile>('/me/avatar', {
+    method: 'DELETE',
+    auth: true,
+  });
+}
 
 export async function requestWalletLink(
   api: RequestCaller,

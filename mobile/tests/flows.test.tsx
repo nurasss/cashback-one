@@ -83,7 +83,7 @@ it('keeps a saved legacy city as a selected option and does not clear it on save
   fireEvent.press(screen.getByRole('radio', { name: legacy }));
   fireEvent.changeText(screen.getByLabelText(ru.firstName), 'Тест');
   mockRequest.mockResolvedValueOnce({ ...profile, first_name: 'Тест', city: legacy });
-  await act(async () => { fireEvent.press(screen.getByRole('button', { name: ru.save })); });
+  await act(async () => { fireEvent(screen.getByLabelText(ru.firstName), 'blur'); });
   expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { first_name: 'Тест' } });
   screen.unmount();
 });
@@ -95,12 +95,12 @@ it('logs in with a one-time WhatsApp code', async () => {
   fireEvent.changeText(screen.getByLabelText(ru.phone), '+7 705 834 43 26');
   fireEvent.press(screen.getByRole('button', { name: ru.requestCode }));
   await waitFor(() => expect(screen.getByLabelText(ru.code)).toBeTruthy());
-  expect(mockRequest).toHaveBeenNthCalledWith(1, '/auth/whatsapp/request', { method: 'POST', body: { phone: '+7 705 834 43 26', device_id: 'installation-id' } });
+  expect(mockRequest).toHaveBeenNthCalledWith(1, '/auth/whatsapp/request', { method: 'POST', body: { phone: '+77058344326', device_id: 'installation-id', code_length: 4 } });
   expect(screen.getByText('+7 705 834 43 26')).toBeTruthy();
-  fireEvent.changeText(screen.getByLabelText(ru.code), '01-23 45');
+  fireEvent.changeText(screen.getByLabelText(ru.code), '01-23');
   fireEvent.press(screen.getByRole('button', { name: ru.verify }));
   await waitFor(() => expect(mockAccept).toHaveBeenCalledWith(tokens));
-  expect(mockRequest).toHaveBeenNthCalledWith(2, '/auth/whatsapp/verify', { method: 'POST', body: { phone: '+7 705 834 43 26', device_id: 'installation-id', code: '012345' } });
+  expect(mockRequest).toHaveBeenNthCalledWith(2, '/auth/whatsapp/verify', { method: 'POST', body: { phone: '+77058344326', device_id: 'installation-id', code: '0123' } });
   screen.unmount();
 });
 
@@ -187,7 +187,7 @@ it('profile saves each sheet field on its own, the rest through the general butt
   expect(screen.getByLabelText(ru.firstName).props.value).toBe('Айгерим');
 
   mockRequest.mockResolvedValueOnce({ ...profile, first_name: 'Айгерим', birth_date: '1990-02-01', gender: 'female' });
-  await act(async () => { fireEvent.press(screen.getByRole('button', { name: ru.save })); });
+  await act(async () => { fireEvent(screen.getByLabelText(ru.firstName), 'blur'); });
   expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { first_name: 'Айгерим' } });
   await waitFor(() => expect(screen.getByText(ru.saved)).toBeTruthy());
 

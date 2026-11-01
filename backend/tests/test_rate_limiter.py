@@ -22,9 +22,12 @@ async def test_in_memory_rate_limiter_device_limit() -> None:
     limit = 3
     window = 10
 
+    assert await limiter.is_blocked(key, limit, window) is False
     assert await limiter.is_rate_limited(key, limit, window) is False
     assert await limiter.is_rate_limited(key, limit, window) is False
     assert await limiter.is_rate_limited(key, limit, window) is False
+    # Limit reached: is_blocked is True without incrementing
+    assert await limiter.is_blocked(key, limit, window) is True
     # 4th request must be rate limited
     assert await limiter.is_rate_limited(key, limit, window) is True
 
@@ -101,6 +104,29 @@ async def test_redis_rate_limiter_failure_raises_503() -> None:
 
 
 @pytest.mark.asyncio
+async def test_redis_rate_limiter_is_blocked() -> None:
+    """RedisRateLimiter.is_blocked reads count via GET and compares to limit without incrementing."""
+    mock_redis = MagicMock()
+    mock_redis.get = AsyncMock(return_value=None)
+    limiter = RedisRateLimiter(mock_redis)
+
+    assert await limiter.is_blocked("test-key", limit=5, window_seconds=60) is False
+    mock_redis.get.assert_awaited_with("rate_limit:test-key")
+
+    mock_redis.get = AsyncMock(return_value="4")
+    assert await limiter.is_blocked("test-key", limit=5, window_seconds=60) is False
+
+    mock_redis.get = AsyncMock(return_value="5")
+    assert await limiter.is_blocked("test-key", limit=5, window_seconds=60) is True
+
+    mock_redis.get = AsyncMock(side_effect=aioredis.ConnectionError("Redis down"))
+    with pytest.raises(AppError) as exc_info:
+        await limiter.is_blocked("test-key", limit=5, window_seconds=60)
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "AUTH_RATE_LIMIT_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
 async def test_challenge_rate_limiter_unavailable_returns_503_via_api(
     client: AsyncClient,
 ) -> None:
@@ -110,6 +136,13 @@ async def test_challenge_rate_limiter_unavailable_returns_503_via_api(
 
     class FailingLimiter:
         async def is_rate_limited(self, key: str, limit: int, window_seconds: int) -> bool:
+            raise AppError(
+                code="AUTH_RATE_LIMIT_UNAVAILABLE",
+                message="Rate limiting service temporarily unavailable",
+                status_code=503,
+            )
+
+        async def is_blocked(self, key: str, limit: int, window_seconds: int) -> bool:
             raise AppError(
                 code="AUTH_RATE_LIMIT_UNAVAILABLE",
                 message="Rate limiting service temporarily unavailable",

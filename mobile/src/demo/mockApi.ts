@@ -55,7 +55,7 @@ export function createDemoApi() {
     { id: 'n2', kind: 'info', title: 'Хиты недели в зале', body: 'Красные ценники: молоко, хлеб и овощи. Не пропустите купон.', created_at: daysAgo(3) },
     { id: 'n1', kind: 'info', title: '2-й статус от 350 000 ₸', body: 'Сейчас 3%. На 4-м статусе каждая покупка даёт 12%.', created_at: daysAgo(4) },
   ];
-  let profile: Profile = { phone: '+7 7•• ••• •• 26', language: 'ru', first_name: null, last_name: null, email: null, gender: null, city: null, address: null, birth_date: null, iin: null, company: null };
+  let profile: Profile = { phone: '+7 7•• ••• •• 26', language: 'ru', first_name: null, last_name: null, email: null, gender: null, city: null, address: null, birth_date: null, iin: null, company: null, avatar_url: null };
 
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const error = (status: number, code: string) => json({ error: { code, message: code } }, status);
@@ -74,6 +74,12 @@ export function createDemoApi() {
     const method = (init?.method ?? 'GET').toUpperCase();
     if (path === '/auth/refresh') return json(demoTokens);
     if (path === '/auth/logout') return json({ status: 'ok' });
+    if (path === '/auth/whatsapp/request') return json({ status: 'sent', expires_in: 300 });
+    if (path === '/auth/whatsapp/verify') {
+      const b = readBody(init);
+      if (typeof b.code === 'string' && /^\d{4}$/.test(b.code)) return json(demoTokens);
+      return error(400, 'INVALID_CODE');
+    }
     if (path === '/me/wallet' && method === 'GET') return json({ apple: false, google: false } satisfies WalletAvailability);
     if (path === '/me/cards' && method === 'GET') return json([card]);
     if (path === '/me/cards/bind') return json(card);
@@ -87,6 +93,20 @@ export function createDemoApi() {
     }
     if (path === '/me/profile' && method === 'GET') return json(profile);
     if (path === '/me/profile' && method === 'PATCH') { profile = { ...profile, ...readBody(init) } as Profile; return json(profile); }
+    if (path === '/me/avatar' && method === 'POST') {
+      let uri = 'demo-avatar.webp';
+      if (init?.body && typeof FormData !== 'undefined' && init.body instanceof FormData) {
+        const file = (init.body as unknown as { get?: (k: string) => unknown; _parts?: [string, { uri?: string }][] }).get?.('file')
+          || (init.body as unknown as { _parts?: [string, { uri?: string }][] })._parts?.find(p => p[0] === 'file')?.[1];
+        if (typeof file === 'object' && file && 'uri' in file && typeof file.uri === 'string') uri = file.uri;
+      }
+      profile = { ...profile, avatar_url: uri };
+      return json(profile);
+    }
+    if (path === '/me/avatar' && method === 'DELETE') {
+      profile = { ...profile, avatar_url: null };
+      return json(profile);
+    }
     if (path === '/me/promotions' && method === 'GET') {
       const mark = (list: Promotion[]) => list.map(p => ({ ...p, is_new: !promotionsSeen && p.is_new }));
       return json({ banners: mark(promotions.banners), offers: mark(promotions.offers), has_new: !promotionsSeen } satisfies Promotions);
