@@ -74,7 +74,7 @@ export function Avatar({
         ) : null}
       </View>
       <View style={styles.avatarBadge}>
-        <Icon name="scan" size={14} color={t.colors.onPrimary} />
+        <Icon name="camera" size={14} color={t.colors.onPrimary} />
       </View>
     </Pressable>
   );

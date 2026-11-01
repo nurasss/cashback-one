@@ -3,7 +3,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { theme } from '../theme';
 
 export type IconName =
-  | 'home' | 'gift' | 'bell' | 'message' | 'user' | 'qr' | 'arrowLeft' | 'chevronRight' | 'crown' | 'percent' | 'scan'
+  | 'home' | 'gift' | 'bell' | 'message' | 'user' | 'qr' | 'arrowLeft' | 'chevronRight' | 'crown' | 'percent' | 'scan' | 'camera'
   | 'card' | 'cart' | 'plus' | 'minus' | 'logout' | 'history' | 'check' | 'tag' | 'wallet' | 'x';
 
 const paths: Record<Exclude<IconName, 'home'>, React.ReactNode> = {
@@ -17,6 +17,7 @@ const paths: Record<Exclude<IconName, 'home'>, React.ReactNode> = {
   crown: <><Path d="M2 18h20" /><Path d="m3 7 4.5 4L12 4l4.5 7L21 7l-2 11H5z" /></>,
   percent: <><Path d="M19 5 5 19" /><Circle cx="6.5" cy="6.5" r="2.5" /><Circle cx="17.5" cy="17.5" r="2.5" /></>,
   scan: <><Path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" /><Path d="M8 12h8" /></>,
+  camera: <><Path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" /><Circle cx="12" cy="13" r="3" /></>,
   card: <><Rect x="2" y="5" width="20" height="14" rx="2" /><Path d="M2 10h20M6 15h4" /></>,
   cart: <><Circle cx="8" cy="21" r="1" /><Circle cx="19" cy="21" r="1" /><Path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" /></>,
   plus: <><Path d="M12 5v14" /><Path d="M5 12h14" /></>,
