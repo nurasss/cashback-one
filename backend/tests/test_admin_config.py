@@ -1,7 +1,12 @@
+from typing import Any
+
 import pytest
+from fastapi.middleware.cors import CORSMiddleware
+from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.main import app
 
 
 def valid_settings(**override: object) -> dict[str, object]:
@@ -48,3 +53,28 @@ def test_dev_http_browser_origin_requires_explicit_opt_in() -> None:
         admin_allowed_origins=["http://localhost:5173"], admin_allow_insecure_http=True
     ))
     assert config.admin_allowed_origins == ["http://localhost:5173"]
+
+
+def cors_kwargs() -> dict[str, Any]:
+    middleware = next(item for item in app.user_middleware if item.cls is CORSMiddleware)
+    return {**middleware.kwargs, "allow_origins": ["https://admin.test"]}
+
+
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [("GET", 200), ("POST", 200), ("PATCH", 200), ("DELETE", 200), ("PUT", 400)],
+)
+@pytest.mark.asyncio
+async def test_admin_preflight_allows_only_used_methods(method: str, expected: int) -> None:
+    """The browser sends the admin DELETE only after this preflight succeeds."""
+    transport = ASGITransport(app=CORSMiddleware(app, **cors_kwargs()))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.options(
+            "/admin/promotions/00000000-0000-0000-0000-000000000000",
+            headers={
+                "Origin": "https://admin.test",
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "authorization,content-type,x-admin-request",
+            },
+        )
+    assert response.status_code == expected
