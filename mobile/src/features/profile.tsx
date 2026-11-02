@@ -91,12 +91,15 @@ export function ProfileRow({ label, value, placeholder, onPress, icon }: { label
 }
 
 // Bottom sheet editor for one profile field: free text or a fixed list of options.
-export function FieldSheet({ title, initial, hint, options, keyboardType = 'default', placeholder, maxLength, validate, format, onDone, onClose }: {
+export function FieldSheet({ title, initial, hint, options, keyboardType = 'default', placeholder, maxLength, validate, format, customOption, onDone, onClose }: {
   title: string; initial: string; options?: { value: string; label: string }[]; keyboardType?: 'default' | 'email-address' | 'number-pad';
-  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; format?: (value: string) => string; onDone: (value: string) => void | Promise<void>; onClose: () => void;
+  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; format?: (value: string) => string;
+  customOption?: { value: string; placeholder: string; maxLength: number; validate: (value: string) => string | null };
+  onDone: (value: string) => void | Promise<void>; onClose: () => void;
 }) {
   const { t: tr } = useI18n();
   const insets = useSafeInsets();
+  const [isCustomMode, setIsCustomMode] = useState(false);
   const [value, setValue] = useState(format ? format(initial) : initial);
   const selectedY = useRef(0);
   const [error, setError] = useState<string | null>(null);
@@ -120,8 +123,10 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
 
   const finish = async (next: string) => {
     if (busy.current) return;
-    const result = options ? next : next.trim();
-    const problem = validate?.(result) ?? null;
+    const isCustom = isCustomMode || !options;
+    const result = isCustom ? next.trim() : next;
+    const validator = (isCustomMode && customOption?.validate) ? customOption.validate : validate;
+    const problem = validator?.(result) ?? null;
     if (problem) { setError(problem); return; }
     busy.current = true; setPending(true); setSaveError(null);
     try { await onDone(result); }
@@ -137,21 +142,30 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>{title}</Text>
           {hint && <Text style={styles.sheetHint}>{hint}</Text>}
-          <ScrollView ref={scroll} style={{ flexShrink: 1 }} onContentSizeChange={() => { if (options) scroll.current?.scrollTo({ y: selectedY.current, animated: false }); }} bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
-            {options ? options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected: value === option.value, disabled: pending }} onLayout={event => { if (value === option.value) { selectedY.current = event.nativeEvent.layout.y; scroll.current?.scrollTo({ y: selectedY.current, animated: false }); } }}
-              onPress={() => { void finish(option.value); }} style={styles.option}>
+          <ScrollView ref={scroll} style={{ flexShrink: 1 }} onContentSizeChange={() => { if (options && !isCustomMode) scroll.current?.scrollTo({ y: selectedY.current, animated: false }); }} bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
+            {options && !isCustomMode ? options.map(option => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected: value === option.value, disabled: pending }} onLayout={event => { if (value === option.value) { selectedY.current = event.nativeEvent.layout.y; scroll.current?.scrollTo({ y: selectedY.current, animated: false }); } }}
+              onPress={() => {
+                if (customOption && option.value === customOption.value) {
+                  setValue('');
+                  setError(null);
+                  setSaveError(null);
+                  setIsCustomMode(true);
+                  return;
+                }
+                void finish(option.value);
+              }} style={styles.option}>
               <Text style={styles.optionText}>{option.label}</Text>
               {value === option.value && <Icon name="check" size={22} color={t.colors.primary} />}
             </Pressable>) : <View style={styles.inputWrap}>
-              <TextInput value={value} onChangeText={next => { const formatted = format ? format(next) : next; setValue(formatted); setError(null); setSaveError(null); }} editable={!pending} accessibilityLabel={title} placeholder={placeholder}
-                placeholderTextColor={t.colors.placeholder} keyboardType={keyboardType} maxLength={maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
+              <TextInput value={value} onChangeText={next => { const formatted = format ? format(next) : next; setValue(formatted); setError(null); setSaveError(null); }} editable={!pending} accessibilityLabel={title} placeholder={isCustomMode && customOption ? customOption.placeholder : placeholder}
+                placeholderTextColor={t.colors.placeholder} keyboardType={keyboardType} maxLength={isCustomMode && customOption ? customOption.maxLength : maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
                 style={[styles.input, error ? { borderWidth: 1, borderColor: t.colors.error } : null]} onSubmitEditing={() => { void finish(value); }} />
               {error && <Text style={styles.error}>{error}</Text>}
 
             </View>}
           </ScrollView>
           {saveError !== null && <ErrorNotice error={saveError} />}
-          {!options && <Button label={pending ? tr('saving') : tr('done')} disabled={pending} onPress={() => { void finish(value); }} />}
+          {(!options || isCustomMode) && <Button label={pending ? tr('saving') : tr('done')} disabled={pending} onPress={() => { void finish(value); }} />}
         </View>
       </Animated.View>
     </View>

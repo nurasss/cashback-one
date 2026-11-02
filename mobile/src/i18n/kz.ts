@@ -80,4 +80,33 @@ export const kz: Dictionary = {
   openSettings: 'Параметрлерді ашу',
   chooseBusiness: 'Ұйымды таңдаңыз',
   config: 'Қосымша әлі сервиске қосылмаған. Қолдау қызметіне хабарласыңыз.', loginAgain: 'Қайта кіріңіз',
+  // App update
+  updateTitle: 'Жаңа нұсқа қолжетімді',
+  updateBody: 'Қолданба тұрақты жұмыс істеуі үшін оны жаңартыңыз',
+  updateRequiredBody: 'Қолданбаның бұл нұсқасына енді қолдау көрсетілмейді. Оны жаңартыңыз',
+  updateNow: 'Жаңарту',
+  updateLater: 'Кейінірек',
+  // Promotions artwork cards
+  promoHitsBadge: 'Хит тауарларға жеңілдік',
+  promoHitsTitle: 'Тиімді сатып алыңыз',
+  promoWeeklyBadge: 'Апта акциясы',
+  promoWeeklyTitle: 'Ең тиімді бағадағы тауарлар',
+  promoCardBadge: 'Картамен тиімді',
+  promoCardTitle: 'Көбірек бонустар',
+  promoFreshBadge: 'Супер баға',
+  promoFreshTitle: 'Балғын өнімдер',
+  // City custom input
+  cityCustomPh: 'Қала атауы',
+  invalidCity: 'Қала атауын енгізіңіз',
+  // History period
+  periodAll: 'Барлық уақыт',
+  period7: '7 күн',
+  period30: '30 күн',
+  period90: '3 ай',
+  periodCustom: 'Өз кезеңі',
+  periodFrom: 'Кезең басы',
+  periodTo: 'Кезең соңы',
+  periodApply: 'Көрсету',
+  invalidPeriod: 'Басталу күні аяқталу күнінен кеш',
+  noHistoryPeriod: 'Бұл кезеңде операциялар жоқ',
 };

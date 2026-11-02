@@ -12,6 +12,7 @@ import { useSession } from '../../../src/auth/provider';
 import { ErrorNotice, Loading, ScreenHeader, styles } from '../../../src/components/ui';
 import { Avatar, FieldSheet, LanguageSwitch, ProfileRow } from '../../../src/features/profile';
 import { useI18n, type Language } from '../../../src/i18n';
+import { ru } from '../../../src/i18n/ru';
 import { fonts, theme } from '../../../src/theme';
 import type { Profile } from '../../../src/types/api';
 import { cityOptions } from '../../../src/features/cities';
@@ -252,11 +253,21 @@ export default function ProfileScreen() {
 
   const genderLabel = (value: string) => value === 'male' ? t('male') : value === 'female' ? t('female') : '';
   const sheets: Record<SheetField, { title: string; hint?: string; placeholder?: string; keyboardType?: 'default' | 'email-address' | 'number-pad'; maxLength?: number;
-    options?: { value: string; label: string }[]; format?: (value: string) => string; validate?: (value: string) => string | null }> = {
+    options?: { value: string; label: string }[]; format?: (value: string) => string; validate?: (value: string) => string | null;
+    customOption?: { value: string; placeholder: string; maxLength: number; validate: (value: string) => string | null }; }> = {
     email: { title: t('email'), placeholder: t('emailPh'), keyboardType: 'email-address', maxLength: 255,
       validate: value => !value || /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(value) ? null : t('invalidEmail') },
     gender: { title: t('gender'), options: [{ value: 'male', label: t('male') }, { value: 'female', label: t('female') }] },
-    city: { title: t('city'), options: cityOptions(t, form?.city ?? '') },
+    city: {
+      title: t('city'),
+      options: cityOptions(t, form?.city ?? ''),
+      customOption: {
+        value: ru.cityOption22,
+        placeholder: t('cityCustomPh'),
+        maxLength: 100,
+        validate: value => value.trim().length >= 2 ? null : t('invalidCity'),
+      },
+    },
     address: { title: t('address'), maxLength: 255 },
     birth_date: { title: t('birthDate'), placeholder: t('birthDatePh'), keyboardType: 'number-pad', maxLength: 10,
       format: birthDateInputText,

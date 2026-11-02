@@ -52,7 +52,7 @@ export function TabBar({ active, onSelect, badges }: {
   </View>;
 }
 
-const styles = StyleSheet.create({
+export const styles = StyleSheet.create({
   bar: {
     position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'flex-end', paddingTop: 10,
     backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28,
@@ -63,7 +63,6 @@ const styles = StyleSheet.create({
   // Flush with the other tabs: no negative margin, aligned to the bottom edge like the icon+label rows.
   qrButton: {
     width: 48, height: 48, borderRadius: 24, backgroundColor: t.colors.primary, alignItems: 'center', justifyContent: 'center',
-    shadowColor: t.colors.primary, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8,
   },
   qrButtonSelected: { borderWidth: 2, borderColor: t.colors.surface },
   dot: { position: 'absolute', top: -2, right: -4 },

@@ -3,7 +3,7 @@ import { AppState, Linking, StyleSheet } from 'react-native';
 import * as expoCamera from 'expo-camera';
 import { CardScanner } from '../src/features/CardScanner';
 import { BindForm } from '../src/features/BindForm';
-import { TabBar } from '../src/components/TabBar';
+import { TabBar, styles } from '../src/components/TabBar';
 import { I18nProvider } from '../src/i18n';
 import { kz } from '../src/i18n/kz';
 import { ru } from '../src/i18n/ru';
@@ -147,6 +147,14 @@ describe('TabBar QR button', () => {
     const selected = screen.getByRole('tab', { selected: true });
     expect(selected.props.accessibilityLabel).toBe(ru.tabQr);
     expect(StyleSheet.flatten(selected.props.style).borderWidth).toBe(2);
+  });
+
+  it('has flat styling without elevation or shadow artifacts', () => {
+    expect(styles.qrButton).not.toHaveProperty('elevation');
+    expect(styles.qrButton).not.toHaveProperty('shadowColor');
+    expect(styles.qrButton).not.toHaveProperty('shadowOpacity');
+    expect(styles.qrButton).not.toHaveProperty('shadowRadius');
+    expect(styles.qrButton).not.toHaveProperty('shadowOffset');
   });
 });
 

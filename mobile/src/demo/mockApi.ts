@@ -88,7 +88,17 @@ export function createDemoApi() {
     if (path === `/me/cards/${card.id}/qr`) return json(qr());
     if (path === `/me/cards/${card.id}/transactions`) {
       const type = url.searchParams.get('type');
-      const items = type ? transactions.filter(t => t.type === type) : transactions;
+      const dateFrom = url.searchParams.get('date_from');
+      const dateTo = url.searchParams.get('date_to');
+      let items = type ? transactions.filter(t => t.type === type) : transactions;
+      if (dateFrom) {
+        const fromTime = new Date(dateFrom).getTime();
+        items = items.filter(t => new Date(t.occurred_at).getTime() >= fromTime);
+      }
+      if (dateTo) {
+        const toTime = new Date(dateTo).getTime();
+        items = items.filter(t => new Date(t.occurred_at).getTime() < toTime);
+      }
       return json({ items, next_cursor: null, has_more: false } satisfies HistoryPage);
     }
     if (path === '/me/profile' && method === 'GET') return json(profile);

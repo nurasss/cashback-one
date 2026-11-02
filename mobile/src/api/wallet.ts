@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useSession } from '../auth/provider';
 import type { Card, HistoryPage } from '../types/api';
+import { type HistoryPeriod, historyRange } from '../features/historyPeriod';
 export const walletKey = ['wallet'] as const;
 export type HistoryFilter = 'all' | 'accrual' | 'redemption';
 export function useCards() {
@@ -11,10 +12,22 @@ export function useCard(id: string) {
   const { api } = useSession();
   return useQuery({ queryKey: [...walletKey, 'card', id], queryFn: ({ signal }) => api.request<Card>(`/me/cards/${encodeURIComponent(id)}`, { auth: true, signal }) });
 }
-export function useHistory(id: string | undefined, filter: HistoryFilter = 'all') {
+export function useHistory(id: string | undefined, filter: HistoryFilter = 'all', period: HistoryPeriod = 'all') {
   const { api } = useSession();
   const type = filter === 'all' ? '' : `&type=${filter}`;
-  return useInfiniteQuery({ queryKey: [...walletKey, 'history', id, filter], initialPageParam: null as string | null, enabled: !!id,
-    queryFn: ({ pageParam, signal }) => api.request<HistoryPage>(`/me/cards/${encodeURIComponent(id ?? '')}/transactions?limit=20${type}${pageParam ? '&cursor=' + encodeURIComponent(pageParam) : ''}`, { auth: true, signal }),
-    getNextPageParam: page => page.has_more && page.next_cursor ? page.next_cursor : undefined });
+  return useInfiniteQuery({
+    queryKey: [...walletKey, 'history', id, filter, period],
+    initialPageParam: null as string | null,
+    enabled: !!id,
+    queryFn: ({ pageParam, signal }) => {
+      const range = historyRange(period);
+      const dateFromParam = range.from ? `&date_from=${encodeURIComponent(range.from)}` : '';
+      const dateToParam = range.to ? `&date_to=${encodeURIComponent(range.to)}` : '';
+      return api.request<HistoryPage>(
+        `/me/cards/${encodeURIComponent(id ?? '')}/transactions?limit=20${type}${dateFromParam}${dateToParam}${pageParam ? '&cursor=' + encodeURIComponent(pageParam) : ''}`,
+        { auth: true, signal }
+      );
+    },
+    getNextPageParam: page => page.has_more && page.next_cursor ? page.next_cursor : undefined,
+  });
 }

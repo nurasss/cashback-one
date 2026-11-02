@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -423,4 +423,238 @@ async def test_sequential_card_soft_hide_204_then_404(
     )
     assert resp2.status_code == 404
     assert resp2.json()["error"]["code"] == "CARD_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_card_transactions_period_filter_all_cases(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Validate baseline, date_from, date_to, exclusive boundary, and combined type filters."""
+    _, token, card, _ = await seed_user_with_card(db_session)
+
+    t0 = datetime(2026, 10, 1, 10, 0, tzinfo=UTC)
+    t1 = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+    t2 = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)
+    t3 = datetime(2026, 10, 15, 18, 0, tzinfo=UTC)
+    t4 = datetime(2026, 10, 20, 20, 0, tzinfo=UTC)
+
+    tx0 = Transaction(
+        card_id=card.id,
+        external_id="tx-p-0",
+        type="accrual",
+        amount=Decimal("10.0000"),
+        balance_after=Decimal("10.0000"),
+        occurred_at=t0,
+    )
+    tx1 = Transaction(
+        card_id=card.id,
+        external_id="tx-p-1",
+        type="accrual",
+        amount=Decimal("20.0000"),
+        balance_after=Decimal("30.0000"),
+        occurred_at=t1,
+    )
+    tx2 = Transaction(
+        card_id=card.id,
+        external_id="tx-p-2",
+        type="redemption",
+        amount=Decimal("5.0000"),
+        balance_after=Decimal("25.0000"),
+        occurred_at=t2,
+    )
+    tx3 = Transaction(
+        card_id=card.id,
+        external_id="tx-p-3",
+        type="accrual",
+        amount=Decimal("15.0000"),
+        balance_after=Decimal("40.0000"),
+        occurred_at=t3,
+    )
+    tx4 = Transaction(
+        card_id=card.id,
+        external_id="tx-p-4",
+        type="accrual",
+        amount=Decimal("30.0000"),
+        balance_after=Decimal("70.0000"),
+        occurred_at=t4,
+    )
+    db_session.add_all([tx0, tx1, tx2, tx3, tx4])
+    await db_session.commit()
+
+    # 1. Baseline without dates -> returns all 5
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 5
+    assert [i["external_id"] for i in items] == ["tx-p-4", "tx-p-3", "tx-p-2", "tx-p-1", "tx-p-0"]
+
+    # 2. Only date_from -> filters from bottom (>= 2026-10-10T15:00:00Z)
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_from=2026-10-10T15:00:00Z",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert [i["external_id"] for i in items] == ["tx-p-4", "tx-p-3", "tx-p-2"]
+
+    # 3. Only date_to -> filters strictly (< 2026-10-10T15:00:00Z)
+    # tx2 at 15:00:00 is strictly excluded
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_to=2026-10-10T15:00:00Z",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert [i["external_id"] for i in items] == ["tx-p-1", "tx-p-0"]
+
+    # 4. Both dates: date_from=2026-10-05T00:00:00Z & date_to=2026-10-15T18:00:00Z
+    # tx3 at 18:00:00 is excluded, tx1 and tx2 included
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_from=2026-10-05T00:00:00Z&date_to=2026-10-15T18:00:00Z",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert [i["external_id"] for i in items] == ["tx-p-2", "tx-p-1"]
+
+    # 5. Combined with type: date_from=2026-10-01T00:00:00Z & date_to=2026-10-25T00:00:00Z & type=redemption
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_from=2026-10-01T00:00:00Z&date_to=2026-10-25T00:00:00Z&type=redemption",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["external_id"] == "tx-p-2"
+    assert items[0]["type"] == "redemption"
+
+
+@pytest.mark.asyncio
+async def test_card_transactions_period_cursor_pagination(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Cursor pagination within a period works deterministically without losses or duplicates."""
+    _, token, card, _ = await seed_user_with_card(db_session)
+    base_time = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
+
+    txs = [
+        Transaction(
+            card_id=card.id,
+            external_id=f"tx-page-{i}",
+            type="accrual",
+            amount=Decimal("10.0000"),
+            balance_after=Decimal(f"{(i+1)*10}.0000"),
+            occurred_at=base_time + timedelta(hours=i),
+        )
+        for i in range(6)
+    ]
+    db_session.add_all(txs)
+    await db_session.commit()
+
+    date_from = "2026-10-10T10:00:00Z"
+    date_to = "2026-10-10T20:00:00Z"
+
+    collected = []
+    cursor = None
+    while True:
+        url = f"/me/cards/{card.id}/transactions?limit=2&date_from={date_from}&date_to={date_to}"
+        if cursor:
+            url += f"&cursor={cursor}"
+        resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        collected.extend(data["items"])
+        if not data["has_more"]:
+            break
+        cursor = data["next_cursor"]
+
+    assert len(collected) == 6
+    assert [item["external_id"] for item in collected] == [
+        f"tx-page-{i}" for i in reversed(range(6))
+    ]
+
+
+@pytest.mark.asyncio
+async def test_card_transactions_period_validation_errors(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Naive dates and date_from >= date_to return 422 INVALID_PERIOD."""
+    _, token, card, _ = await seed_user_with_card(db_session)
+
+    # 1. Naive date_from (no timezone)
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_from=2026-10-10T10:00:00",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_PERIOD"
+
+    # 2. Naive date_to
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_to=2026-10-10T10:00:00",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_PERIOD"
+
+    # 3. date_from > date_to
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_from=2026-10-15T00:00:00Z&date_to=2026-10-10T00:00:00Z",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_PERIOD"
+
+    # 4. date_from == date_to
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_from=2026-10-10T00:00:00Z&date_to=2026-10-10T00:00:00Z",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_PERIOD"
+
+    # 5. Extreme date_from causing OverflowError in as_utc
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_from=0001-01-01T00:00:00%2B14:00",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_PERIOD"
+
+    # 6. Extreme date_to causing OverflowError in as_utc
+    resp = await client.get(
+        f"/me/cards/{card.id}/transactions?date_to=9999-12-31T23:59:59-14:00",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "INVALID_PERIOD"
+
+
+@pytest.mark.asyncio
+async def test_card_transactions_period_ownership_before_validation(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Ownership check takes precedence over period validation: returns 404, not 422."""
+    _, _, card_a, _ = await seed_user_with_card(
+        db_session, phone="+77011112233", business_name="Store A"
+    )
+    _, token_b, _, _ = await seed_user_with_card(
+        db_session, phone="+77014445566", business_name="Store B"
+    )
+
+    # User B requests User A's card with invalid period (date_from >= date_to)
+    resp = await client.get(
+        f"/me/cards/{card_a.id}/transactions?date_from=2026-10-20T00:00:00Z&date_to=2026-10-10T00:00:00Z",
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "CARD_NOT_FOUND"
+
 

@@ -67,7 +67,7 @@ describe('promotions artwork', () => {
     mockUsePromotion.mockReturnValue({ data: undefined, error: undefined, isError: false, isPending: true, refetch: jest.fn() });
   });
 
-  it('always shows the four own promotion cards in the required order when the API has no offers', () => {
+  it('always shows the four own promotion cards in the required order with text and illustration', () => {
     setPromotions({ data: { banners: [], offers: [], has_new: false } });
     mount(<PromotionsScreen />);
 
@@ -78,13 +78,48 @@ describe('promotions artwork', () => {
       'promotion-card-art-fresh-products',
     ]);
     expect(screen.queryByText(ru.noPromotions)).toBeNull();
+
+    expect(screen.getByText(ru.promoHitsBadge)).toBeTruthy();
+    expect(screen.getByText(ru.promoHitsTitle)).toBeTruthy();
+    expect(screen.getByText(ru.promoCardBadge)).toBeTruthy();
+    expect(screen.getByText(ru.promoCardTitle)).toBeTruthy();
+    expect(screen.getByText(ru.promoWeeklyBadge)).toBeTruthy();
+    expect(screen.getByText(ru.promoWeeklyTitle)).toBeTruthy();
+    expect(screen.getByText(ru.promoFreshBadge)).toBeTruthy();
+    expect(screen.getByText(ru.promoFreshTitle)).toBeTruthy();
+
+    const hitsCard = screen.getByTestId('promotion-card-art-hits-discount');
+    expect(StyleSheet.flatten(hitsCard.props.style)).toEqual(
+      expect.objectContaining({ minHeight: 112, backgroundColor: '#FEE4E8' }),
+    );
+
     const image = screen.getByTestId('promotion-image-art-hits-discount');
     expect(image.props.resizeMode).toBe('contain');
-    // A required asset brings its own pixel height, so the ratio has to live on the wrapper.
-    expect(image.props.style).toEqual({ width: '100%', height: '100%' });
-    expect(StyleSheet.flatten(screen.getByTestId('promotion-card-art-hits-discount').props.style)).toEqual(
-      expect.objectContaining({ aspectRatio: 2000 / 1085 }),
+    expect(StyleSheet.flatten(image.props.style)).toEqual(
+      expect.objectContaining({ width: '100%', height: '100%' }),
     );
+    let parent = image.parent;
+    while (parent && StyleSheet.flatten(parent.props?.style)?.position !== 'absolute') {
+      parent = parent.parent;
+    }
+    expect(StyleSheet.flatten(parent?.props.style)).toEqual(
+      expect.objectContaining({ position: 'absolute', right: 0, top: 0, bottom: 0, zIndex: 0 }),
+    );
+    expect(StyleSheet.flatten(parent?.props.style).aspectRatio).toBeCloseTo(483 / 350, 4);
+  });
+
+  it('renders cards in KK locale with correct copy', () => {
+    setPromotions({ data: { banners: [], offers: [], has_new: false } });
+    mount(<PromotionsScreen />, 'kz');
+
+    expect(screen.getByText(kz.promoHitsBadge)).toBeTruthy();
+    expect(screen.getByText(kz.promoHitsTitle)).toBeTruthy();
+    expect(screen.getByText(kz.promoCardBadge)).toBeTruthy();
+    expect(screen.getByText(kz.promoCardTitle)).toBeTruthy();
+    expect(screen.getByText(kz.promoWeeklyBadge)).toBeTruthy();
+    expect(screen.getByText(kz.promoWeeklyTitle)).toBeTruthy();
+    expect(screen.getByText(kz.promoFreshBadge)).toBeTruthy();
+    expect(screen.getByText(kz.promoFreshTitle)).toBeTruthy();
   });
 
   it.each([

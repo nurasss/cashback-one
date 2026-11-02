@@ -7,6 +7,7 @@ import { SessionProvider, useSession } from '../src/auth/provider';
 import { Button, ErrorNotice, Loading, styles } from '../src/components/ui';
 import { I18nProvider, useI18n } from '../src/i18n';
 import { DEMO_ENABLED } from '../src/demo/mockApi';
+import { UpdateNotice } from '../src/features/UpdateNotice';
 import { theme } from '../src/theme';
 
 function DemoRibbon() {
@@ -33,7 +34,7 @@ export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_600SemiBold, Montserrat_700Bold, Montserrat_800ExtraBold });
   // Keep the native splash until Montserrat is ready; on a font error fall back to the system font.
   if (!fontsLoaded && !fontError) return null;
-  const app = <><StatusBar style="dark" />{DEMO_ENABLED && <DemoRibbon />}<Navigation /></>;
+  const app = <><StatusBar style="dark" />{DEMO_ENABLED && <DemoRibbon />}<Navigation /><UpdateNotice /></>;
   return <SafeAreaProvider><I18nProvider><SessionProvider>
     {Platform.OS === 'web' && DEMO_ENABLED ? <View style={webDemoStyles.backdrop}>
       <View style={[webDemoStyles.frame, width > 430 && webDemoStyles.desktopFrame]}>{app}</View>

@@ -1,6 +1,9 @@
 import type { ImageSourcePropType } from 'react-native';
+import type { IconName } from '../components/icons';
 
 export type PermanentOfferKey = 'offerHitsDiscount' | 'offerWeeklyPromo' | 'offerCardBonus' | 'offerFreshProducts';
+export type PromotionBadgeKey = 'promoHitsBadge' | 'promoWeeklyBadge' | 'promoCardBadge' | 'promoFreshBadge';
+export type PromotionTitleTextKey = 'promoHitsTitle' | 'promoWeeklyTitle' | 'promoCardTitle' | 'promoFreshTitle';
 
 export type PermanentOffer = {
   id: 'hits-discount' | 'weekly-promo' | 'card-bonus' | 'fresh-products';
@@ -41,6 +44,12 @@ export type PromotionBodyKey = 'offerHitsDiscountBody' | 'offerCardBonusBody' | 
 export type PromotionCard = {
   id: 'art-hits-discount' | 'art-card-bonus' | 'art-weekly-promo' | 'art-fresh-products';
   image: ImageSourcePropType;
+  sideImage: ImageSourcePropType;
+  sideAspectRatio: number;
+  background: string;
+  badgeKey: PromotionBadgeKey;
+  titleTextKey: PromotionTitleTextKey;
+  icon: IconName;
   titleKey: PermanentOfferKey;
   bodyKey: PromotionBodyKey;
 };
@@ -49,24 +58,48 @@ export const PROMOTION_CARDS: readonly PromotionCard[] = [
   {
     id: 'art-hits-discount',
     image: require('../../assets/promotions/promo-hits-discount.png') as ImageSourcePropType,
+    sideImage: require('../../assets/promotions/promo-hits-discount-side.png') as ImageSourcePropType,
+    sideAspectRatio: 483 / 350,
+    background: '#FEE4E8',
+    badgeKey: 'promoHitsBadge',
+    titleTextKey: 'promoHitsTitle',
+    icon: 'percent',
     titleKey: 'offerHitsDiscount',
     bodyKey: 'offerHitsDiscountBody',
   },
   {
     id: 'art-card-bonus',
     image: require('../../assets/promotions/promo-card-bonus.png') as ImageSourcePropType,
+    sideImage: require('../../assets/promotions/promo-card-bonus-side.png') as ImageSourcePropType,
+    sideAspectRatio: 542 / 350,
+    background: '#ECEEF0',
+    badgeKey: 'promoCardBadge',
+    titleTextKey: 'promoCardTitle',
+    icon: 'card',
     titleKey: 'offerCardBonus',
     bodyKey: 'offerCardBonusBody',
   },
   {
     id: 'art-weekly-promo',
     image: require('../../assets/promotions/promo-weekly.png') as ImageSourcePropType,
+    sideImage: require('../../assets/promotions/promo-weekly-side.png') as ImageSourcePropType,
+    sideAspectRatio: 394 / 350,
+    background: '#EEEDF0',
+    badgeKey: 'promoWeeklyBadge',
+    titleTextKey: 'promoWeeklyTitle',
+    icon: 'gift',
     titleKey: 'offerWeeklyPromo',
     bodyKey: 'offerWeeklyPromoBody',
   },
   {
     id: 'art-fresh-products',
     image: require('../../assets/promotions/promo-fresh-products.png') as ImageSourcePropType,
+    sideImage: require('../../assets/promotions/promo-fresh-products-side.png') as ImageSourcePropType,
+    sideAspectRatio: 448 / 350,
+    background: '#FEE4E8',
+    badgeKey: 'promoFreshBadge',
+    titleTextKey: 'promoFreshTitle',
+    icon: 'cart',
     titleKey: 'offerFreshProducts',
     bodyKey: 'offerFreshProductsBody',
   },

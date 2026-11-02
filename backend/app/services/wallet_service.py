@@ -269,6 +269,8 @@ async def get_customer_card_transactions(
     limit: int = 20,
     cursor: str | None = None,
     tx_type: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
 ) -> CustomerTransactionHistoryResponse:
     """Fetch cursor-paginated transaction history for a card owned by user."""
     # Enforce ownership and visibility check
@@ -299,10 +301,58 @@ async def get_customer_card_transactions(
             status_code=422,
         )
 
+    if date_from is not None and date_from.tzinfo is None:
+        raise AppError(
+            code="INVALID_PERIOD",
+            message="date_from must be timezone-aware",
+            status_code=422,
+        )
+    if date_to is not None and date_to.tzinfo is None:
+        raise AppError(
+            code="INVALID_PERIOD",
+            message="date_to must be timezone-aware",
+            status_code=422,
+        )
+
+    date_from_utc = None
+    if date_from is not None:
+        try:
+            date_from_utc = as_utc(date_from)
+        except OverflowError:
+            raise AppError(
+                code="INVALID_PERIOD",
+                message="date_from out of valid range",
+                status_code=422,
+            ) from None
+
+    date_to_utc = None
+    if date_to is not None:
+        try:
+            date_to_utc = as_utc(date_to)
+        except OverflowError:
+            raise AppError(
+                code="INVALID_PERIOD",
+                message="date_to out of valid range",
+                status_code=422,
+            ) from None
+
+    if date_from_utc is not None and date_to_utc is not None and date_from_utc >= date_to_utc:
+        raise AppError(
+            code="INVALID_PERIOD",
+            message="date_to must be strictly greater than date_from",
+            status_code=422,
+        )
+
     stmt = select(Transaction).where(Transaction.card_id == card_id)
 
     if tx_type:
         stmt = stmt.where(Transaction.type == tx_type)
+
+    if date_from_utc is not None:
+        stmt = stmt.where(Transaction.occurred_at >= date_from_utc)
+
+    if date_to_utc is not None:
+        stmt = stmt.where(Transaction.occurred_at < date_to_utc)
 
     if cursor:
         cursor_dt, cursor_id = decode_cursor(cursor)

@@ -88,6 +88,35 @@ export const ru = {
   openSettings: 'Открыть настройки',
   chooseBusiness: 'Выберите организацию',
   config: 'Приложение ещё не подключено к сервису. Обратитесь в поддержку.', loginAgain: 'Войдите снова',
+  // App update
+  updateTitle: 'Доступна новая версия',
+  updateBody: 'Для более стабильной работы приложения, пожалуйста, обновите его',
+  updateRequiredBody: 'Эта версия приложения больше не поддерживается. Пожалуйста, обновите его',
+  updateNow: 'Обновить',
+  updateLater: 'Позже',
+  // Promotions artwork cards
+  promoHitsBadge: 'Скидка на хиты',
+  promoHitsTitle: 'Покупайте выгодно',
+  promoWeeklyBadge: 'Акция недели',
+  promoWeeklyTitle: 'Товары по лучшим ценам',
+  promoCardBadge: 'Выгодно с картой',
+  promoCardTitle: 'Больше бонусов',
+  promoFreshBadge: 'Суперцена',
+  promoFreshTitle: 'Свежие продукты',
+  // City custom input
+  cityCustomPh: 'Название города',
+  invalidCity: 'Введите название города',
+  // History period
+  periodAll: 'Всё время',
+  period7: '7 дней',
+  period30: '30 дней',
+  period90: '3 месяца',
+  periodCustom: 'Свой период',
+  periodFrom: 'Начало периода',
+  periodTo: 'Конец периода',
+  periodApply: 'Показать',
+  invalidPeriod: 'Дата начала позже даты окончания',
+  noHistoryPeriod: 'За этот период операций нет',
 };
 
 export type Dictionary = typeof ru;

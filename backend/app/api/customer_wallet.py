@@ -1,5 +1,6 @@
 """Customer wallet endpoints for loyalty card and transaction history management."""
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -120,10 +121,13 @@ async def list_card_transactions(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
     type: Annotated[str | None, Query()] = None,
+    date_from: Annotated[datetime | None, Query()] = None,
+    date_to: Annotated[datetime | None, Query()] = None,
 ) -> CustomerTransactionHistoryResponse:
     """Retrieve deterministic cursor-paginated transaction history for a card.
 
     type performs exact filtering by the canonical type received from ONE.
+    date_from and date_to filter by occurred_at [date_from, date_to).
     Returns 404 if the card is not found or not owned by the user.
     """
     return await get_customer_card_transactions(
@@ -133,4 +137,6 @@ async def list_card_transactions(
         limit=limit,
         cursor=cursor,
         tx_type=type,
+        date_from=date_from,
+        date_to=date_to,
     )

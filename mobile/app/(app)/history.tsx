@@ -1,20 +1,24 @@
 import { useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useHistory, type HistoryFilter } from '../../src/api/wallet';
 import { Icon } from '../../src/components/icons';
 import { FadeIn } from '../../src/components/motion';
 import { Button, Chip, EmptyState, ErrorNotice, Loading, ScreenHeader, styles } from '../../src/components/ui';
 import { useActiveCard } from '../../src/features/activeCard';
+import { type HistoryPeriod } from '../../src/features/historyPeriod';
+import { PeriodSheet } from '../../src/features/PeriodSheet';
 import { useI18n } from '../../src/i18n';
 import { fonts, theme } from '../../src/theme';
-import { dateText, pointsText, transactionLabel } from '../../src/utils/format';
+import { birthDateToUi, dateText, pointsText, transactionLabel } from '../../src/utils/format';
 
 export default function HistoryScreen() {
   const { t, language } = useI18n();
   const { card } = useActiveCard();
   const [filter, setFilter] = useState<HistoryFilter>('all');
-  const history = useHistory(card?.id, filter);
+  const [period, setPeriod] = useState<HistoryPeriod>('all');
+  const [periodSheetVisible, setPeriodSheetVisible] = useState(false);
+  const history = useHistory(card?.id, filter, period);
   const rows = history.data?.pages.flatMap(page => page.items) ?? [];
   const filters: [HistoryFilter, string][] = [['all', t('filterAll')], ['accrual', t('filterAccrual')], ['redemption', t('filterRedemption')]];
   return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
@@ -25,10 +29,21 @@ export default function HistoryScreen() {
         {card && <Text style={styles.muted}>{card.business.name}</Text>}
         <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>{filters.map(([value, label]) =>
           <Chip key={value} label={label} selected={filter === value} onPress={() => setFilter(value)} />)}</View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          <Chip label={t('periodAll')} selected={period === 'all'} onPress={() => setPeriod('all')} />
+          <Chip label={t('period7')} selected={period === '7d'} onPress={() => setPeriod('7d')} />
+          <Chip label={t('period30')} selected={period === '30d'} onPress={() => setPeriod('30d')} />
+          <Chip label={t('period90')} selected={period === '90d'} onPress={() => setPeriod('90d')} />
+          <Chip
+            label={typeof period === 'object' ? `${birthDateToUi(period.from)} – ${birthDateToUi(period.to)}` : t('periodCustom')}
+            selected={typeof period === 'object'}
+            onPress={() => setPeriodSheetVisible(true)}
+          />
+        </ScrollView>
         {history.isPending && card && <Loading />}
         {history.isError && <ErrorNotice error={history.error} retry={() => { void (history.isFetchNextPageError ? history.fetchNextPage() : history.refetch()); }} />}
       </View>}
-      ListEmptyComponent={history.isSuccess || !card ? <EmptyState icon="history" title={t('noHistory')} /> : null}
+      ListEmptyComponent={history.isSuccess || !card ? <EmptyState icon="history" title={period === 'all' ? t('noHistory') : t('noHistoryPeriod')} /> : null}
       renderItem={({ item, index }) => {
         const incoming = item.type === 'accrual';
         return <FadeIn index={Math.min(index, 6)} style={local.row}>
@@ -48,6 +63,11 @@ export default function HistoryScreen() {
       }}
       ListFooterComponent={history.hasNextPage ? <Button label={history.isFetchingNextPage ? t('loading') : t('more')} secondary disabled={history.isFetching}
         onPress={() => { void history.fetchNextPage(); }} /> : null} />
+    {periodSheetVisible && <PeriodSheet
+      initial={typeof period === 'object' ? period : null}
+      onApply={nextPeriod => setPeriod(nextPeriod)}
+      onClose={() => setPeriodSheetVisible(false)}
+    />}
   </SafeAreaView>;
 }
 

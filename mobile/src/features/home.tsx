@@ -8,7 +8,7 @@ import { useI18n } from '../i18n';
 import { fonts, theme as t } from '../theme';
 import type { Promotion, Tier } from '../types/api';
 import { pointsText } from '../utils/format';
-import { LOCAL_BANNERS, PERMANENT_OFFERS } from './promotionsArtwork';
+import { LOCAL_BANNERS, PERMANENT_OFFERS, type PromotionCard } from './promotionsArtwork';
 
 export function BalanceHeader({ phone, balance }: { phone: string; balance: string }) {
   const { t: tr } = useI18n();
@@ -195,6 +195,21 @@ export function OfferCard({ offer, index, onPress, wide = false, fill = false }:
   </PressScale>;
 }
 
+export function ArtworkOfferCard({ card, onPress }: { card: PromotionCard; onPress: () => void }) {
+  const { t: tr } = useI18n();
+  return <PressScale testID={`promotion-card-${card.id}`} accessibilityRole="button" accessibilityLabel={tr(card.titleKey)} onPress={onPress}
+    style={[styles.offer, styles.offerWide, { backgroundColor: card.background }]}>
+    <View style={[styles.artworkSide, { aspectRatio: card.sideAspectRatio }]}>
+      <Image testID={`promotion-image-${card.id}`} source={card.sideImage} style={styles.artworkSideImage} resizeMode="contain" accessibilityIgnoresInvertColors />
+    </View>
+    <View style={styles.offerBadge}>
+      <Icon name={card.icon} size={12} color={t.colors.onPrimary} strokeWidth={2.4} />
+      <Text style={styles.offerBadgeText} numberOfLines={1}>{tr(card.badgeKey)}</Text>
+    </View>
+    <Text style={[styles.offerTitle, styles.offerTitleWide]} numberOfLines={3}>{tr(card.titleTextKey)}</Text>
+  </PressScale>;
+}
+
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
   phone: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.text, flexShrink: 1 },
@@ -234,4 +249,6 @@ const styles = StyleSheet.create({
   offerImageWide: { position: 'absolute', right: 8, top: 8, bottom: 8, width: '34%', zIndex: 0 },
   offerTitleWide: { width: '60%', fontSize: 15, lineHeight: 19 },
   offerFill: { flexBasis: 0, minHeight: 0 },
+  artworkSide: { position: 'absolute', right: 0, top: 0, bottom: 0, zIndex: 0 },
+  artworkSideImage: { width: '100%', height: '100%' },
 });
