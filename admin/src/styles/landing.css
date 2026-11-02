@@ -21,7 +21,7 @@
   --lp-shadow-md: 0 8px 24px -8px rgba(0, 0, 0, 0.12);
   --lp-shadow-phone: 0 20px 40px -20px rgba(0, 0, 0, 0.35);
 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   color: var(--lp-ink);
   background-color: var(--lp-bg);
   min-height: 100vh;
@@ -98,7 +98,7 @@
   gap: 10px;
   text-decoration: none;
   color: var(--lp-ink);
-  font-weight: 800;
+  font-weight: 700;
   font-size: 19px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -374,7 +374,7 @@
   font-size: clamp(28px, 4.4vw, 48px);
   line-height: 1.1;
   letter-spacing: -0.025em;
-  font-weight: 800;
+  font-weight: 700;
   margin: 0 0 24px;
 }
 
@@ -398,7 +398,7 @@
   font-size: clamp(32px, 4.2vw, 54px);
   line-height: 1.08;
   letter-spacing: -0.03em;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--lp-ink);
   margin: 0 0 16px;
   text-wrap: balance;
@@ -492,6 +492,7 @@
 }
 
 .landing-screen-tab {
+  font-family: inherit;
   font-size: 14px;
   font-weight: 600;
   padding: 9px 2px;
@@ -591,7 +592,7 @@
 .landing-step-num {
   display: block;
   font-size: 56px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--lp-brand-bright);
   line-height: 1;
   margin-bottom: 8px;
@@ -655,7 +656,7 @@
   background-color: var(--lp-surface-muted);
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: inherit;
 }
 
 .landing-card-text {
@@ -668,7 +669,7 @@
 /* Section: Bonus / Synchronization */
 .landing-section-bonus {
   background-color: var(--lp-brand-bright);
-  color: var(--lp-ink);
+  color: #ffffff;
 }
 
 .landing-bonus-grid {
@@ -682,7 +683,7 @@
   font-size: clamp(28px, 4.4vw, 48px);
   line-height: 1.1;
   letter-spacing: -0.025em;
-  font-weight: 800;
+  font-weight: 700;
   margin: 0 0 16px;
   text-wrap: balance;
 }
@@ -697,12 +698,13 @@
 .landing-bonus-explanation {
   font-size: 16px;
   line-height: 1.55;
-  color: #2a2527;
+  color: #ffffff;
   margin: 0;
 }
 
 .landing-bonus-card {
   background-color: var(--lp-bg);
+  color: var(--lp-ink);
   border-radius: var(--lp-radius-lg);
   padding: clamp(20px, 3.2vw, 36px);
   box-shadow: var(--lp-shadow-md);
@@ -962,7 +964,7 @@
 
 .not-found-card h1 {
   font-size: clamp(26px, 4vw, 36px);
-  font-weight: 800;
+  font-weight: 700;
   margin: 8px 0 14px;
 }
 

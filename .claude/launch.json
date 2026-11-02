@@ -1,0 +1,41 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin-preview",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd admin && npx vite preview --port 4175 --strictPort"
+      ],
+      "port": 4175
+    },
+    {
+      "name": "backend-demo",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd backend && APP_ENV=development DATABASE_URL=postgresql+asyncpg://nuras@localhost:5432/cashback_local_demo REDIS_URL=redis://localhost:6379/3 JWT_SIGNING_KEY=local_dev_jwt_signing_key_0123456789abcdef AUTH_CHALLENGE_HASH_KEY=local_dev_challenge_hash_key_0123456789abcd SMS_OTP_HASH_KEY=local_dev_sms_otp_hash_key_0123456789abcdef WHATSAPP_LOGIN_NUMBER=+77001234567 WAPPI_LOGIN_PROFILE_ID=local-profile WAPPI_WEBHOOK_AUTH_HEADER=X-Local-Wappi WAPPI_WEBHOOK_AUTH_SECRET=local_dev_wappi_webhook_secret_0123456789ab ADMIN_JWT_SIGNING_KEY=local_dev_admin_jwt_key_0123456789abcdefgh ADMIN_ALLOWED_ORIGINS='[\"http://localhost:5173\",\"http://localhost:8081\"]' ADMIN_ALLOW_INSECURE_HTTP=1 WHATSAPP_PROVIDER_MODE=log ../.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "mobile-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd mobile && EXPO_PUBLIC_API_BASE_URL=http://localhost:8000 EXPO_PUBLIC_ALLOW_INSECURE_HTTP=1 npx expo start --web --port 8081"
+      ],
+      "port": 8081
+    },
+    {
+      "name": "mobile-demo",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd mobile && EXPO_PUBLIC_DEMO=1 EXPO_PUBLIC_API_BASE_URL=http://localhost:8000 EXPO_PUBLIC_ALLOW_INSECURE_HTTP=1 npx expo start --web --port 8082"
+      ],
+      "port": 8082
+    }
+  ]
+}

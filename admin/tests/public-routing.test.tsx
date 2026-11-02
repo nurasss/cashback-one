@@ -121,7 +121,7 @@ describe('Public Landing Isolation', () => {
     render(<AppRouter />);
 
     const tabHome = screen.getByRole('tab', { name: 'Карта' });
-    const tabBarcode = screen.getByRole('tab', { name: 'Штрихкод' });
+    const tabQr = screen.getByRole('tab', { name: 'QR-код' });
     const tabHistory = screen.getByRole('tab', { name: 'История' });
     const tabPromotions = screen.getByRole('tab', { name: 'Акции' });
 
@@ -129,11 +129,11 @@ describe('Public Landing Isolation', () => {
     expect(screen.getByText(/Карта и баланс\./i)).toBeInTheDocument();
     expect(screen.getByText(/Данные на экранах — пример/i)).toBeInTheDocument();
 
-    // Переключение кликом на Штрихкод
-    await user.click(tabBarcode);
-    expect(tabBarcode).toHaveAttribute('aria-selected', 'true');
+    // Переключение кликом на QR-код
+    await user.click(tabQr);
+    expect(tabQr).toHaveAttribute('aria-selected', 'true');
     expect(tabHome).toHaveAttribute('aria-selected', 'false');
-    expect(screen.getByText(/Штрихкод\./i)).toBeInTheDocument();
+    expect(screen.getByText(/QR-код\./i)).toBeInTheDocument();
 
     // Переключение кликом на Историю
     await user.click(tabHistory);
@@ -176,21 +176,21 @@ describe('Public Landing Isolation', () => {
 
     // Initial state: only panel-home is visible, others are hidden
     const panelHome = document.getElementById('panel-home');
-    const panelBarcode = document.getElementById('panel-barcode');
+    const panelQr = document.getElementById('panel-qr');
     const panelHistory = document.getElementById('panel-history');
     const panelPromotions = document.getElementById('panel-promotions');
 
     expect(panelHome).not.toHaveAttribute('hidden');
-    expect(panelBarcode).toHaveAttribute('hidden');
+    expect(panelQr).toHaveAttribute('hidden');
     expect(panelHistory).toHaveAttribute('hidden');
     expect(panelPromotions).toHaveAttribute('hidden');
 
-    // Switch to Barcode
-    const tabBarcode = screen.getByRole('tab', { name: 'Штрихкод' });
-    await user.click(tabBarcode);
+    // Switch to QR
+    const tabQr = screen.getByRole('tab', { name: 'QR-код' });
+    await user.click(tabQr);
 
     expect(panelHome).toHaveAttribute('hidden');
-    expect(panelBarcode).not.toHaveAttribute('hidden');
+    expect(panelQr).not.toHaveAttribute('hidden');
     expect(panelHistory).toHaveAttribute('hidden');
     expect(panelPromotions).toHaveAttribute('hidden');
 
@@ -198,7 +198,7 @@ describe('Public Landing Isolation', () => {
     const tabHistory = screen.getByRole('tab', { name: 'История' });
     await user.click(tabHistory);
 
-    expect(panelBarcode).toHaveAttribute('hidden');
+    expect(panelQr).toHaveAttribute('hidden');
     expect(panelHistory).not.toHaveAttribute('hidden');
   });
 
