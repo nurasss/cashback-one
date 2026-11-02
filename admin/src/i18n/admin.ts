@@ -15,6 +15,8 @@ export const adminRu = {
     signoutTitle: 'Завершить сеанс',
     viewMode: 'Режим просмотра',
     viewModeNote: 'Административные изменения отключены',
+    openMenu: 'Открыть меню',
+    closeMenu: 'Закрыть меню',
     navAria: 'Основная навигация',
     nav: {
       overview: 'Обзор',
@@ -462,6 +464,8 @@ export const adminKk: AdminTranslations = {
     signoutTitle: 'Сессияны аяқтау',
     viewMode: 'Көру режимі',
     viewModeNote: 'Әкімшілік өзгертулер өшірілген',
+    openMenu: 'Мәзірді ашу',
+    closeMenu: 'Мәзірді жабу',
     navAria: 'Негізгі навигация',
     nav: {
       overview: 'Шолу',

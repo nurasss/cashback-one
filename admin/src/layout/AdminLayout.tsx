@@ -1,5 +1,5 @@
-import { NavLink, useNavigate } from 'react-router-dom';
-import type { PropsWithChildren } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { type PropsWithChildren, useEffect, useRef, useState } from 'react';
 import { useAdminSession } from '../auth/provider';
 import { Navigation } from '../features/Navigation';
 import { IconBuilding, IconLogout } from '../components/Icons';
@@ -10,6 +10,77 @@ export function AdminLayout({ children }: PropsWithChildren) {
   const { session, view } = useAdminSession();
   const t = useAdminTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const [isOpen, setIsOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+
+  const openMenu = () => {
+    setIsOpen(true);
+  };
+
+  const closeMenu = (returnFocus = false) => {
+    setIsOpen(false);
+    if (returnFocus) {
+      menuButtonRef.current?.focus();
+    }
+  };
+
+  // Close menu on route change
+  useEffect(() => {
+    setIsOpen(false);
+  }, [location.pathname, location.search]);
+
+  // Close menu on window resize > 760px
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 760) {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Close menu on Escape key and return focus
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMenu(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen]);
+
+  // Lock body scroll when menu is open; restore on close and unmount
+  useEffect(() => {
+    if (!isOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
+  // Move focus to first link in menu upon opening
+  useEffect(() => {
+    if (isOpen) {
+      const firstLink = sidebarRef.current?.querySelector<HTMLAnchorElement>('a');
+      firstLink?.focus();
+    }
+  }, [isOpen]);
+
+  const handleSidebarClick = (e: React.MouseEvent) => {
+    const link = (e.target as HTMLElement).closest('a');
+    if (link) {
+      closeMenu(false);
+    }
+  };
+
   if (view.status !== 'authenticated') return null;
   const { admin } = view;
   const signOut = async () => {
@@ -19,7 +90,12 @@ export function AdminLayout({ children }: PropsWithChildren) {
 
   return (
     <div className="app-frame">
-      <aside className="sidebar">
+      <aside
+        id="admin-sidebar"
+        ref={sidebarRef}
+        className={`sidebar${isOpen ? ' is-open' : ''}`}
+        onClick={handleSidebarClick}
+      >
         <div className="sidebar-brand-container">
           <NavLink className="brand-lockup" to="/admin" aria-label={t.layout.brandAria}>
             <div className="brand-mark-wrap">
@@ -44,6 +120,59 @@ export function AdminLayout({ children }: PropsWithChildren) {
           </div>
         </div>
       </aside>
+
+      {isOpen && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          onClick={() => closeMenu(true)}
+          aria-label={t.layout.closeMenu}
+        />
+      )}
+
+      <div className="mobile-bar">
+        <button
+          type="button"
+          ref={menuButtonRef}
+          className="mobile-menu-btn"
+          onClick={() => {
+            if (isOpen) {
+              closeMenu(true);
+            } else {
+              openMenu();
+            }
+          }}
+          aria-label={t.layout.openMenu}
+          aria-expanded={isOpen}
+          aria-controls="admin-sidebar"
+        >
+          <svg
+            className="mobile-menu-icon"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="4" y1="6" x2="20" y2="6" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="18" x2="20" y2="18" />
+          </svg>
+        </button>
+
+        <div className="mobile-brand" aria-hidden="true">
+          <div className="brand-mark-wrap">
+            <img src="/brand-mark.png" alt="" className="brand-mark-img" width="32" height="32" />
+          </div>
+          <div className="brand-text">
+            <strong>poscenter<span>.kz</span></strong>
+          </div>
+        </div>
+      </div>
 
       <div className="main-column">
         <header className="topbar">
