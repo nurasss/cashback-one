@@ -90,6 +90,38 @@ $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs mobile/dist/cash
 $ANDROID_HOME/build-tools/36.0.0/aapt dump badging mobile/dist/cashback-one-1.0.0.apk | grep -E "package|versionName"
 ```
 
+### Выпуск новой версии и окно обновления
+
+Окно «Доступна новая версия» есть начиная с **APK 1.0.10**. Старые версии его не покажут и `version.json` не читают: им можно сообщить только баннером или уведомлением из кабинета, либо лично. Новое поведение приходит только с новым APK.
+
+Приложение при запуске читает `https://cashback-qr.poscenter.kz/app/version.json`. Без обновления этого файла окно никто не увидит.
+
+Порядок, пример для 1.0.11 / versionCode 12:
+
+1. Поднять `version` и `versionCode` в `mobile/app.json` и `mobile/android/app/build.gradle`. Они должны совпадать: окно читает номер из `assets/app.config` внутри APK.
+2. Собрать и проверить APK. `expo prebuild` не запускать. При ручной сборке ключи загружать через `set -a` и задавать `CASHBACK_STORE_FILE`.
+3. Если новая версия зависит от backend, сначала выложить backend.
+4. Загрузить APK отдельным файлом `/app/cashback-one-1.0.11.apk`: временное имя, скачивание обратно, сверка SHA-256, rename. Сервер отвечает 200 на несуществующие пути: наличие файла проверять списком FTP, публикацию — по типу, длине и SHA-256.
+5. **Проверить новую версию на телефоне.**
+6. Обновить `app/version.json`:
+
+   ```json
+   {
+     "latest_version": "1.0.11",
+     "latest_version_code": 12,
+     "min_version_code": 1,
+     "download_url": "https://cashback-qr.poscenter.kz/app/cashback-one-1.0.11.apk"
+   }
+   ```
+
+7. Переключить кнопку лендинга: `admin/src/pages/LandingPage.tsx`, `admin/index.html`, `admin/src/i18n/public.ts`, тесты в `admin/tests/`. Подробно: `docs/PROMPT_UPDATE_WINDOW_LANDING_1_0_10_2026-11-02.md`, часть 2.
+
+Правила `version.json`: `min_version_code` не больше `latest_version_code`; `latest_version` вида `1.0.11`; `download_url` только вида `https://cashback-qr.poscenter.kz/app/cashback-one-<версия>.apk`. Неверный файл приложение молча игнорирует, окна не будет.
+
+`min_version_code` держать `1`. Если он больше версии покупателя, окно становится обязательным, без кнопки «Позже», и приложением нельзя пользоваться до обновления. Этот режим ещё не проверялся на телефоне.
+
+Окно проверяется при запуске и при возврате в приложение не чаще раза в 6 часов. Ответ ждётся 5 секунд, без связи окна нет. «Обновить» открывает загрузку APK, устанавливает покупатель сам.
+
 ## Демо покупательского приложения (веб)
 
 https://cashback-qr.poscenter.kz/demo/ — веб-версия приложения с тестовыми данными и пометкой «ДЕМО» (вход не нужен, данные не настоящие, правки профиля живут только в открытой вкладке). Собирается флагом `EXPO_PUBLIC_DEMO=1`; без флага приложение ходит только на настоящий API.
