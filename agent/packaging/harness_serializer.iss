@@ -10,6 +10,7 @@ OutputBaseFilename=harness_serializer
 PrivilegesRequired=lowest
 
 [Code]
+#include "acl_hardening.iss"
 #include "config_serializer.iss"
 
 function GetParamValue(const Lines: TArrayOfString; const Key: string): string;
@@ -36,7 +37,7 @@ var
   Lines: TArrayOfString;
   Mode, OutFile, StatusFile: string;
   CloudUrl, ApiKey, OnePath, OneUser, OnePass: string;
-  CheckField, CheckVal, ErrMsg: string;
+  CheckField, CheckVal, ErrMsg, DecryptedVal: string;
 begin
   Result := False; // Never show installer UI
 
@@ -79,6 +80,40 @@ begin
     begin
       if StatusFile <> '' then
         SaveStringToFile(StatusFile, UTF8Encode('INVALID: ' + ErrMsg + #13#10), False);
+    end;
+    Exit;
+  end;
+
+  if Mode = 'dpapi_test' then
+  begin
+    if ProtectSecretDPAPI(CheckVal, ErrMsg) then
+    begin
+      if UnprotectSecretDPAPI(ErrMsg, DecryptedVal) then
+      begin
+        if (DecryptedVal = CheckVal) and (StatusFile <> '') then
+          SaveStringToFile(StatusFile, UTF8Encode('SUCCESS' + #13#10), False)
+        else if StatusFile <> '' then
+          SaveStringToFile(StatusFile, UTF8Encode('MISMATCH' + #13#10), False);
+      end
+      else if StatusFile <> '' then
+        SaveStringToFile(StatusFile, UTF8Encode('ERROR: Unprotect failed' + #13#10), False);
+    end
+    else if StatusFile <> '' then
+      SaveStringToFile(StatusFile, UTF8Encode('ERROR: Protect failed' + #13#10), False);
+    Exit;
+  end;
+
+  if Mode = 'update' then
+  begin
+    if UpdateExistingConfigFile(OutFile, ApiKey, OnePass) then
+    begin
+      if StatusFile <> '' then
+        SaveStringToFile(StatusFile, UTF8Encode('SUCCESS' + #13#10), False);
+    end
+    else
+    begin
+      if StatusFile <> '' then
+        SaveStringToFile(StatusFile, UTF8Encode('ERROR: Update failed' + #13#10), False);
     end;
     Exit;
   end;

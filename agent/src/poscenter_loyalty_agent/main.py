@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
+import os
 import sys
 
 from poscenter_loyalty_agent.config import get_settings
@@ -112,6 +114,49 @@ def cmd_service(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_check_one(args: argparse.Namespace) -> int:
+    """Verify connection to 1C infobase without reading records."""
+    from poscenter_loyalty_agent.one_check import check_one_connection
+
+    password = ""
+    if getattr(args, "password_stdin", False):
+        password = sys.stdin.readline().strip("\r\n")
+    else:
+        password = (
+            os.environ.get("ONE_PASSWORD")
+            or os.environ.get("ONE_PASS")
+            or os.environ.get("AGENT_ONE_PASSWORD")
+            or ""
+        )
+
+    code = check_one_connection(
+        db_path=args.db_path,
+        user=args.user,
+        password=password,
+        timeout_seconds=args.timeout,
+    )
+
+    result_json = json.dumps({"code": code}, ensure_ascii=False)
+    print(result_json, flush=True)
+
+    if getattr(args, "output_file", None):
+        try:
+            with open(args.output_file, "w", encoding="utf-8") as f:
+                f.write(result_json + "\n")
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+        except Exception as exc:
+            logger.error("Failed to write check-one output file: %s", exc)
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    return 0 if code == "ok" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     from poscenter_loyalty_agent import __version__
 
@@ -140,6 +185,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_service.add_argument("service_args", nargs=argparse.REMAINDER, help="Arguments passed to win32serviceutil")
     p_service.set_defaults(func=cmd_service)
 
+    # check-one
+    p_check_one = subparsers.add_parser("check-one", help="Verify 1C COM connection without reading records")
+    p_check_one.add_argument("--db-path", required=True, help="Path to 1C infobase directory")
+    p_check_one.add_argument("--user", required=True, help="1C username")
+    p_check_one.add_argument("--password-stdin", action="store_true", help="Read 1C password from standard input")
+    p_check_one.add_argument("--output-file", help="Path to file where JSON result will be written")
+    p_check_one.add_argument("--timeout", type=float, default=30.0, help="Connection timeout in seconds (default: 30)")
+    p_check_one.set_defaults(func=cmd_check_one)
+
     # stage0 discovery toolkit
     from poscenter_loyalty_agent.stage0.cli import register_stage0_subparsers
     register_stage0_subparsers(subparsers)
@@ -151,6 +205,9 @@ def cli(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     exit_code = args.func(args)
+    if getattr(args, "command", "") == "check-one" and argv is None:
+        # Guarantee immediate exit for check-one CLI entrypoint without waiting for COM/threads
+        os._exit(exit_code)
     if exit_code != 0:
         sys.exit(exit_code)
 

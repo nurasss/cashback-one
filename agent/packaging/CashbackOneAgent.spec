@@ -32,6 +32,8 @@ hiddenimports = [
     'anyio',
     'poscenter_loyalty_agent',
     'poscenter_loyalty_agent.config',
+    'poscenter_loyalty_agent.dpapi',
+    'poscenter_loyalty_agent.one_check',
     'poscenter_loyalty_agent.logging',
     'poscenter_loyalty_agent.main',
     'poscenter_loyalty_agent.models',

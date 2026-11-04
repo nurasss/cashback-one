@@ -2,7 +2,7 @@
 ; Builds single CashbackOneAgent-Setup.exe installer
 
 #define MyAppName "POSCENTER Loyalty Agent"
-#define MyAppVersion "0.2.2"
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "POSCENTER"
 #define MyAppURL "https://cashback-qr.poscenter.kz"
 #define MyAppExeName "CashbackOneAgent.exe"
@@ -62,13 +62,27 @@ russian.ServiceInstallFailed=Ошибка регистрации службы Wi
 russian.ServiceRunningNotice=Служба POSCENTERLoyaltyAgent успешно запущена в фоновом режиме.%n%nВнимание: статус службы 'Работает' подтверждает запуск процесса агента, но не гарантирует успешную синхронизацию с 1С и облаком. Проверьте журнал C:\ProgramData\POSCENTER\LoyaltyAgent\logs\agent.log или состояние через команду CashbackOneAgent.exe status.
 russian.ServiceStartTimeout=Службе POSCENTERLoyaltyAgent не удалось перейти в состояние 'Работает' за отведённое время. Проверьте журнал C:\ProgramData\POSCENTER\LoyaltyAgent\logs\agent.log.
 russian.PurgeSecretsPrompt=Удалить файл конфигурации (.env.service) с секретными ключами?%n%n(База контрольных точек синхронизации и HMAC-ключ останутся сохранены).
+russian.BtnCheckConnection=Проверить подключение
+russian.CheckingConnection=Выполняется проверка подключения к 1С...
+russian.ConnectionUnverifiedWarning=Подключение к 1С не проверено. Продолжить установку?
+russian.UpgradeSecretsSection=Обновление учётных данных (необязательно):
+russian.NewApiKeyLabel=Новый ключ агента (оставьте пустым для сохранения):
+russian.NewOnePassLabel=Новый пароль 1С (оставьте пустым для сохранения):
+russian.OneConnOk=Подключение к 1С успешно установлено.
+russian.OneConnComNotRegistered=COM-соединитель 1С:Предприятия (V83.COMConnector) не зарегистрирован. Требуется зарегистрировать comcntr.dll.
+russian.OneConnDbNotFound=База 1С не найдена по указанному пути (отсутствует каталог или файл 1Cv8.1CD).
+russian.OneConnAuthFailed=Ошибка авторизации 1С: неверное имя пользователя или пароль.
+russian.OneConnDbLocked=База 1С заблокирована другим процессом или открыта монопольно.
+russian.OneConnTimeout=Время ожидания подключения к 1С превышено (30 сек).
+russian.OneConnUnknown=Ошибка подключения к 1С (код ошибки: unknown).
 
 [Files]
 Source: "dist\CashbackOneAgent\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\CashbackOneAgent\*"; DestDir: "{tmp}\agent_probe"; Flags: dontcopy recursesubdirs createallsubdirs
 
 [Code]
-#include "config_serializer.iss"
 #include "acl_hardening.iss"
+#include "config_serializer.iss"
 
 const
   SC_MANAGER_CONNECT = $0001;
@@ -106,12 +120,23 @@ function CloseServiceHandle(hSCObject: THandle): BOOL;
 function GetLastError(): DWORD;
   external 'GetLastError@kernel32.dll stdcall';
 
+function SetEnvironmentVariableW(lpName, lpValue: string): BOOL;
+  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+
 var
   IsUpgradeMode: Boolean;
   HasExistingStateDb: Boolean;
   PageUpgrade: TWizardPage;
   RadioKeepConfig: TRadioButton;
   RadioReconfigure: TRadioButton;
+  LblUpgradeSecrets: TLabel;
+  LblNewApiKey: TLabel;
+  EditNewApiKey: TNewEdit;
+  LblNewOnePass: TLabel;
+  EditNewOnePass: TNewEdit;
+  BtnCheckUpgradeOne: TNewButton;
+  LblCheckUpgradeOneResult: TLabel;
+  UpgradeOneConnectionVerified: Boolean;
 
   PageCloud: TWizardPage;
   EditCloudUrl: TNewEdit;
@@ -122,10 +147,15 @@ var
   BtnBrowseDb: TNewButton;
   EditOneUser: TNewEdit;
   EditOnePass: TNewEdit;
+  BtnCheckOne: TNewButton;
+  LblCheckOneResult: TLabel;
+  OneConnectionVerified: Boolean;
 
   PageMapping: TWizardPage;
   EditMappingPath: TNewEdit;
   BtnBrowseMapping: TNewButton;
+
+  AgentProbeExtracted: Boolean;
 
 function QueryServiceStateEx(const ServiceName: string; var SvcState: DWORD; var LastErr: DWORD): Boolean;
 var
@@ -264,6 +294,210 @@ begin
   end;
 end;
 
+function EnsureAgentProbeExtracted(): Boolean;
+begin
+  if not AgentProbeExtracted then
+  begin
+    ExtractTemporaryFiles('{tmp}\agent_probe\*');
+    AgentProbeExtracted := True;
+  end;
+  Result := AgentProbeExtracted;
+end;
+
+procedure CleanupAgentProbe();
+begin
+  if AgentProbeExtracted then
+  begin
+    DelTree(ExpandConstant('{tmp}\agent_probe'), True, True, True);
+    AgentProbeExtracted := False;
+  end;
+end;
+
+function GetCheckOneMessage(const Code: string): string;
+begin
+  if Code = 'ok' then
+    Result := CustomMessage('OneConnOk')
+  else if Code = 'auth_failed' then
+    Result := CustomMessage('OneConnAuthFailed')
+  else if Code = 'db_not_found' then
+    Result := CustomMessage('OneConnDbNotFound')
+  else if Code = 'com_not_registered' then
+    Result := CustomMessage('OneConnComNotRegistered')
+  else if Code = 'db_locked' then
+    Result := CustomMessage('OneConnDbLocked')
+  else if Code = 'timeout' then
+    Result := CustomMessage('OneConnTimeout')
+  else
+    Result := CustomMessage('OneConnUnknown');
+end;
+
+function ExecuteCheckOne(const DbPath, User, Pass: string; var OutCode: string): Boolean;
+var
+  ProbeExe, ResultJsonFile, CmdParams, JsonContent: string;
+  ResultCode: Integer;
+begin
+  Result := False;
+  OutCode := 'unknown';
+
+  if not EnsureAgentProbeExtracted() then
+  begin
+    OutCode := 'com_not_registered';
+    Exit;
+  end;
+
+  ProbeExe := ExpandConstant('{tmp}\agent_probe\{#MyAppExeName}');
+  ResultJsonFile := ExpandConstant('{tmp}\check_one_result.json');
+
+  if FileExists(ResultJsonFile) then
+    DeleteFile(ResultJsonFile);
+
+  // Set password strictly via environment variable, never on command line
+  SetEnvironmentVariableW('ONE_PASSWORD', Pass);
+  try
+    CmdParams := 'check-one --db-path "' + DbPath + '" --user "' + User + '" --output-file "' + ResultJsonFile + '"';
+    Exec(ProbeExe, CmdParams, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  finally
+    // Immediately clear environment variable
+    SetEnvironmentVariableW('ONE_PASSWORD', '');
+  end;
+
+  if FileExists(ResultJsonFile) then
+  begin
+    if LoadStringFromFile(ResultJsonFile, JsonContent) then
+    begin
+      if Pos('"code": "ok"', JsonContent) > 0 then
+        OutCode := 'ok'
+      else if Pos('"code": "auth_failed"', JsonContent) > 0 then
+        OutCode := 'auth_failed'
+      else if Pos('"code": "db_not_found"', JsonContent) > 0 then
+        OutCode := 'db_not_found'
+      else if Pos('"code": "com_not_registered"', JsonContent) > 0 then
+        OutCode := 'com_not_registered'
+      else if Pos('"code": "db_locked"', JsonContent) > 0 then
+        OutCode := 'db_locked'
+      else if Pos('"code": "timeout"', JsonContent) > 0 then
+        OutCode := 'timeout'
+      else
+        OutCode := 'unknown';
+      Result := True;
+    end;
+    DeleteFile(ResultJsonFile);
+  end;
+end;
+
+procedure OneFieldChange(Sender: TObject);
+begin
+  OneConnectionVerified := False;
+  LblCheckOneResult.Caption := '';
+end;
+
+procedure UpgradeFieldChange(Sender: TObject);
+begin
+  UpgradeOneConnectionVerified := False;
+  LblCheckUpgradeOneResult.Caption := '';
+end;
+
+procedure RadioUpgradeClick(Sender: TObject);
+begin
+  EditNewApiKey.Enabled := RadioKeepConfig.Checked;
+  EditNewOnePass.Enabled := RadioKeepConfig.Checked;
+  BtnCheckUpgradeOne.Enabled := RadioKeepConfig.Checked;
+  LblUpgradeSecrets.Enabled := RadioKeepConfig.Checked;
+  LblNewApiKey.Enabled := RadioKeepConfig.Checked;
+  LblNewOnePass.Enabled := RadioKeepConfig.Checked;
+end;
+
+procedure BtnCheckOneClick(Sender: TObject);
+var
+  DbPath, User, Pass, Code: string;
+begin
+  DbPath := Trim(EditOneDbPath.Text);
+  User := Trim(EditOneUser.Text);
+  Pass := EditOnePass.Text;
+
+  if DbPath = '' then
+  begin
+    MsgBox('Укажите путь к каталогу базы данных 1С перед проверкой.', mbError, MB_OK);
+    Exit;
+  end;
+  if not DirExists(DbPath) then
+  begin
+    MsgBox('Указанный каталог базы данных 1С не существует.', mbError, MB_OK);
+    Exit;
+  end;
+
+  LblCheckOneResult.Caption := CustomMessage('CheckingConnection');
+  LblCheckOneResult.Update();
+
+  if ExecuteCheckOne(DbPath, User, Pass, Code) then
+  begin
+    LblCheckOneResult.Caption := GetCheckOneMessage(Code);
+    OneConnectionVerified := (Code = 'ok');
+  end
+  else
+  begin
+    LblCheckOneResult.Caption := GetCheckOneMessage('unknown');
+    OneConnectionVerified := False;
+  end;
+end;
+
+procedure BtnCheckUpgradeOneClick(Sender: TObject);
+var
+  EnvFile, DbPath, User, Pass, Code: string;
+  Lines: TArrayOfString;
+  I: Integer;
+  LineTrim, ConnVal, DpapiPassVal: string;
+begin
+  EnvFile := ExpandConstant('{commonappdata}\POSCENTER\LoyaltyAgent\config\.env.service');
+  DbPath := '';
+  User := '';
+  Pass := '';
+
+  if FileExists(EnvFile) and LoadStringsFromFile(EnvFile, Lines) then
+  begin
+    for I := 0 to GetArrayLength(Lines) - 1 do
+    begin
+      LineTrim := Trim(Lines[I]);
+      if Pos('ONE_CONNECTION_STRING=', LineTrim) = 1 then
+      begin
+        ConnVal := UnquoteDotEnvValue(Copy(LineTrim, Length('ONE_CONNECTION_STRING=') + 1, Length(LineTrim)));
+        DbPath := Extract1CParam(ConnVal, 'File');
+        User := Extract1CParam(ConnVal, 'Usr');
+        Pass := Extract1CParam(ConnVal, 'Pwd');
+      end
+      else if Pos('ONE_PASSWORD_DPAPI=', LineTrim) = 1 then
+      begin
+        DpapiPassVal := UnquoteDotEnvValue(Copy(LineTrim, Length('ONE_PASSWORD_DPAPI=') + 1, Length(LineTrim)));
+        if DpapiPassVal <> '' then
+          UnprotectSecretDPAPI(DpapiPassVal, Pass);
+      end;
+    end;
+  end;
+
+  if EditNewOnePass.Text <> '' then
+    Pass := EditNewOnePass.Text;
+
+  if DbPath = '' then
+  begin
+    MsgBox('В существующей конфигурации не найден путь к базе 1С.', mbError, MB_OK);
+    Exit;
+  end;
+
+  LblCheckUpgradeOneResult.Caption := CustomMessage('CheckingConnection');
+  LblCheckUpgradeOneResult.Update();
+
+  if ExecuteCheckOne(DbPath, User, Pass, Code) then
+  begin
+    LblCheckUpgradeOneResult.Caption := GetCheckOneMessage(Code);
+    UpgradeOneConnectionVerified := (Code = 'ok');
+  end
+  else
+  begin
+    LblCheckUpgradeOneResult.Caption := GetCheckOneMessage('unknown');
+    UpgradeOneConnectionVerified := False;
+  end;
+end;
+
 procedure InitializeWizard();
 var
   LblCloudUrl, LblApiKey: TLabel;
@@ -278,16 +512,18 @@ begin
   RadioKeepConfig.Parent := PageUpgrade.Surface;
   RadioKeepConfig.Caption := CustomMessage('UpgradeKeepConfig');
   RadioKeepConfig.Left := ScaleX(10);
-  RadioKeepConfig.Top := ScaleY(15);
+  RadioKeepConfig.Top := ScaleY(10);
   RadioKeepConfig.Width := PageUpgrade.SurfaceWidth - ScaleX(20);
   RadioKeepConfig.Checked := True;
+  RadioKeepConfig.OnClick := @RadioUpgradeClick;
 
   RadioReconfigure := TRadioButton.Create(PageUpgrade);
   RadioReconfigure.Parent := PageUpgrade.Surface;
   RadioReconfigure.Caption := CustomMessage('UpgradeReconfigure');
   RadioReconfigure.Left := ScaleX(10);
-  RadioReconfigure.Top := ScaleY(45);
+  RadioReconfigure.Top := ScaleY(32);
   RadioReconfigure.Width := PageUpgrade.SurfaceWidth - ScaleX(20);
+  RadioReconfigure.OnClick := @RadioUpgradeClick;
 
   // If agent_state.db exists, disallow reconfiguration in this version to avoid mixing client states
   if HasExistingStateDb then
@@ -299,11 +535,61 @@ begin
     LblStateNotice.Parent := PageUpgrade.Surface;
     LblStateNotice.Caption := CustomMessage('ReconfigureBlockedDueToState');
     LblStateNotice.Left := ScaleX(10);
-    LblStateNotice.Top := ScaleY(80);
+    LblStateNotice.Top := ScaleY(54);
     LblStateNotice.Width := PageUpgrade.SurfaceWidth - ScaleX(20);
     LblStateNotice.WordWrap := True;
     LblStateNotice.Font.Style := [fsBold];
   end;
+
+  LblUpgradeSecrets := TLabel.Create(PageUpgrade);
+  LblUpgradeSecrets.Parent := PageUpgrade.Surface;
+  LblUpgradeSecrets.Caption := CustomMessage('UpgradeSecretsSection');
+  LblUpgradeSecrets.Left := ScaleX(10);
+  LblUpgradeSecrets.Top := ScaleY(105);
+  LblUpgradeSecrets.Font.Style := [fsBold];
+
+  LblNewApiKey := TLabel.Create(PageUpgrade);
+  LblNewApiKey.Parent := PageUpgrade.Surface;
+  LblNewApiKey.Caption := CustomMessage('NewApiKeyLabel');
+  LblNewApiKey.Left := ScaleX(10);
+  LblNewApiKey.Top := ScaleY(125);
+
+  EditNewApiKey := TNewEdit.Create(PageUpgrade);
+  EditNewApiKey.Parent := PageUpgrade.Surface;
+  EditNewApiKey.PasswordChar := '*';
+  EditNewApiKey.Left := ScaleX(10);
+  EditNewApiKey.Top := ScaleY(142);
+  EditNewApiKey.Width := PageUpgrade.SurfaceWidth - ScaleX(20);
+
+  LblNewOnePass := TLabel.Create(PageUpgrade);
+  LblNewOnePass.Parent := PageUpgrade.Surface;
+  LblNewOnePass.Caption := CustomMessage('NewOnePassLabel');
+  LblNewOnePass.Left := ScaleX(10);
+  LblNewOnePass.Top := ScaleY(168);
+
+  EditNewOnePass := TNewEdit.Create(PageUpgrade);
+  EditNewOnePass.Parent := PageUpgrade.Surface;
+  EditNewOnePass.PasswordChar := '*';
+  EditNewOnePass.Left := ScaleX(10);
+  EditNewOnePass.Top := ScaleY(185);
+  EditNewOnePass.Width := PageUpgrade.SurfaceWidth - ScaleX(185);
+  EditNewOnePass.OnChange := @UpgradeFieldChange;
+
+  BtnCheckUpgradeOne := TNewButton.Create(PageUpgrade);
+  BtnCheckUpgradeOne.Parent := PageUpgrade.Surface;
+  BtnCheckUpgradeOne.Caption := CustomMessage('BtnCheckConnection');
+  BtnCheckUpgradeOne.Left := PageUpgrade.SurfaceWidth - ScaleX(170);
+  BtnCheckUpgradeOne.Top := ScaleY(184);
+  BtnCheckUpgradeOne.Width := ScaleX(160);
+  BtnCheckUpgradeOne.Height := ScaleY(23);
+  BtnCheckUpgradeOne.OnClick := @BtnCheckUpgradeOneClick;
+
+  LblCheckUpgradeOneResult := TLabel.Create(PageUpgrade);
+  LblCheckUpgradeOneResult.Parent := PageUpgrade.Surface;
+  LblCheckUpgradeOneResult.Left := ScaleX(10);
+  LblCheckUpgradeOneResult.Top := ScaleY(210);
+  LblCheckUpgradeOneResult.Width := PageUpgrade.SurfaceWidth - ScaleX(20);
+  LblCheckUpgradeOneResult.WordWrap := True;
 
   // --- Page 1: Cloud Settings ---
   PageCloud := CreateCustomPage(PageUpgrade.ID, CustomMessage('CloudPageTitle'), CustomMessage('CloudPageDesc'));
@@ -348,6 +634,7 @@ begin
   EditOneDbPath.Left := ScaleX(0);
   EditOneDbPath.Top := ScaleY(28);
   EditOneDbPath.Width := PageOne.SurfaceWidth - ScaleX(85);
+  EditOneDbPath.OnChange := @OneFieldChange;
 
   BtnBrowseDb := TNewButton.Create(PageOne);
   BtnBrowseDb.Parent := PageOne.Surface;
@@ -369,6 +656,7 @@ begin
   EditOneUser.Left := ScaleX(0);
   EditOneUser.Top := ScaleY(83);
   EditOneUser.Width := PageOne.SurfaceWidth;
+  EditOneUser.OnChange := @OneFieldChange;
 
   LblOnePass := TLabel.Create(PageOne);
   LblOnePass.Parent := PageOne.Surface;
@@ -382,6 +670,23 @@ begin
   EditOnePass.Left := ScaleX(0);
   EditOnePass.Top := ScaleY(138);
   EditOnePass.Width := PageOne.SurfaceWidth;
+  EditOnePass.OnChange := @OneFieldChange;
+
+  BtnCheckOne := TNewButton.Create(PageOne);
+  BtnCheckOne.Parent := PageOne.Surface;
+  BtnCheckOne.Caption := CustomMessage('BtnCheckConnection');
+  BtnCheckOne.Left := ScaleX(0);
+  BtnCheckOne.Top := ScaleY(168);
+  BtnCheckOne.Width := ScaleX(160);
+  BtnCheckOne.Height := ScaleY(25);
+  BtnCheckOne.OnClick := @BtnCheckOneClick;
+
+  LblCheckOneResult := TLabel.Create(PageOne);
+  LblCheckOneResult.Parent := PageOne.Surface;
+  LblCheckOneResult.Left := ScaleX(0);
+  LblCheckOneResult.Top := ScaleY(198);
+  LblCheckOneResult.Width := PageOne.SurfaceWidth;
+  LblCheckOneResult.WordWrap := True;
 
   // --- Page 3: Mapping Settings ---
   PageMapping := CreateCustomPage(PageOne.ID, CustomMessage('MappingPageTitle'), CustomMessage('MappingPageDesc'));
@@ -452,6 +757,41 @@ begin
       MsgBox(CustomMessage('ReconfigureBlockedDueToState'), mbError, MB_OK);
       Result := False;
       Exit;
+    end;
+
+    if RadioKeepConfig.Checked then
+    begin
+      if Trim(EditNewApiKey.Text) <> '' then
+      begin
+        if Length(Trim(EditNewApiKey.Text)) < 16 then
+        begin
+          MsgBox('Новый ключ агента должен содержать не менее 16 символов.', mbError, MB_OK);
+          Result := False;
+          Exit;
+        end;
+        if not CheckDisallowedInput('Новый ключ агента', Trim(EditNewApiKey.Text)) then
+        begin
+          Result := False;
+          Exit;
+        end;
+      end;
+
+      if EditNewOnePass.Text <> '' then
+      begin
+        if not CheckDisallowedInput('Новый пароль 1С', EditNewOnePass.Text) then
+        begin
+          Result := False;
+          Exit;
+        end;
+        if not UpgradeOneConnectionVerified then
+        begin
+          if MsgBox(CustomMessage('ConnectionUnverifiedWarning'), mbConfirmation, MB_YESNO) <> idYes then
+          begin
+            Result := False;
+            Exit;
+          end;
+        end;
+      end;
     end;
   end;
 
@@ -525,6 +865,15 @@ begin
     begin
       Result := False;
       Exit;
+    end;
+
+    if not OneConnectionVerified then
+    begin
+      if MsgBox(CustomMessage('ConnectionUnverifiedWarning'), mbConfirmation, MB_YESNO) <> idYes then
+      begin
+        Result := False;
+        Exit;
+      end;
     end;
   end;
 
@@ -642,6 +991,12 @@ begin
       // Tighten ACL on the written file
       if not SecureFileAcl(EnvFile) then
         RaiseException(CustomMessage('AclFailed') + ' (Файл: ' + EnvFile + ')');
+    end
+    else
+    begin
+      // In upgrade mode with preserved config: upgrade secrets in place to DPAPI
+      if not UpdateExistingConfigFile(EnvFile, Trim(EditNewApiKey.Text), EditNewOnePass.Text) then
+        RaiseException('Ошибка обновления конфигурации: ' + EnvFile);
     end;
 
     // 6. Windows Service Registration via agent binary
@@ -692,6 +1047,8 @@ begin
     begin
       RaiseException(CustomMessage('ServiceStartTimeout') + ' (Состояние службы: ' + IntToStr(SvcState) + ')');
     end;
+
+    CleanupAgentProbe();
   end;
 end;
 
@@ -754,4 +1111,9 @@ begin
       end;
     end;
   end;
+end;
+
+procedure DeinitializeSetup();
+begin
+  CleanupAgentProbe();
 end;

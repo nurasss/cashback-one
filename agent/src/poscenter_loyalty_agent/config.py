@@ -1,11 +1,17 @@
 """Configuration management for POSCENTER Loyalty Windows Agent."""
+import logging
 import os
+import re
 import sys
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from pathlib import Path
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from poscenter_loyalty_agent.dpapi import unprotect_secret
+
+logger = logging.getLogger(__name__)
 
 
 def get_default_data_dir() -> Path:
@@ -14,6 +20,27 @@ def get_default_data_dir() -> Path:
         program_data = os.environ.get("ProgramData", r"C:\ProgramData")
         return Path(program_data) / "POSCENTER" / "LoyaltyAgent"
     return Path.home() / ".poscenter_loyalty_agent"
+
+
+def extract_1c_password(conn_str: str) -> str | None:
+    """Extract password value from 1C connection string if present."""
+    match = re.search(r'(?i)Pwd\s*=\s*("([^"]*)"|\'([^\']*)\'|([^;\s]*))', conn_str)
+    if match:
+        val = match.group(2) if match.group(2) is not None else (match.group(3) if match.group(3) is not None else match.group(4))
+        return val or ""
+    return None
+
+
+def inject_1c_password(conn_str: str, password: str) -> str:
+    """Inject or replace Pwd in 1C connection string with proper quote escaping."""
+    esc_pwd = password.replace('"', '""')
+    pwd_clause = f'Pwd="{esc_pwd}";'
+    if re.search(r'(?i)Pwd\s*=', conn_str):
+        return re.sub(r'(?i)Pwd\s*=\s*("([^"]*)"|\'([^\']*)\'|[^;]*)(;?)', pwd_clause, conn_str)
+    clean = conn_str.strip()
+    if clean and not clean.endswith(';'):
+        clean += ';'
+    return clean + pwd_clause
 
 
 class AgentSettings(BaseSettings):
@@ -41,7 +68,13 @@ class AgentSettings(BaseSettings):
     )
     agent_api_key: str = Field(
         default="",
-        description="Secret Agent Key sent in X-Agent-Key header",
+        description="Secret Agent Key sent in X-Agent-Key header (legacy plaintext)",
+        repr=False,
+    )
+    agent_api_key_dpapi: str = Field(
+        default="",
+        description="DPAPI-encrypted Agent Key (base64)",
+        repr=False,
     )
     agent_poll_interval_seconds: int = Field(
         default=120,
@@ -115,7 +148,7 @@ class AgentSettings(BaseSettings):
         description="Directory for rotating log files",
     )
     agent_version: str = Field(
-        default="0.2.2",
+        default="0.3.0",
         description="Agent release version",
     )
     one_adapter_mode: str = Field(
@@ -125,6 +158,17 @@ class AgentSettings(BaseSettings):
     one_connection_string: str = Field(
         default="",
         description="Connection string for V83.COMConnector (treated as secret)",
+        repr=False,
+    )
+    one_password: str = Field(
+        default="",
+        description="1C password (legacy plaintext)",
+        repr=False,
+    )
+    one_password_dpapi: str = Field(
+        default="",
+        description="DPAPI-encrypted 1C password (base64)",
+        repr=False,
     )
     agent_one_timezone: str = Field(
         default="Asia/Almaty",
@@ -218,6 +262,46 @@ class AgentSettings(BaseSettings):
         if not all(part.strip() and "/" in part for part in parts):
             raise ValueError("Invalid POS CIDR list")
         return tuple(ip_network(part.strip(), strict=True) for part in parts)
+
+    @model_validator(mode="after")
+    def validate_and_decrypt_credentials(self) -> "AgentSettings":
+        # 1. Cloud API Key
+        clean_key = self.agent_api_key.strip()
+        clean_dpapi = self.agent_api_key_dpapi.strip()
+
+        if clean_key and clean_dpapi:
+            raise ValueError(
+                "Configuration error: both AGENT_API_KEY (plaintext) and AGENT_API_KEY_DPAPI (encrypted) are specified. Only one is allowed."
+            )
+        if clean_dpapi:
+            self.agent_api_key = unprotect_secret(clean_dpapi)
+        elif clean_key:
+            logger.warning("AGENT_API_KEY: ключ хранится открытым текстом")
+
+        # 2. 1C Password & Connection String
+        conn_pwd = extract_1c_password(self.one_connection_string)
+        has_conn_pwd = (conn_pwd is not None and len(conn_pwd) > 0)
+        has_plain_one_pwd = bool(self.one_password.strip())
+        has_dpapi_one_pwd = bool(self.one_password_dpapi.strip())
+
+        if has_dpapi_one_pwd and (has_plain_one_pwd or has_conn_pwd):
+            raise ValueError(
+                "Configuration error: both plaintext 1C password and ONE_PASSWORD_DPAPI (encrypted) are specified. Only one is allowed."
+            )
+        if has_plain_one_pwd and has_conn_pwd and self.one_password.strip() != conn_pwd:
+            raise ValueError(
+                "Configuration error: conflicting 1C passwords in ONE_PASSWORD and ONE_CONNECTION_STRING."
+            )
+
+        if has_dpapi_one_pwd:
+            decrypted_pwd = unprotect_secret(self.one_password_dpapi)
+            self.one_connection_string = inject_1c_password(self.one_connection_string, decrypted_pwd)
+        elif has_plain_one_pwd or has_conn_pwd:
+            logger.warning("ONE_PASSWORD: пароль 1С хранится открытым текстом")
+            if has_plain_one_pwd and not has_conn_pwd:
+                self.one_connection_string = inject_1c_password(self.one_connection_string, self.one_password.strip())
+
+        return self
 
     @model_validator(mode="after")
     def validate_security_and_paths(self) -> "AgentSettings":
