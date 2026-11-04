@@ -5,6 +5,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.entities import Agent
 from app.schemas.pos import (
@@ -43,6 +45,8 @@ async def create_redemption(
     sender: Annotated[WhatsAppSender, Depends(get_whatsapp_sender)],
 ) -> RedemptionRequestResponse:
     """Send a write-off confirmation code to the customer's WhatsApp."""
+    if not settings.redemption_whatsapp_enabled:
+        raise AppError("REDEMPTION_CHANNEL_DISABLED", "WhatsApp redemption channel is disabled", 410)
     return await request_redemption(session, agent, body, limiter, sender)
 
 
@@ -54,4 +58,6 @@ async def confirm_redemption(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> RedemptionVerifyResponse:
     """Check the code the customer read out; on success the POS posts the write-off in ONE."""
+    if not settings.redemption_whatsapp_enabled:
+        raise AppError("REDEMPTION_CHANNEL_DISABLED", "WhatsApp redemption channel is disabled", 410)
     return await verify_redemption(session, agent, redemption_id, body.code)

@@ -162,3 +162,74 @@ class WalletLinkRequest(BaseModel):
 class WalletLinkResponse(BaseModel):
     url: str
     expires_at: datetime | None
+
+
+_ANDROID_APP_ID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
+
+
+class PushTokenRegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=1024)
+    platform: Literal["android"]
+    app_id: str = Field(max_length=255)
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, v: str) -> str:
+        if re.search(r"\s", v):
+            raise ValueError("Token must not contain whitespace")
+        return v
+
+    @field_validator("app_id")
+    @classmethod
+    def validate_app_id(cls, v: str) -> str:
+        if not _ANDROID_APP_ID_RE.match(v):
+            raise ValueError("Invalid Android package format for app_id")
+        return v
+
+
+class PushTokenDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=1024)
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, v: str) -> str:
+        if re.search(r"\s", v):
+            raise ValueError("Token must not contain whitespace")
+        return v
+
+
+class AppStoreItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title_ru: str
+    title_kk: str
+    address_ru: str
+    address_kk: str
+    map_url: str | None = None
+    sort_order: int
+
+
+class CustomerLocalizedText(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ru: str | None = None
+    kk: str | None = None
+
+
+class CustomerAppTexts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    home_store_note_lead: CustomerLocalizedText = Field(default_factory=CustomerLocalizedText)
+    balance_delay_note: CustomerLocalizedText = Field(default_factory=CustomerLocalizedText)
+
+
+class CustomerAppContentResponse(BaseModel):
+    business_id: uuid.UUID
+    stores: list[AppStoreItem]
+    app_texts: CustomerAppTexts
+    updated_at: datetime

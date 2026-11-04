@@ -13,9 +13,15 @@ from app.api.admin_deps import AdminScope, scope_for_admin
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.models.admin import AdminUser
-from app.models.entities import Business, Notification, Promotion
+from app.models.entities import Business, BusinessStore, Notification, Promotion
 from app.schemas.admin import Page
 from app.schemas.admin_content import (
+    AppTextsResponse,
+    AppTextsUpdateRequest,
+    BusinessStoreAdminItem,
+    BusinessStoreCreateRequest,
+    BusinessStoreUpdateRequest,
+    LocalizedAppText,
     NotificationAdminItem,
     NotificationCreateRequest,
     PromotionAdminItem,
@@ -211,3 +217,164 @@ async def delete_notification(db: AsyncSession, admin: AdminUser, notification_i
     await db.delete(note)
     _audit(db, admin, note.business_id, "notification_deleted", "notification", before, None)
     await db.commit()
+
+
+def _store_state(store: BusinessStore) -> dict[str, Any]:
+    return {
+        "store_id": str(store.id),
+        "business_id": str(store.business_id),
+        "title_ru": store.title_ru,
+        "title_kk": store.title_kk,
+        "address_ru": store.address_ru,
+        "address_kk": store.address_kk,
+        "map_url": store.map_url,
+        "sort_order": store.sort_order,
+        "is_active": store.is_active,
+    }
+
+
+def _check_business_scope(scope: AdminScope, business_id: uuid.UUID) -> None:
+    if scope.business_id is not None and scope.business_id != business_id:
+        raise _not_found()
+
+
+async def list_stores(
+    db: AsyncSession, admin: AdminUser, business_id: uuid.UUID
+) -> list[BusinessStoreAdminItem]:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    await _require_business(db, business_id)
+    stmt = (
+        select(BusinessStore)
+        .where(BusinessStore.business_id == business_id)
+        .order_by(
+            BusinessStore.sort_order.asc(),
+            BusinessStore.created_at.asc(),
+            BusinessStore.id.asc(),
+        )
+    )
+    rows = (await db.scalars(stmt)).all()
+    return [BusinessStoreAdminItem.model_validate(row) for row in rows]
+
+
+async def create_store(
+    db: AsyncSession,
+    admin: AdminUser,
+    business_id: uuid.UUID,
+    body: BusinessStoreCreateRequest,
+) -> BusinessStoreAdminItem:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    await _require_business(db, business_id)
+    store = BusinessStore(business_id=business_id, **body.model_dump())
+    db.add(store)
+    await db.flush()
+    _audit(db, admin, business_id, "store_created", "business_store", None, _store_state(store))
+    await db.commit()
+    await db.refresh(store)
+    return BusinessStoreAdminItem.model_validate(store)
+
+
+async def update_store(
+    db: AsyncSession,
+    admin: AdminUser,
+    business_id: uuid.UUID,
+    store_id: uuid.UUID,
+    body: BusinessStoreUpdateRequest,
+) -> BusinessStoreAdminItem:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    await _require_business(db, business_id)
+    store = await db.scalar(
+        select(BusinessStore)
+        .where(BusinessStore.id == store_id, BusinessStore.business_id == business_id)
+        .with_for_update()
+    )
+    if store is None:
+        raise _not_found()
+    before = _store_state(store)
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(store, field, value)
+    await db.flush()
+    _audit(db, admin, business_id, "store_updated", "business_store", before, _store_state(store))
+    await db.commit()
+    await db.refresh(store)
+    return BusinessStoreAdminItem.model_validate(store)
+
+
+async def delete_store(
+    db: AsyncSession, admin: AdminUser, business_id: uuid.UUID, store_id: uuid.UUID
+) -> None:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    await _require_business(db, business_id)
+    store = await db.scalar(
+        select(BusinessStore)
+        .where(BusinessStore.id == store_id, BusinessStore.business_id == business_id)
+        .with_for_update()
+    )
+    if store is None:
+        raise _not_found()
+    before = _store_state(store)
+    await db.delete(store)
+    _audit(db, admin, business_id, "store_deleted", "business_store", before, None)
+    await db.commit()
+
+
+async def get_app_texts(
+    db: AsyncSession, admin: AdminUser, business_id: uuid.UUID
+) -> AppTextsResponse:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    biz = await db.scalar(select(Business).where(Business.id == business_id))
+    if biz is None:
+        raise _not_found()
+    raw = biz.app_texts or {}
+    return AppTextsResponse(
+        home_store_note_lead=LocalizedAppText.model_validate(
+            raw.get("home_store_note_lead") or {}
+        ),
+        balance_delay_note=LocalizedAppText.model_validate(
+            raw.get("balance_delay_note") or {}
+        ),
+    )
+
+async def update_app_texts(
+    db: AsyncSession,
+    admin: AdminUser,
+    business_id: uuid.UUID,
+    body: AppTextsUpdateRequest,
+) -> AppTextsResponse:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    biz = await db.scalar(
+        select(Business).where(Business.id == business_id).with_for_update()
+    )
+    if biz is None:
+        raise _not_found()
+    before = biz.app_texts
+    current_texts = dict(biz.app_texts or {})
+    for key, val in body.model_dump(exclude_unset=True).items():
+        current_texts[key] = val
+    biz.app_texts = current_texts
+    await db.flush()
+    _audit(
+        db,
+        admin,
+        business_id,
+        "app_texts_updated",
+        "business_app_texts",
+        before,
+        biz.app_texts,
+    )
+    await db.commit()
+    await db.refresh(biz)
+    raw = biz.app_texts or {}
+    return AppTextsResponse(
+        home_store_note_lead=LocalizedAppText.model_validate(
+            raw.get("home_store_note_lead") or {}
+        ),
+        balance_delay_note=LocalizedAppText.model_validate(
+            raw.get("balance_delay_note") or {}
+        ),
+    )

@@ -53,3 +53,21 @@ class RedemptionVerifyResponse(BaseModel):
     @field_serializer("amount")
     def serialize_amount(self, val: Decimal) -> str:
         return f"{val:.4f}"
+
+
+class PosRedemptionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    barcode: str = Field(..., pattern=BARCODE_REGEX)
+    amount: Decimal = Field(..., gt=0)
+
+
+class PosRedemptionResponse(BaseModel):
+    redemption_id: uuid.UUID
+    expires_at: datetime
+
+
+class PosRedemptionVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(..., pattern=r"^\d{4}$")

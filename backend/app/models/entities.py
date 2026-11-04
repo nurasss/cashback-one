@@ -35,6 +35,8 @@ class Business(Base, UUIDPrimaryKey, Timestamps):
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     # Ordered loyalty levels: [{"level": 1, "name": "...", "threshold": "0", "percent": "3"}]
     loyalty_tiers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    # Closed set of localized app texts: {"home_store_note_lead": {"ru": "...", "kk": "..."}, ...}
+    app_texts: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class Agent(Base, UUIDPrimaryKey):
@@ -297,17 +299,29 @@ class Device(Base, UUIDPrimaryKey):
     """User push notification device registration (Stage 2 infrastructure)."""
 
     __tablename__ = "devices"
-    __table_args__ = (Index("ix_devices_user_id", "user_id"),)
+    __table_args__ = (
+        Index("ix_devices_user_id", "user_id"),
+        Index("ix_devices_push_token", "push_token", unique=True),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    push_token: Mapped[str] = mapped_column(String(512), nullable=False)
+    push_token: Mapped[str] = mapped_column(String(1024), nullable=False)
+    app_id: Mapped[str] = mapped_column(
+        String(255), default="kz.cashbackone.mobile", nullable=False
+    )
     platform: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    disabled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 
@@ -395,33 +409,6 @@ class Promotion(Base, UUIDPrimaryKey, Timestamps):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
-class Notification(Base, UUIDPrimaryKey):
-    """In-app notification.
-
-    Audience: user_id set -> that customer only; otherwise every customer with a card
-    in business_id, or every customer when business_id is NULL as well.
-    """
-
-    __tablename__ = "notifications"
-    __table_args__ = (
-        Index("ix_notifications_user_created", "user_id", "created_at"),
-        Index("ix_notifications_business_created", "business_id", "created_at"),
-    )
-
-    business_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=True
-    )
-    user_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
-    )
-    kind: Mapped[str] = mapped_column(String(16), default="info", nullable=False)
-    title: Mapped[str] = mapped_column(String(120), nullable=False)
-    body: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
-    )
-
-
 class RedemptionCode(Base, UUIDPrimaryKey):
     """One-time code sent to the customer's WhatsApp to confirm a bonus write-off at the POS."""
 
@@ -445,3 +432,80 @@ class RedemptionCode(Base, UUIDPrimaryKey):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Notification(Base, UUIDPrimaryKey):
+    """In-app notification.
+
+    Audience: user_id set -> that customer only; otherwise every customer with a card
+    in business_id, or every customer when business_id is NULL as well.
+    """
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_created", "user_id", "created_at"),
+        Index("ix_notifications_business_created", "business_id", "created_at"),
+        Index("ix_notifications_redemption_id", "redemption_id"),
+    )
+
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=True
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    )
+    redemption_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("redemption_codes.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), default="info", nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class BusinessStore(Base, UUIDPrimaryKey, Timestamps):
+    """Physical store location of a business."""
+
+    __tablename__ = "business_stores"
+    __table_args__ = (
+        Index("ix_business_stores_business_id", "business_id"),
+        Index("ix_business_stores_active_sort", "business_id", "is_active", "sort_order"),
+    )
+
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False
+    )
+    title_ru: Mapped[str] = mapped_column(String(160), nullable=False)
+    title_kk: Mapped[str] = mapped_column(String(160), nullable=False)
+    address_ru: Mapped[str] = mapped_column(String(255), nullable=False)
+    address_kk: Mapped[str] = mapped_column(String(255), nullable=False)
+    map_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PosKey(Base, UUIDPrimaryKey):
+    """Cash register API key for direct POS cloud requests."""
+
+    __tablename__ = "pos_keys"
+    __table_args__ = (
+        Index("ix_pos_keys_key_hash", "key_hash", unique=True),
+        Index("ix_pos_keys_business_created", "business_id", "created_at"),
+    )
+
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def status(self) -> str:
+        return "revoked" if self.revoked_at is not None else "active"

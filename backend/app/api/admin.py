@@ -35,11 +35,19 @@ from app.schemas.admin import (
     ManagerAccessDisclosure,
     Page,
     PaginationParams,
+    PosKeyCreateRequest,
+    PosKeyCreateResponse,
+    PosKeyItem,
     UserDetail,
     UserListItem,
     UserSearchRequest,
 )
 from app.schemas.admin_content import (
+    AppTextsResponse,
+    AppTextsUpdateRequest,
+    BusinessStoreAdminItem,
+    BusinessStoreCreateRequest,
+    BusinessStoreUpdateRequest,
     ImageUploadResponse,
     NotificationAdminItem,
     NotificationCreateRequest,
@@ -52,9 +60,11 @@ from app.services.admin_auth import authenticate_admin
 from app.services.admin_mutations import (
     create_agent,
     create_business,
+    create_pos_key_mutation,
     request_full_resync,
     reset_or_create_business_manager,
     revoke_agent_access,
+    revoke_pos_key_mutation,
     rotate_agent_api_key,
     unbind_card,
     update_business,
@@ -70,6 +80,7 @@ from app.services.admin_queries import (
     list_audit_logs,
     list_businesses,
     list_cards,
+    list_pos_keys,
     search_cards,
     search_users,
 )
@@ -166,6 +177,76 @@ async def admin_update_business(
     return await get_business(db, business.id)
 
 
+@router.get(
+    "/businesses/{business_id}/stores", response_model=list[BusinessStoreAdminItem]
+)
+async def admin_list_stores(
+    business_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> list[BusinessStoreAdminItem]:
+    return await admin_content.list_stores(db, admin, business_id)
+
+
+@router.post(
+    "/businesses/{business_id}/stores",
+    response_model=BusinessStoreAdminItem,
+    status_code=201,
+)
+async def admin_create_store(
+    business_id: uuid.UUID,
+    body: BusinessStoreCreateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> BusinessStoreAdminItem:
+    return await admin_content.create_store(db, admin, business_id, body)
+
+
+@router.patch(
+    "/businesses/{business_id}/stores/{store_id}",
+    response_model=BusinessStoreAdminItem,
+)
+async def admin_update_store(
+    business_id: uuid.UUID,
+    store_id: uuid.UUID,
+    body: BusinessStoreUpdateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> BusinessStoreAdminItem:
+    return await admin_content.update_store(db, admin, business_id, store_id, body)
+
+
+@router.delete("/businesses/{business_id}/stores/{store_id}", status_code=204)
+async def admin_delete_store(
+    business_id: uuid.UUID,
+    store_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    await admin_content.delete_store(db, admin, business_id, store_id)
+    return Response(status_code=204)
+
+
+@router.get("/businesses/{business_id}/app-texts", response_model=AppTextsResponse)
+async def admin_get_app_texts(
+    business_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> AppTextsResponse:
+    return await admin_content.get_app_texts(db, admin, business_id)
+
+
+@router.put("/businesses/{business_id}/app-texts", response_model=AppTextsResponse)
+async def admin_update_app_texts(
+    business_id: uuid.UUID,
+    body: AppTextsUpdateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> AppTextsResponse:
+    return await admin_content.update_app_texts(db, admin, business_id, body)
+
+
+
 @router.get("/agents", response_model=Page[AgentItem])
 async def admin_agents(
     scope: Annotated[AdminScope, Depends(get_admin_scope)],
@@ -235,6 +316,41 @@ async def admin_request_full_resync(
     return AgentCommandResponse(
         command_id=command.id, status=cast(AgentCommandStatus, command.status)
     )
+
+
+@router.get("/businesses/{business_id}/pos-keys", response_model=list[PosKeyItem])
+async def admin_get_pos_keys(
+    business_id: uuid.UUID,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> list[PosKeyItem]:
+    keys = await list_pos_keys(db, scope, business_id)
+    return [PosKeyItem.model_validate(k) for k in keys]
+
+
+@router.post(
+    "/businesses/{business_id}/pos-keys",
+    response_model=PosKeyCreateResponse,
+    status_code=201,
+)
+async def admin_create_pos_key(
+    business_id: uuid.UUID,
+    body: PosKeyCreateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> PosKeyCreateResponse:
+    pos_key, raw_key = await create_pos_key_mutation(db, admin, business_id, body.name)
+    return PosKeyCreateResponse(pos_key=PosKeyItem.model_validate(pos_key), api_key=raw_key)
+
+
+@router.post("/pos-keys/{key_id}/revoke", response_model=PosKeyItem)
+async def admin_revoke_pos_key(
+    key_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> PosKeyItem:
+    pos_key = await revoke_pos_key_mutation(db, admin, key_id)
+    return PosKeyItem.model_validate(pos_key)
 
 
 @router.get("/cards", response_model=Page[CardListItem])

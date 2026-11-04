@@ -1,6 +1,7 @@
 import ipaddress
 import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -198,6 +199,10 @@ class Settings(BaseSettings):
     qr_token_ttl_seconds: int = 60
 
     # POS bonus write-off confirmation codes sent to the customer's WhatsApp
+    redemption_whatsapp_enabled: bool = Field(
+        default=False,
+        description="Enable legacy WhatsApp redemption channel (/agent/redemptions).",
+    )
     redemption_code_ttl_seconds: int = 300
     redemption_code_max_attempts: int = 5
     redemption_card_request_limit: int = 5
@@ -224,6 +229,16 @@ class Settings(BaseSettings):
     # Agent sync limits
     sync_max_cards_batch: int = 500
     sync_max_transactions_batch: int = 1000
+
+    # Outbound push notifications (Firebase Cloud Messaging HTTP v1)
+    # 'disabled' rejects sends, 'fake' records them in memory (APP_ENV=test only),
+    # 'log' prints summary to server log without full data (local development only), 'fcm' sends via FCM.
+    push_provider_mode: str = Field(default="disabled")
+    fcm_project_id: str = Field(default="")
+    fcm_service_account_file: str = Field(default="")
+    push_send_timeout_seconds: float = 10.0
+    push_token_user_limit: int = 10
+    push_token_rate_window_seconds: int = 300
 
     @field_validator("app_env", mode="before")
     @classmethod
@@ -296,6 +311,28 @@ class Settings(BaseSettings):
                 raise ValueError("WAPPI_API_TOKEN must be provided when WHATSAPP_PROVIDER_MODE=wappi")
             if not self.wappi_api_base_url.strip().startswith("https://"):
                 raise ValueError("WAPPI_API_BASE_URL must use HTTPS")
+
+        clean_push_mode = (self.push_provider_mode or "").strip().lower()
+        if clean_push_mode not in ("disabled", "fake", "log", "fcm"):
+            raise ValueError(
+                f"Invalid PUSH_PROVIDER_MODE '{self.push_provider_mode}'. "
+                "Supported modes: 'disabled', 'fake', 'log', 'fcm'."
+            )
+        if clean_push_mode == "log" and self.app_env == "production":
+            raise ValueError("PUSH_PROVIDER_MODE 'log' is forbidden in production.")
+        self.push_provider_mode = clean_push_mode
+        if clean_push_mode == "fake" and self.app_env != "test":
+            raise ValueError("PUSH_PROVIDER_MODE 'fake' is strictly forbidden outside APP_ENV=test.")
+        if clean_push_mode == "fcm":
+            if not self.fcm_project_id.strip():
+                raise ValueError("FCM_PROJECT_ID must be provided when PUSH_PROVIDER_MODE=fcm")
+            if not self.fcm_service_account_file.strip():
+                raise ValueError("FCM_SERVICE_ACCOUNT_FILE must be provided when PUSH_PROVIDER_MODE=fcm")
+            sa_path = Path(self.fcm_service_account_file)
+            if not sa_path.is_file():
+                raise ValueError(
+                    f"FCM_SERVICE_ACCOUNT_FILE not found or not a regular file: {self.fcm_service_account_file}"
+                )
 
         base = self.wallet_public_base_url.strip().rstrip("/")
         if base and not base.startswith("https://") and self.app_env == "production":

@@ -62,7 +62,14 @@ def cors_kwargs() -> dict[str, Any]:
 
 @pytest.mark.parametrize(
     ("method", "expected"),
-    [("GET", 200), ("POST", 200), ("PATCH", 200), ("DELETE", 200), ("PUT", 400)],
+    [
+        ("GET", 200),
+        ("POST", 200),
+        ("PUT", 200),
+        ("PATCH", 200),
+        ("DELETE", 200),
+        ("TRACE", 400),
+    ],
 )
 @pytest.mark.asyncio
 async def test_admin_preflight_allows_only_used_methods(method: str, expected: int) -> None:

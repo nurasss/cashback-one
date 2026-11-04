@@ -33,6 +33,19 @@ export interface Agent {
   last_seen_at: string | null; version: string | null; last_sync_at: string | null; last_error: string | null; created_at: string;
 }
 export interface AgentKeyDisclosure { agent: Agent; api_key: string }
+export interface PosKey {
+  id: string;
+  business_id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  status: 'active' | 'revoked';
+}
+export interface PosKeyDisclosure {
+  pos_key: PosKey;
+  api_key: string;
+}
 export interface AgentCommand { command_id: string; status: 'pending' | 'running' | 'completed' | 'failed'; execution: 'deferred' }
 export interface CardUnbindResult { status: 'unbound' | 'already_unbound' }
 export interface Dashboard {
@@ -61,4 +74,34 @@ export interface ImageUploadResponse {
   width: number;
   height: number;
   bytes: number;
+}
+export interface LocalizedText {
+  ru: string | null;
+  kk: string | null;
+}
+export interface BusinessStore {
+  id: string;
+  business_id: string;
+  title_ru: string;
+  title_kk: string;
+  address_ru: string;
+  address_kk: string;
+  map_url: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface AppTexts {
+  home_store_note_lead: LocalizedText;
+  balance_delay_note: LocalizedText;
+}
+export interface BusinessStoreInput {
+  title_ru: string;
+  title_kk: string;
+  address_ru: string;
+  address_kk: string;
+  map_url?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
 }

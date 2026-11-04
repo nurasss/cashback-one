@@ -12,6 +12,7 @@ from app.api.auth import router as auth_router
 from app.api.customer_app import router as customer_app_router
 from app.api.customer_wallet import router as customer_wallet_router
 from app.api.health import router as health_router
+from app.api.pos import router as pos_router
 from app.api.wallet_public import router as wallet_public_router
 from app.api.webhooks import router as webhooks_router
 from app.core.config import settings
@@ -50,7 +51,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.admin_allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-Admin-Request"],
     max_age=600,
 )
@@ -59,6 +60,7 @@ app.add_middleware(RequestCorrelationMiddleware)
 app.include_router(health_router)
 app.include_router(agent_sync_router)
 app.include_router(agent_pos_router)
+app.include_router(pos_router)
 app.include_router(auth_router)
 app.include_router(customer_wallet_router)
 app.include_router(customer_app_router)

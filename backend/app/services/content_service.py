@@ -9,7 +9,15 @@ from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.time import as_utc, utcnow
-from app.models.entities import Business, Card, Notification, Promotion, User, UserCard
+from app.models.entities import (
+    Business,
+    Card,
+    Notification,
+    Promotion,
+    RedemptionCode,
+    User,
+    UserCard,
+)
 from app.schemas.customer_app import (
     BadgesResponse,
     NotificationItem,
@@ -110,16 +118,30 @@ async def list_notifications(session: AsyncSession, user: User) -> Notifications
     since = Notification.created_at >= user.created_at
     rows = (
         await session.execute(
-            select(Notification)
+            select(Notification, RedemptionCode, Business)
+            .outerjoin(RedemptionCode, RedemptionCode.id == Notification.redemption_id)
+            .outerjoin(Business, Business.id == Notification.business_id)
             .where(visible, or_(Notification.user_id == user.id, since))
             .order_by(Notification.created_at.desc(), Notification.id.desc())
             .limit(NOTIFICATIONS_PAGE_LIMIT)
         )
-    ).scalars().all()
+    ).all()
+    now = utcnow()
     items = []
-    for row in rows:
-        item = NotificationItem.model_validate(row)
-        item.is_unread = _is_new(row.created_at, user.notifications_seen_at)
+    for notif, redemption, business in rows:
+        item = NotificationItem.model_validate(notif)
+        item.is_unread = _is_new(notif.created_at, user.notifications_seen_at)
+        if notif.redemption_id is not None and redemption is not None:
+            is_pending_and_valid = (
+                redemption.status == "pending"
+                and as_utc(redemption.expires_at) > now
+            )
+            if not is_pending_and_valid:
+                biz_name = business.name if business else ""
+                if redemption.status == "confirmed":
+                    item.body = redemption_confirmed_text(redemption.amount, biz_name)
+                else:
+                    item.body = redemption_inactive_text(redemption.amount, biz_name)
         items.append(item)
     unread = await _unread_notifications(session, user, business_ids)
     return NotificationsResponse(items=items, unread_count=unread)
@@ -165,6 +187,16 @@ def _amount_text(amount: Decimal) -> str:
     whole, _, fraction = f"{normalized:f}".partition(".")
     grouped = f"{int(whole):,}".replace(",", " ")
     return grouped if fraction in ("", "00") else f"{grouped},{fraction}"
+
+
+def redemption_confirmed_text(amount: Decimal, business_name: str) -> str:
+    amount_str = _amount_text(amount)
+    return f"Списание {amount_str} баллов в «{business_name}» подтверждено на кассе."
+
+
+def redemption_inactive_text(amount: Decimal, business_name: str) -> str:
+    amount_str = _amount_text(amount)
+    return f"Код для списания {amount_str} баллов в «{business_name}» больше не действует."
 
 
 def transaction_notification(

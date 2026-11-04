@@ -265,6 +265,7 @@ export function AgentKeyDialog({ disclosure, title, onClose }: {
   return <DialogFrame title={title ?? t.mutations.agentKeyTitleCreated} onClose={onClose}>
     <div className="mutation-form">
       <p>{t.mutations.agentKeyNotice}</p>
+      <p className="muted-copy">{t.mutations.agentKeyInstallHint}</p>
       <p className="muted-copy">{t.mutations.agentInfo(disclosure.agent.business_name, disclosure.agent.id)}</p>
       <code className="secret-key" aria-label={t.mutations.agentApiKeyAria}>{disclosure.api_key}</code>
       {copyError && <p className="form-error" role="alert">{copyError}</p>}

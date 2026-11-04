@@ -1,25 +1,34 @@
 """Customer app endpoints: profile, promotions, notifications, badges, dynamic card QR and wallet passes."""
+import hashlib
 import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.config import Settings, get_settings, settings
 from app.core.errors import AppError
+from app.core.time import as_utc, utcnow
 from app.db.session import get_session
-from app.models.entities import Business, Card, User, UserCard
+from app.models.entities import Business, BusinessStore, Card, Device, User, UserCard
 from app.schemas.customer_app import (
+    AppStoreItem,
     BadgesResponse,
     CardQrResponse,
+    CustomerAppContentResponse,
+    CustomerAppTexts,
+    CustomerLocalizedText,
     NotificationsResponse,
     ProfileResponse,
     ProfileUpdateRequest,
     PromotionItem,
     PromotionsResponse,
+    PushTokenDeleteRequest,
+    PushTokenRegisterRequest,
     WalletAvailability,
     WalletLinkRequest,
     WalletLinkResponse,
@@ -271,3 +280,169 @@ async def card_wallet_link(
     if not wallet_passes.google_enabled():
         raise AppError("WALLET_UNAVAILABLE", "Google Wallet is not configured", 503)
     return WalletLinkResponse(url=wallet_passes.google_save_url(card, business), expires_at=None)
+
+
+@router.put("/push-token", status_code=status.HTTP_204_NO_CONTENT)
+async def register_push_token(
+    body: PushTokenRegisterRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    settings_obj: Annotated[Settings, Depends(get_settings)],
+) -> Response:
+    user_id = current_user.id
+    rate_key = f"push_token:user:{user_id}"
+    if await limiter.is_rate_limited(
+        rate_key,
+        settings_obj.push_token_user_limit,
+        settings_obj.push_token_rate_window_seconds,
+    ):
+        raise AppError(
+            "RATE_LIMIT_EXCEEDED",
+            "Too many push token registration attempts. Please try again later.",
+            status_code=429,
+        )
+
+    stmt = select(Device).where(Device.push_token == body.token)
+    device = await session.scalar(stmt)
+    now = utcnow()
+    if device is not None:
+        device.user_id = user_id
+        device.platform = body.platform
+        device.app_id = body.app_id
+        device.disabled_at = None
+        device.last_seen_at = now
+        await session.commit()
+    else:
+        device = Device(
+            user_id=user_id,
+            push_token=body.token,
+            platform=body.platform,
+            app_id=body.app_id,
+            created_at=now,
+            last_seen_at=now,
+            disabled_at=None,
+        )
+        session.add(device)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            # Concurrent registration race: another request inserted this token, update it
+            stmt = select(Device).where(Device.push_token == body.token)
+            device = await session.scalar(stmt)
+            if device is not None:
+                device.user_id = user_id
+                device.platform = body.platform
+                device.app_id = body.app_id
+                device.disabled_at = None
+                device.last_seen_at = now
+                await session.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/push-token", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_push_token(
+    body: PushTokenDeleteRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    stmt = select(Device).where(
+        Device.push_token == body.token,
+        Device.user_id == current_user.id,
+    )
+    device = await session.scalar(stmt)
+    if device is not None and device.disabled_at is None:
+        device.disabled_at = utcnow()
+        await session.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/app-content", response_model=CustomerAppContentResponse)
+async def get_app_content(
+    business_id: uuid.UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    # 1. Customer must have an active visible card of this business
+    card_exists = await session.scalar(
+        select(Card.id)
+        .join(UserCard, UserCard.card_id == Card.id)
+        .where(
+            UserCard.user_id == current_user.id,
+            UserCard.hidden_at.is_(None),
+            Card.business_id == business_id,
+        )
+        .limit(1)
+    )
+    if not card_exists:
+        raise AppError("CUSTOMER_RESOURCE_NOT_FOUND", "Business content not found", 404)
+
+    # 2. Business must exist and be active
+    business = await session.get(Business, business_id)
+    if not business or business.status != "active":
+        raise AppError("CUSTOMER_RESOURCE_NOT_FOUND", "Business content not found", 404)
+
+    # 3. Active stores ordered by sort_order ASC, created_at ASC, id ASC
+    stores_stmt = (
+        select(BusinessStore)
+        .where(
+            BusinessStore.business_id == business_id,
+            BusinessStore.is_active.is_(True),
+        )
+        .order_by(
+            BusinessStore.sort_order.asc(),
+            BusinessStore.created_at.asc(),
+            BusinessStore.id.asc(),
+        )
+    )
+    stores = list((await session.scalars(stores_stmt)).all())
+
+    # 4. updated_at is the latest modification timestamp among business and active stores
+    all_timestamps = [as_utc(business.updated_at)] + [as_utc(s.updated_at) for s in stores]
+    latest_updated_at = max(all_timestamps)
+
+    raw_texts = business.app_texts or {}
+    app_texts = CustomerAppTexts(
+        home_store_note_lead=CustomerLocalizedText.model_validate(
+            raw_texts.get("home_store_note_lead") or {}
+        ),
+        balance_delay_note=CustomerLocalizedText.model_validate(
+            raw_texts.get("balance_delay_note") or {}
+        ),
+    )
+    stores_payload = [AppStoreItem.model_validate(s) for s in stores]
+    content_obj = CustomerAppContentResponse(
+        business_id=business_id,
+        stores=stores_payload,
+        app_texts=app_texts,
+        updated_at=latest_updated_at,
+    )
+
+    json_str = content_obj.model_dump_json()
+    etag = f'"{hashlib.sha256(json_str.encode("utf-8")).hexdigest()[:32]}"'
+    cache_control = "private, max-age=300"
+
+    if_none_match = request.headers.get("if-none-match")
+    if if_none_match:
+        client_tags = [t.strip() for t in if_none_match.split(",")]
+        if etag in client_tags or etag.strip('"') in client_tags or "*" in client_tags:
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": cache_control,
+                },
+            )
+
+    return Response(
+        content=json_str,
+        media_type="application/json",
+        headers={
+            "ETag": etag,
+            "Cache-Control": cache_control,
+        },
+    )

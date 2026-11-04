@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAdminSession } from '../auth/provider';
 import type {
-  Agent, AdminUser, AdminUserDetail, AppNotification, AuditItem, Business, BusinessDetail, Card, CardDetail, Dashboard, Page, PageQuery, Promotion,
+  Agent, AdminUser, AdminUserDetail, AppNotification, AppTexts, AuditItem, Business, BusinessDetail, BusinessStore, Card, CardDetail, Dashboard, Page, PageQuery, PosKey, Promotion,
 } from './types';
 
 export const privateKey = ['admin'] as const;
@@ -94,4 +94,42 @@ export function useAppNotifications(business_id: string | undefined, page: PageQ
   const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
   if (business_id) query.set('business_id', business_id);
   return useQuery({ queryKey: [...privateKey, 'app-notifications', business_id, page], queryFn: ({ signal }) => session.api.request<Page<AppNotification>>(`/admin/notifications?${query}`, { signal }) });
+}
+
+export function useBusinessStores(businessId: string | undefined, enabled = true) {
+  const { session } = useAdminSession();
+  return useQuery({
+    queryKey: [...privateKey, 'business-stores', businessId],
+    enabled: Boolean(businessId) && enabled,
+    queryFn: ({ signal }) =>
+      session.api.request<BusinessStore[]>(
+        `/admin/businesses/${encodeURIComponent(businessId!)}/stores`,
+        { signal }
+      ),
+  });
+}
+export function useBusinessAppTexts(businessId: string | undefined, enabled = true) {
+  const { session } = useAdminSession();
+  return useQuery({
+    queryKey: [...privateKey, 'business-app-texts', businessId],
+    enabled: Boolean(businessId) && enabled,
+    queryFn: ({ signal }) =>
+      session.api.request<AppTexts>(
+        `/admin/businesses/${encodeURIComponent(businessId!)}/app-texts`,
+        { signal }
+      ),
+  });
+}
+
+export function usePosKeys(businessId: string | undefined, enabled = true) {
+  const { session } = useAdminSession();
+  return useQuery({
+    queryKey: [...privateKey, 'pos-keys', businessId],
+    enabled: Boolean(businessId) && enabled,
+    queryFn: ({ signal }) =>
+      session.api.request<PosKey[]>(
+        `/admin/businesses/${encodeURIComponent(businessId!)}/pos-keys`,
+        { signal }
+      ),
+  });
 }

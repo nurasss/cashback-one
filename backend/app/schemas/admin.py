@@ -339,6 +339,30 @@ class AgentHealthCounts(BaseModel):
     disabled: int = 0
 
 
+class PosKeyItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    business_id: uuid.UUID
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+    status: Literal["active", "revoked"] = "active"
+
+
+class PosKeyCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=100)
+
+
+class PosKeyCreateResponse(BaseModel):
+    pos_key: PosKeyItem
+    api_key: str
+
+
+
 class DashboardResponse(BaseModel):
     business_id: uuid.UUID | None
     business_name: str | None

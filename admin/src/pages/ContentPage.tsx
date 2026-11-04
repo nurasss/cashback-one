@@ -9,12 +9,13 @@ import { useTableExpansion } from '../components/CompactTable';
 import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { ImageUploadField } from '../components/ImageUploadField';
 import { DialogFrame } from '../features/AdminMutations';
+import { BusinessAppContent } from '../features/BusinessAppContent';
 import { formatDate } from '../utils/format';
 import { usePage } from '../utils/usePage';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
-type Tab = 'promotions' | 'notifications';
+type Tab = 'promotions' | 'notifications' | 'app';
 const GLOBAL = '';
 
 function useIsSuperadmin() {
@@ -34,11 +35,18 @@ function BusinessPicker({ id, value, onChange, allowAll }: { id: string; value: 
 
 export function ContentPage() {
   const superadmin = useIsSuperadmin();
+  const { view } = useAdminSession();
   const t = useAdminTranslation();
   const [tab, setTab] = useState<Tab>('promotions');
   const [businessFilter, setBusinessFilter] = useState(GLOBAL);
   const [editing, setEditing] = useState<Promotion | 'new' | null>(null);
   const [noticeOpen, setNoticeOpen] = useState(false);
+
+  const managerBusinessId =
+    view.status === 'authenticated' && view.admin.role === 'business_manager'
+      ? view.admin.business?.id
+      : undefined;
+  const activeAppBusinessId = superadmin ? businessFilter : managerBusinessId;
 
   return (
     <div className="page-stack">
@@ -50,11 +58,11 @@ export function ContentPage() {
             <button className="button button-primary" type="button" onClick={() => setEditing('new')}>
               {t.content.addPromoBtn}
             </button>
-          ) : (
+          ) : tab === 'notifications' ? (
             <button className="button button-primary" type="button" onClick={() => setNoticeOpen(true)}>
               {t.content.sendNoticeBtn}
             </button>
-          )
+          ) : null
         }
       />
       <section className="filter-panel">
@@ -77,6 +85,15 @@ export function ContentPage() {
           >
             {t.content.tabNotifications}
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'app'}
+            className={tab === 'app' ? 'search-tab selected' : 'search-tab'}
+            onClick={() => setTab('app')}
+          >
+            {t.content.tabApp}
+          </button>
         </div>
         {superadmin && (
           <div className="filter-controls">
@@ -89,8 +106,14 @@ export function ContentPage() {
       </section>
       {tab === 'promotions' ? (
         <PromotionsTable businessId={businessFilter || undefined} onEdit={setEditing} />
-      ) : (
+      ) : tab === 'notifications' ? (
         <NotificationsTable businessId={businessFilter || undefined} />
+      ) : activeAppBusinessId ? (
+        <BusinessAppContent businessId={activeAppBusinessId} />
+      ) : (
+        <section className="surface-card">
+          <p className="table-empty">{t.content.selectBusinessHint}</p>
+        </section>
       )}
       {editing && <PromotionDialog promotion={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
       {noticeOpen && <NotificationDialog onClose={() => setNoticeOpen(false)} />}

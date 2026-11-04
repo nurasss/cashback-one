@@ -105,8 +105,10 @@ it('shows Agent provisioning controls to superadmin and hides them from a manage
   await rootUser.selectOptions(screen.getByLabelText('Бизнес'), businessId);
   await rootUser.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Создать агента' }));
   await screen.findByText('agk_fixture_create_secret');
+  expect(screen.getByText(/Введите ключ в установщике агента на компьютере с 1С/)).toBeInTheDocument();
   await rootUser.click(screen.getByRole('button', { name: 'Закрыть и удалить ключ' }));
   expect(screen.queryByText('agk_fixture_create_secret')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Введите ключ в установщике агента на компьютере с 1С/)).not.toBeInTheDocument();
 
   cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs();
   renderAdmin(<AgentsPage />, 'business_manager', '/agents');
@@ -120,16 +122,20 @@ it('keeps Admin key rotation confirmation and clears one-time key after modal cl
   vi.stubGlobal('confirm', confirm);
   const fetchMock = renderAdmin(<AgentDetailPage />, 'superadmin', `/agents/${agentId}`);
   await screen.findByText('Состояние соединения');
-  await user.click(screen.getByRole('button', { name: 'Ротировать ключ' }));
+  await user.click(screen.getByRole('button', { name: 'Перевыпустить ключ' }));
   await screen.findByText('agk_fixture_one_time_secret');
+  expect(screen.getByText(/Введите ключ в установщике агента на компьютере с 1С/)).toBeInTheDocument();
   expect(confirm.mock.calls[0]?.[0]).toContain('Старый ключ сразу перестанет работать');
   const rotation = vi.mocked(fetchMock).mock.calls.find(([url]) => String(url).endsWith('/rotate-key'));
   expect(rotation?.[1]?.method).toBe('POST');
   await user.click(screen.getByRole('button', { name: 'Закрыть и удалить ключ' }));
   expect(screen.queryByText('agk_fixture_one_time_secret')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Введите ключ в установщике агента на компьютере с 1С/)).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Отозвать' }));
   await waitFor(() => expect(screen.getByText('revoked')).toBeInTheDocument());
   expect(confirm).toHaveBeenCalledTimes(2);
+  expect(confirm.mock.calls[1]?.[0]).toContain('Его текущий ключ агента перестанет работать');
+  expect(confirm.mock.calls[1]?.[0]).not.toContain('API key');
 });
 
 it('shows full-resync as pending/deferred and manager detail has no mutation controls', async () => {
@@ -145,7 +151,7 @@ it('shows full-resync as pending/deferred and manager detail has no mutation con
   cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs();
   renderAdmin(<AgentDetailPage />, 'business_manager', `/agents/${agentId}`);
   await screen.findByText('Состояние соединения');
-  expect(screen.queryByRole('button', { name: 'Ротировать ключ' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Перевыпустить ключ' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Отозвать' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Запросить полную синхронизацию' })).not.toBeInTheDocument();
 });

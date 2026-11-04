@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.errors import AppError
 from app.core.time import as_utc, utcnow
 from app.models.admin import AdminUser
-from app.models.entities import Agent, AuditLog, Business, Card, Transaction, User, UserCard
+from app.models.entities import Agent, AuditLog, Business, Card, PosKey, Transaction, User, UserCard
 from app.schemas.admin import (
     AgentHealth,
     AgentHealthCounts,
@@ -498,3 +498,18 @@ async def list_audit_logs(
             created_at=as_utc(row.created_at),
         ),
     )
+
+
+async def list_pos_keys(
+    db: AsyncSession, scope: AdminScope, business_id: uuid.UUID
+) -> list[PosKey]:
+    scope.require_superadmin()
+    business = await db.scalar(select(Business).where(Business.id == business_id))
+    if business is None:
+        raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
+    stmt = (
+        select(PosKey)
+        .where(PosKey.business_id == business_id)
+        .order_by(PosKey.created_at.desc())
+    )
+    return list((await db.scalars(stmt)).all())

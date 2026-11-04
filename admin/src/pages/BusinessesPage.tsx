@@ -11,6 +11,8 @@ import { formatDate, formatNumber } from '../utils/format';
 import { usePage } from '../utils/usePage';
 import type { ReactNode } from 'react';
 import { BusinessEditorDialog, ManagerAccessDialog } from '../features/AdminMutations';
+import { BusinessAppContent } from '../features/BusinessAppContent';
+import { BusinessPosKeys } from '../features/BusinessPosKeys';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
@@ -238,6 +240,10 @@ export function BusinessDetailPage() {
           )}
         </article>
       </section>
+      {view.status === 'authenticated' && view.admin.role === 'superadmin' && (
+        <BusinessPosKeys businessId={business.id} />
+      )}
+      <BusinessAppContent businessId={business.id} />
       {editOpen && (
         <BusinessEditorDialog
           business={business}

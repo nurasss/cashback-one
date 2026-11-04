@@ -384,8 +384,9 @@ async def test_customer_qr_and_agent_resolution(client: AsyncClient, db_session:
 
 @pytest.mark.asyncio
 async def test_redemption_code_sent_to_whatsapp_and_verified(
-    client: AsyncClient, db_session: AsyncSession, fake_whatsapp
+    client: AsyncClient, db_session: AsyncSession, fake_whatsapp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(settings, "redemption_whatsapp_enabled", True)
     user, _ = await customer(db_session)
     biz, card = await business_with_card(db_session, user, name="Магазин")
     _, key = await issue_agent_key(db_session, biz.id)
@@ -418,6 +419,7 @@ async def test_redemption_code_sent_to_whatsapp_and_verified(
 async def test_redemption_via_qr_expiry_and_attempt_limit(
     client: AsyncClient, db_session: AsyncSession, fake_whatsapp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(settings, "redemption_whatsapp_enabled", True)
     monkeypatch.setattr(settings, "redemption_code_max_attempts", 2)
     user, _ = await customer(db_session)
     biz, card = await business_with_card(db_session, user)
@@ -455,6 +457,7 @@ async def test_redemption_via_qr_expiry_and_attempt_limit(
 async def test_redemption_requires_phone_and_configured_whatsapp(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(settings, "redemption_whatsapp_enabled", True)
     biz, card = await business_with_card(db_session, None)
     _, key = await issue_agent_key(db_session, biz.id)
     await db_session.commit()
@@ -465,6 +468,29 @@ async def test_redemption_requires_phone_and_configured_whatsapp(
     monkeypatch.setattr(settings, "whatsapp_provider_mode", "disabled")
     res = await client.post("/agent/redemptions", headers=agent, json={"barcode": card.barcode, "amount": "5"})
     assert res.status_code == 503 and res.json()["error"]["code"] == "WHATSAPP_NOT_CONFIGURED"
+
+
+@pytest.mark.asyncio
+async def test_redemption_channel_disabled_by_default(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    user, _ = await customer(db_session)
+    biz, card = await business_with_card(db_session, user)
+    _, key = await issue_agent_key(db_session, biz.id)
+    await db_session.commit()
+    agent = {"X-Agent-Key": key}
+    res = await client.post("/agent/redemptions", headers=agent, json={"barcode": card.barcode, "amount": "100"})
+    assert res.status_code == 410
+    assert res.json()["error"]["code"] == "REDEMPTION_CHANNEL_DISABLED"
+
+    res_verify = await client.post(
+        f"/agent/redemptions/{uuid.uuid4()}/verify",
+        headers=agent,
+        json={"code": "123456"},
+    )
+    assert res_verify.status_code == 410
+    assert res_verify.json()["error"]["code"] == "REDEMPTION_CHANNEL_DISABLED"
+
 
 
 def test_log_whatsapp_mode_is_forbidden_in_production() -> None:

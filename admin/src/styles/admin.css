@@ -417,6 +417,14 @@ body {
 .page-stack {
   display: grid;
   gap: 24px;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.page-stack > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .page-heading {
@@ -1261,9 +1269,15 @@ tbody tr:hover {
   display: flex;
   gap: 8px;
   border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  scrollbar-width: thin;
 }
 
 .search-tab {
+  flex-shrink: 0;
+  white-space: nowrap;
   min-height: 48px;
   padding: 0 16px;
   border: 0;
@@ -1399,6 +1413,58 @@ tbody tr:hover {
 .mutation-form textarea {
   resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.mutation-form textarea.app-text-textarea,
+.app-text-textarea {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #ffffff;
+  color: var(--ink);
+  resize: vertical;
+}
+
+.mutation-form textarea.app-text-textarea:focus,
+.app-text-textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(255, 58, 77, 0.15);
+  outline: none;
+}
+
+.app-texts-form {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.app-texts-fieldset {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 0 0 20px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.app-texts-fieldset legend {
+  font-weight: 600;
+  padding: 0 6px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.app-texts-submit {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .mutation-actions {
@@ -1948,6 +2014,18 @@ tbody tr:hover {
     flex-direction: column;
     gap: 6px;
   }
+  .surface-card {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 16px 14px;
+  }
+  .app-texts-fieldset {
+    padding: 12px;
+  }
+  .app-texts-submit {
+    width: 100%;
+  }
   .detail-grid {
     grid-template-columns: 1fr;
   }
@@ -2049,6 +2127,45 @@ tbody tr:hover {
   .nav-link {
     padding: 0 9px;
     font-size: 11px;
+  }
+}
+
+/* POS Keys Section */
+.pos-keys-cards {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .pos-keys-table-wrap {
+    display: none;
+  }
+  .pos-keys-cards {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .pos-key-card {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f8fafc;
+    display: grid;
+    gap: 6px;
+  }
+  .pos-key-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .pos-key-card-meta {
+    font-size: 12px;
+    color: #475569;
+  }
+  .pos-key-card-actions {
+    margin-top: 4px;
+    display: flex;
+    justify-content: flex-end;
   }
 }
 

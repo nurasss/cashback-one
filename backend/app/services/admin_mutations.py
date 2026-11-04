@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.core.errors import AppError
 from app.core.time import utcnow
 from app.models.admin import AdminSession, AdminUser, AgentCommand
-from app.models.entities import Agent, AuditLog, Business, Card, UserCard
+from app.models.entities import Agent, AuditLog, Business, Card, PosKey, UserCard
 from app.schemas.admin import (
     BusinessCreateRequest,
     BusinessUpdateRequest,
@@ -30,6 +30,7 @@ from app.services.admin_security import (
 )
 from app.services.agent_auth import issue_agent_key, revoke_agent, rotate_agent_key
 from app.services.media_storage import MediaStorage, maybe_cleanup_old_media_file
+from app.services.pos_auth import issue_pos_key, revoke_pos_key
 
 _SENSITIVE_AUDIT_KEY = re.compile(
     r"(?:password|passwd|pwd|token|secret|jwt|otp|wappi|key_hash|agent.?key|api.?key|"
@@ -43,7 +44,7 @@ _CONTAINS_CREDENTIALS = re.compile(
     re.IGNORECASE,
 )
 _SECRET_VALUE = re.compile(
-    r"(?:\bagk_[A-Za-z0-9_-]+|\brfr_[A-Za-z0-9_-]+|\badm_rfr_[A-Za-z0-9_-]+|"
+    r"(?:\bagk_[A-Za-z0-9_-]+|\bpos_[A-Za-z0-9_-]+|\brfr_[A-Za-z0-9_-]+|\badm_rfr_[A-Za-z0-9_-]+|"
     r"\bBearer\s+[A-Za-z0-9._-]+|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})",
     re.IGNORECASE,
 )
@@ -64,6 +65,8 @@ _KNOWN_ADMIN_ACTIONS: set[str] = {
     "business_manager_created",
     "business_manager_password_reset",
     "media_uploaded",
+    "pos_key_created",
+    "pos_key_revoked",
 }
 
 _ALLOWED_BUSINESS_STATUSES: set[str] = {"active", "inactive"}
@@ -373,6 +376,39 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 clean_url = _clean_str(v, max_length=1024)
                 if clean_url:
                     projected["url"] = clean_url
+
+    elif action == "pos_key_created":
+        for k, v in value.items():
+            if k in ("pos_key_id", "business_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected[k] = cid
+            elif k == "name":
+                cname = _clean_str(v, max_length=100)
+                if cname:
+                    projected["name"] = cname
+            elif k == "created_at":
+                ccreated = _clean_str(v, max_length=64)
+                if ccreated:
+                    projected["created_at"] = ccreated
+
+    elif action == "pos_key_revoked":
+        for k, v in value.items():
+            if k in ("pos_key_id", "business_id"):
+                cid = _clean_uuid_str(v) or _clean_str(v, max_length=64)
+                if cid:
+                    projected[k] = cid
+            elif k == "name":
+                cname = _clean_str(v, max_length=100)
+                if cname:
+                    projected["name"] = cname
+            elif k == "status":
+                if isinstance(v, str) and v in ("active", "revoked"):
+                    projected["status"] = v
+            elif k == "revoked_at":
+                crev = _clean_str(v, max_length=64)
+                if crev:
+                    projected["revoked_at"] = crev
 
     if not projected:
         return None
@@ -863,3 +899,69 @@ async def unbind_card(
     )
     await db.commit()
     return "unbound"
+
+
+async def create_pos_key_mutation(
+    db: AsyncSession, actor: AdminUser, business_id: uuid.UUID, name: str
+) -> tuple[PosKey, str]:
+    scope_for_admin(actor).require_superadmin()
+    clean_name = name.strip()
+    if not clean_name:
+        raise AppError("VALIDATION_ERROR", "POS key name cannot be empty", 422)
+    business = await db.scalar(select(Business).where(Business.id == business_id))
+    if business is None:
+        raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
+    pos_key, raw_key = await issue_pos_key(db, business_id, clean_name)
+    _audit(
+        db,
+        actor,
+        business_id,
+        "pos_key_created",
+        "pos_key",
+        None,
+        {
+            "pos_key_id": str(pos_key.id),
+            "business_id": str(business_id),
+            "name": pos_key.name,
+            "created_at": pos_key.created_at.isoformat(),
+        },
+    )
+    await db.commit()
+    await db.refresh(pos_key)
+    return pos_key, raw_key
+
+
+async def revoke_pos_key_mutation(
+    db: AsyncSession, actor: AdminUser, key_id: uuid.UUID
+) -> PosKey:
+    scope_for_admin(actor).require_superadmin()
+    pos_key = await db.scalar(select(PosKey).where(PosKey.id == key_id).with_for_update())
+    if pos_key is None:
+        raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
+    if pos_key.revoked_at is not None:
+        return pos_key
+    before = {
+        "pos_key_id": str(pos_key.id),
+        "business_id": str(pos_key.business_id),
+        "name": pos_key.name,
+        "status": "active",
+    }
+    await revoke_pos_key(db, pos_key)
+    _audit(
+        db,
+        actor,
+        pos_key.business_id,
+        "pos_key_revoked",
+        "pos_key",
+        before,
+        {
+            "pos_key_id": str(pos_key.id),
+            "business_id": str(pos_key.business_id),
+            "name": pos_key.name,
+            "status": "revoked",
+            "revoked_at": pos_key.revoked_at.isoformat() if pos_key.revoked_at else None,
+        },
+    )
+    await db.commit()
+    await db.refresh(pos_key)
+    return pos_key
