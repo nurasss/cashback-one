@@ -63,7 +63,12 @@ sequenceDiagram
 ### 3.1. List Customer Cards
 **`GET /me/cards`**
 
-Returns all active (non-hidden) loyalty cards belonging to the authenticated customer. Triggers auto-binding for newly mirrored cards matching the customer's phone number.
+Returns active (non-hidden) loyalty cards belonging to the authenticated customer. Triggers auto-binding for newly mirrored cards matching the customer's phone number.
+
+#### Query Parameters
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `business_id` | UUID | No | Limits results to cards of the specified business. When omitted, returns all cards across all businesses (shared app / backwards-compatible mode). If the customer has no cards in the specified business, returns an empty array `[]` (not 404). |
 
 #### Response (200 OK)
 ```json
@@ -151,11 +156,11 @@ Binds an existing loyalty card mirrored from POSCENTER ONE to the authenticated 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `barcode` | string | Yes | 4 to 13 digit string (`^\d{4,13}$`), preserves leading zeros. |
-| `business_id` | UUID | No | Optional tenant business ID to disambiguate identical barcodes across retailers. |
+| `business_id` | UUID | No | Optional tenant business ID to disambiguate identical barcodes across retailers. Can also be supplied via query parameter `?business_id=<uuid>`. |
 
 #### Business & Prefix Resolution
 1. Searches existing mirror `cards` in active businesses (`status == "active"`).
-2. If `business_id` is provided, matches `(business_id, barcode)`. Returns `404 CARD_NOT_FOUND` if not found or business is inactive.
+2. If `business_id` is provided (via query parameter or JSON body), matches `(business_id, barcode)`. Returns `404 CARD_NOT_FOUND` if not found or business is inactive (without revealing that a card with this barcode exists in another retailer).
 3. If `business_id` is omitted:
    - If exactly 1 candidate card is found across active businesses, uses it.
    - If multiple candidate cards are found, applies `business.barcode_prefixes` matching (`barcode.startswith(prefix)`).
@@ -285,10 +290,27 @@ Returns a deterministic cursor-paginated list of transactions mirrored from POSC
 
 ### 3.9. Promotions, notifications, badges
 
-* `GET /me/promotions` → `{banners, offers, has_new}`; видны активные акции в окне показа, общие и бизнесов, где у клиента есть карта. `GET /me/promotions/{id}`. `POST /me/promotions/seen` (204) снимает признак «новое».
-* `GET /me/notifications` → `{items, unread_count}` (последние 100; рассылки до регистрации клиента не показываются). `POST /me/notifications/read` (204).
-* `GET /me/badges` → `{promotions_new, notifications_unread}` для значков на вкладках.
-* Свежие (до 24 часов) начисления и списания из синхронизации автоматически создают личное уведомление владельцу карты.
+Все перечисленные ниже эндпоинты поддерживают необязательный query-параметр `business_id=<uuid>`:
+- **Без параметра `business_id`**: возвращает данные по всем активным бизнесам покупателя (полная обратная совместимость со старыми версиями APK и общим приложением).
+- **С параметром `business_id`**: возвращает данные исключительно указанного бизнеса.
+  - Если у покупателя нет активной карты в данном бизнесе: возвращается пустой список (200 OK с пустыми массивами `[]`, не 404), за исключением запроса конкретной акции по `id`.
+  - Чужая акция при запросе `GET /me/promotions/{id}?business_id=<uuid>` возвращает `404 PROMOTION_NOT_FOUND` (так же, как если бы акция не существовала).
+
+* `GET /me/promotions` (опционально `?business_id=<uuid>`) → `{banners, offers, has_new}`:
+  - Без параметра: видны активные акции в окне показа, общие (`business_id IS NULL`) и бизнесов, где у клиента есть карта.
+  - С параметром: только активные акции указанного бизнеса (`business_id == requested`). Если у покупателя нет карты в этом бизнесе — `{banners: [], offers: [], has_new: false}`.
+* `GET /me/promotions/{id}` (опционально `?business_id=<uuid>`) → `PromotionItem`:
+  - Детали акции. При указании `business_id` проверяется принадлежность акции этому бизнесу и наличие карты у клиента. При несовпадении — `404 PROMOTION_NOT_FOUND`.
+* `POST /me/promotions/seen` (опционально `?business_id=<uuid>`) → `204 No Content`:
+  - Снимает признак «новое» для предложений (обновляет временную метку `promotions_seen_at`).
+* `GET /me/notifications` (опционально `?business_id=<uuid>`) → `{items, unread_count}`:
+  - Без параметра: последние 100 уведомлений по всем бизнесам клиента (личные транзакции + рассылки; рассылки до регистрации клиента не показываются).
+  - С параметром: только уведомления указанного бизнеса (`Notification.business_id == requested`). Если у покупателя нет карты в этом бизнесе — `{items: [], unread_count: 0}`.
+* `POST /me/notifications/read` (опционально `?business_id=<uuid>`) → `204 No Content`:
+  - Отмечает уведомления прочитанными (обновляет временную метку `notifications_seen_at`).
+* `GET /me/badges` (опционально `?business_id=<uuid>`) → `{promotions_new, notifications_unread}`:
+  - Бейджи для значков на вкладках. С параметром `business_id` вычисляет статус непрочитанных/новых данных строго для этого бизнеса. Если у клиента нет карты в бизнесе — `{promotions_new: false, notifications_unread: 0}`.
+* Свежие (до 24 часов) начисления и списания из синхронизации автоматически создают личное уведомление владельцу карты с указанием `business_id`.
 
 ### 3.10. Phone Wallet Passes («Add to Wallet»)
 
@@ -423,6 +445,25 @@ Returns a deterministic cursor-paginated list of transactions mirrored from POSC
   "updated_at": "2026-11-04T12:00:00Z"
 }
 ```
+
+### 3.14. Multi-Tenant Architecture & Per-Client Android Apps
+
+Платформа поддерживает работу как с общим мобильным приложением (`kz.cashbackone.mobile`, настраивается через `PUSH_SHARED_APP_ID`), так и с отдельными брендированными сборками для клиентов (например, `kz.cashbackone.keremet`).
+
+#### Правила маршрутизации Push-уведомлений:
+1. Для событий бизнеса B (коды списания POS, транзакции):
+   - Если у бизнеса B задан `android_app_id` (например, `kz.cashbackone.keremet`): уведомление отправляется на устройства с пакетом `B.android_app_id` **и** на устройства с пакетом общего приложения (`kz.cashbackone.mobile`).
+   - Если у бизнеса B не задан `android_app_id` (NULL): уведомление отправляется только на устройства общего приложения.
+   - Устройства других клиентов (например, `kz.cashbackone.other`) уведомления бизнеса B не получают.
+2. Проверка доступности приложения покупателя (`CUSTOMER_NO_APP`):
+   - При запросе списания на POS (`/pos/redemptions`) проверка `has_active_device` учитывает бизнес кассы. Если у покупателя нет активных устройств, соответствующих правилу выше (например, зарегистрировано только приложение другого клиента `kz.cashbackone.other`), возвращается `409 CUSTOMER_NO_APP`.
+
+#### Правила фильтрации данных API:
+1. Запросы с `?business_id=<uuid>` ограничивают выдачу (`/me/cards`, `/me/promotions`, `/me/notifications`, `/me/badges`) строго выбранным бизнесом.
+2. При попытке привязки карты (`POST /me/cards/bind?business_id=<uuid>`), если номер карты принадлежит другому бизнесу, возвращается `404 CARD_NOT_FOUND` (без раскрытия существования карты у других ритейлеров).
+3. При запросе чужой акции (`GET /me/promotions/{id}?business_id=<uuid>`) возвращается `404 PROMOTION_NOT_FOUND`.
+
+---
 
 ## 4. Error Responses
 

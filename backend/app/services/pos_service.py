@@ -59,7 +59,7 @@ async def request_pos_redemption(
             409,
         )
 
-    active = await has_active_device(session, owner.id)
+    active = await has_active_device(session, owner.id, business_id=pos_key.business_id)
     if not active:
         raise AppError(
             "CUSTOMER_NO_APP",
@@ -97,6 +97,7 @@ async def request_pos_redemption(
             title=title,
             body=text,
             data=data,
+            business_id=pos_key.business_id,
         )
     except AppError:
         raise

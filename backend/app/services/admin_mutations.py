@@ -73,6 +73,7 @@ _ALLOWED_BUSINESS_STATUSES: set[str] = {"active", "inactive"}
 _ALLOWED_AGENT_STATUSES: set[str] = {"active", "revoked", "suspended", "inactive"}
 _ALLOWED_COMMAND_STATUSES: set[str] = {"pending", "processing", "completed", "failed"}
 _ALLOWED_BUSINESS_FIELDS: set[str] = {
+    "android_app_id",
     "barcode_prefixes",
     "colors",
     "loyalty_tiers",
@@ -503,7 +504,15 @@ def _business_state(
 ) -> dict[str, Any]:
     configured = sorted(
         field
-        for field in ("barcode_prefixes", "colors", "loyalty_tiers", "logo_url", "name", "status")
+        for field in (
+            "android_app_id",
+            "barcode_prefixes",
+            "colors",
+            "loyalty_tiers",
+            "logo_url",
+            "name",
+            "status",
+        )
         if getattr(business, field, None) is not None
     )
     state: dict[str, Any] = {
@@ -547,9 +556,29 @@ async def create_business(
     actor_scope.require_superadmin()
     payload = request.model_dump()
     create_manager = payload.pop("create_manager", True)
+    app_id = payload.get("android_app_id")
+    if app_id:
+        existing = await db.scalar(
+            select(Business.id).where(Business.android_app_id == app_id)
+        )
+        if existing:
+            raise AppError(
+                "DUPLICATE_ANDROID_APP_ID",
+                f"Business with android_app_id '{app_id}' already exists",
+                422,
+            )
     business = Business(**payload)
     db.add(business)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if "android_app_id" in str(exc).lower():
+            raise AppError(
+                "DUPLICATE_ANDROID_APP_ID",
+                f"Business with android_app_id '{app_id}' already exists",
+                422,
+            ) from exc
+        raise
     _audit(
         db,
         actor,
@@ -694,10 +723,33 @@ async def update_business(
     before = _business_state(business)
     old_logo_url = business.logo_url
     fields = request.model_dump(mode="json", exclude_unset=True)
+    if fields.get("android_app_id"):
+        app_id = fields["android_app_id"]
+        existing = await db.scalar(
+            select(Business.id).where(
+                Business.android_app_id == app_id,
+                Business.id != business_id,
+            )
+        )
+        if existing:
+            raise AppError(
+                "DUPLICATE_ANDROID_APP_ID",
+                f"Business with android_app_id '{app_id}' already exists",
+                422,
+            )
     previous_colors = business.colors
     for field, value in fields.items():
         setattr(business, field, value)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if "android_app_id" in str(exc).lower():
+            raise AppError(
+                "DUPLICATE_ANDROID_APP_ID",
+                f"Business with android_app_id '{fields.get('android_app_id')}' already exists",
+                422,
+            ) from exc
+        raise
     _audit(
         db,
         actor,

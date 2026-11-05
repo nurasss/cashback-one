@@ -239,6 +239,11 @@ class Settings(BaseSettings):
     push_send_timeout_seconds: float = 10.0
     push_token_user_limit: int = 10
     push_token_rate_window_seconds: int = 300
+    push_shared_app_id: str = Field(default="kz.cashbackone.mobile")
+
+    @property
+    def PUSH_SHARED_APP_ID(self) -> str:
+        return self.push_shared_app_id
 
     @field_validator("app_env", mode="before")
     @classmethod
@@ -313,6 +318,9 @@ class Settings(BaseSettings):
                 raise ValueError("WAPPI_API_BASE_URL must use HTTPS")
 
         clean_push_mode = (self.push_provider_mode or "").strip().lower()
+        if not (self.push_shared_app_id or "").strip():
+            raise ValueError("PUSH_SHARED_APP_ID must not be empty")
+        self.push_shared_app_id = self.push_shared_app_id.strip()
         if clean_push_mode not in ("disabled", "fake", "log", "fcm"):
             raise ValueError(
                 f"Invalid PUSH_PROVIDER_MODE '{self.push_provider_mode}'. "

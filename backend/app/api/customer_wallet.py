@@ -33,6 +33,7 @@ router = APIRouter(prefix="/me", tags=["Customer Wallet"])
 async def list_cards(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> list[CustomerCardResponse]:
     """Retrieve customer's loyalty cards.
 
@@ -40,7 +41,7 @@ async def list_cards(
     """
     await auto_bind_cards_by_phone(session, current_user)
     await session.commit()
-    return await get_customer_cards(session, current_user.id)
+    return await get_customer_cards(session, current_user.id, business_id=business_id)
 
 
 @router.post(
@@ -53,6 +54,7 @@ async def bind_card(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> CustomerCardResponse:
     """Manually bind an existing loyalty card via barcode or scanned QR.
 
@@ -70,11 +72,12 @@ async def bind_card(
             message="Too many card link attempts. Please try again later.",
             status_code=429,
         )
+    effective_business_id = business_id or body.business_id
     return await bind_customer_card(
         session=session,
         user=current_user,
         barcode=body.barcode,
-        business_id=body.business_id,
+        business_id=effective_business_id,
     )
 
 

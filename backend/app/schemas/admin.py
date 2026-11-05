@@ -16,7 +16,12 @@ from pydantic import (
 )
 
 from app.core.admin_types import AdminRole
-from app.schemas.common import BARCODE_ERROR_MSG, BARCODE_REGEX
+from app.schemas.common import (
+    ANDROID_APP_ID_ERROR_MSG,
+    ANDROID_APP_ID_PATTERN,
+    BARCODE_ERROR_MSG,
+    BARCODE_REGEX,
+)
 
 T = TypeVar("T")
 BusinessStatus = Literal["active", "inactive"]
@@ -107,6 +112,17 @@ def _validate_barcode_prefixes(value: list[str] | None) -> list[str] | None:
     return value
 
 
+def _validate_android_app_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if not ANDROID_APP_ID_PATTERN.match(cleaned):
+        raise ValueError(ANDROID_APP_ID_ERROR_MSG)
+    return cleaned
+
+
 class BusinessCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -114,6 +130,7 @@ class BusinessCreateRequest(BaseModel):
     logo_url: str | None = Field(default=None, max_length=1024)
     colors: dict[str, object] | None = None
     barcode_prefixes: list[str] | None = Field(default=None, max_length=64)
+    android_app_id: str | None = Field(default=None, max_length=255)
     status: BusinessStatus = "active"
     create_manager: bool = True
 
@@ -125,6 +142,7 @@ class BusinessCreateRequest(BaseModel):
     _logo = field_validator("logo_url")(_validate_logo_url)
     _colors = field_validator("colors")(_validate_colors)
     _prefixes = field_validator("barcode_prefixes")(_validate_barcode_prefixes)
+    _android_app_id = field_validator("android_app_id")(_validate_android_app_id)
 
     @model_validator(mode="after")
     def enforce_payload_bound(self) -> "BusinessCreateRequest":
@@ -169,6 +187,7 @@ class BusinessUpdateRequest(BaseModel):
     logo_url: str | None = Field(default=None, max_length=1024)
     colors: dict[str, object] | None = None
     barcode_prefixes: list[str] | None = Field(default=None, max_length=64)
+    android_app_id: str | None = Field(default=None, max_length=255)
     status: BusinessStatus | None = None
     loyalty_tiers: list[LoyaltyTier] | None = None
 
@@ -180,6 +199,7 @@ class BusinessUpdateRequest(BaseModel):
     _logo = field_validator("logo_url")(_validate_logo_url)
     _colors = field_validator("colors")(_validate_colors)
     _prefixes = field_validator("barcode_prefixes")(_validate_barcode_prefixes)
+    _android_app_id = field_validator("android_app_id")(_validate_android_app_id)
     _tiers = field_validator("loyalty_tiers")(_validate_tiers)
 
     @model_validator(mode="after")
@@ -261,6 +281,7 @@ class BusinessListItem(BaseModel):
     logo_url: str | None
     colors: dict[str, object] | None
     barcode_prefixes: list[str] | None
+    android_app_id: str | None = None
     status: str
     loyalty_tiers: list[dict[str, object]] | None = None
     created_at: datetime

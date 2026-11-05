@@ -27,6 +27,9 @@ class Business(Base, UUIDPrimaryKey, Timestamps):
     """Client organization (tenant) operating on POSCENTER ONE."""
 
     __tablename__ = "businesses"
+    __table_args__ = (
+        UniqueConstraint("android_app_id", name="uq_businesses_android_app_id"),
+    )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     logo_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -37,6 +40,10 @@ class Business(Base, UUIDPrimaryKey, Timestamps):
     loyalty_tiers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     # Closed set of localized app texts: {"home_store_note_lead": {"ru": "...", "kk": "..."}, ...}
     app_texts: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # Client Android app package ID (NULL if using the shared app only)
+    android_app_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True
+    )
 
 
 class Agent(Base, UUIDPrimaryKey):

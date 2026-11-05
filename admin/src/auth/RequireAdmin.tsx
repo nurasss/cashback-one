@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useParams } from 'react-router-dom';
 import { useAdminSession } from './provider';
 import { ApiError } from '../api/errors';
 import type { ReactNode } from 'react';
@@ -39,4 +39,15 @@ export function RequireSuperadmin({ children }: { children: ReactNode }) {
   const { view } = useAdminSession();
   if (view.status !== 'authenticated') return null;
   return view.admin.role === 'superadmin' ? <>{children}</> : <AccessDenied />;
+}
+
+export function RequireBusinessDetailAccess({ children }: { children: ReactNode }) {
+  const { view } = useAdminSession();
+  const { businessId } = useParams<{ businessId: string }>();
+  if (view.status !== 'authenticated') return null;
+  if (view.admin.role === 'superadmin') return <>{children}</>;
+  if (view.admin.role === 'business_manager' && view.admin.business?.id === businessId) {
+    return <>{children}</>;
+  }
+  return <AccessDenied />;
 }

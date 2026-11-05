@@ -142,6 +142,8 @@ export const adminRu = {
     lineLogo: 'Логотип',
     linePrefixes: 'Префиксы',
     prefixesNone: 'Не заданы',
+    lineAndroidAppId: 'Пакет Android-приложения',
+    androidAppIdEmpty: 'Пусто (только общее приложение)',
     panelColors: 'ЦВЕТОВАЯ СХЕМА',
     colorsEmpty: 'Цвета не настроены.',
     logoNone: 'Не задан',
@@ -362,6 +364,11 @@ export const adminRu = {
     businessLogo: 'Логотип (HTTPS URL или пусто)',
     businessColors: 'Цвета (ограниченный JSON object)',
     businessPrefixes: 'Префиксы barcode (JSON array; пустой список допустим)',
+    businessAndroidAppId: 'Пакет Android-приложения',
+    businessAndroidAppIdHint:
+      'Пакет Android-приложения клиента, например kz.cashbackone.keremet. Пусто — только общее приложение',
+    errBusinessAndroidAppId:
+      'Неверный формат пакета Android-приложения (например, kz.cashbackone.keremet).',
     businessTiers:
       'Уровни лояльности (JSON: level, name, threshold — сумма покупок, percent — % баллов)',
     businessStatus: 'Статус',
@@ -682,6 +689,8 @@ export const adminKk: AdminTranslations = {
     lineLogo: 'Логотип',
     linePrefixes: 'Префикстер',
     prefixesNone: 'Орнатылмаған',
+    lineAndroidAppId: 'Android қосымшасының пакеті',
+    androidAppIdEmpty: 'Бос (тек ортақ қосымша)',
     panelColors: 'ТҮС СХЕМАСЫ',
     colorsEmpty: 'Түстер бапталмаған.',
     logoNone: 'Орнатылмаған',
@@ -903,6 +912,11 @@ export const adminKk: AdminTranslations = {
     businessLogo: 'Логотип (HTTPS URL немесе бос)',
     businessColors: 'Түстер (шектелген JSON нысаны)',
     businessPrefixes: 'Префикстер barcode (JSON array; бос тізімге рұқсат етіледі)',
+    businessAndroidAppId: 'Android қосымшасының пакеті',
+    businessAndroidAppIdHint:
+      'Клиенттің Android қосымшасының пакеті, мысалы kz.cashbackone.keremet. Бос — тек ортақ қосымша',
+    errBusinessAndroidAppId:
+      'Android қосымшасы пакетінің пішімі қате (мысалы, kz.cashbackone.keremet).',
     businessTiers:
       'Адалдық деңгейлері (JSON: level, name, threshold — сатып алу сомасы, percent — % балдары)',
     businessStatus: 'Мәртебесі',

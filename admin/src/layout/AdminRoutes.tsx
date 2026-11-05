@@ -1,6 +1,10 @@
 import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import { AdminProvider, useAdminSession } from '../auth/provider';
-import { RequireAdmin, RequireSuperadmin } from '../auth/RequireAdmin';
+import {
+  RequireAdmin,
+  RequireBusinessDetailAccess,
+  RequireSuperadmin,
+} from '../auth/RequireAdmin';
 import { LoginPage } from '../pages/LoginPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { BusinessesPage, BusinessDetailPage } from '../pages/BusinessesPage';
@@ -106,7 +110,7 @@ function AdminRouterState() {
       <Route element={<ProtectedLayout />}>
         <Route index element={<DashboardPage />} />
         <Route path="businesses" element={<RequireSuperadmin><BusinessesPage /></RequireSuperadmin>} />
-        <Route path="businesses/:businessId" element={<RequireSuperadmin><BusinessDetailPage /></RequireSuperadmin>} />
+        <Route path="businesses/:businessId" element={<RequireBusinessDetailAccess><BusinessDetailPage /></RequireBusinessDetailAccess>} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="agents/:agentId" element={<AgentDetailPage />} />
         <Route path="operations" element={<OperationsPage />} />

@@ -6,7 +6,8 @@ export interface AdminMe { admin: AdminIdentity }
 export interface Page<T> { items: T[]; limit: number; offset: number; has_more: boolean }
 export interface Business {
   id: string; name: string; logo_url: string | null; colors: Record<string, unknown> | null;
-  barcode_prefixes: string[] | null; status: string; loyalty_tiers?: LoyaltyTier[] | null; created_at: string; updated_at: string;
+  barcode_prefixes: string[] | null; android_app_id?: string | null; status: string;
+  loyalty_tiers?: LoyaltyTier[] | null; created_at: string; updated_at: string;
 }
 export interface LoyaltyTier { level: number; name?: string | null; threshold: string; percent: string }
 export type PromotionKind = 'banner' | 'offer';

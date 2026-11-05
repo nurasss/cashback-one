@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -175,16 +175,22 @@ async def delete_avatar(
 async def promotions(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> PromotionsResponse:
-    return await content_service.list_promotions(session, current_user)
+    return await content_service.list_promotions(
+        session, current_user, business_id=business_id
+    )
 
 
 @router.post("/promotions/seen", status_code=status.HTTP_204_NO_CONTENT)
 async def promotions_seen(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> Response:
-    await content_service.mark_promotions_seen(session, current_user)
+    await content_service.mark_promotions_seen(
+        session, current_user, business_id=business_id
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -193,24 +199,33 @@ async def promotion_detail(
     promotion_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> PromotionItem:
-    return await content_service.get_promotion(session, current_user, promotion_id)
+    return await content_service.get_promotion(
+        session, current_user, promotion_id, business_id=business_id
+    )
 
 
 @router.get("/notifications", response_model=NotificationsResponse)
 async def notifications(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> NotificationsResponse:
-    return await content_service.list_notifications(session, current_user)
+    return await content_service.list_notifications(
+        session, current_user, business_id=business_id
+    )
 
 
 @router.post("/notifications/read", status_code=status.HTTP_204_NO_CONTENT)
 async def notifications_read(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> Response:
-    await content_service.mark_notifications_read(session, current_user)
+    await content_service.mark_notifications_read(
+        session, current_user, business_id=business_id
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -218,8 +233,11 @@ async def notifications_read(
 async def badges(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> BadgesResponse:
-    return await content_service.badges(session, current_user)
+    return await content_service.badges(
+        session, current_user, business_id=business_id
+    )
 
 
 async def _visible_card(session: AsyncSession, user: User, card_id: uuid.UUID) -> tuple[Card, Business]:

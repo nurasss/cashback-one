@@ -156,7 +156,7 @@ async def admin_business_detail(
     scope: Annotated[AdminScope, Depends(get_admin_scope)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> BusinessDetail:
-    scope.require_superadmin()
+    scope.business_id_for(business_id)
     return await get_business(db, business_id)
 
 

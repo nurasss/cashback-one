@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.time import utcnow
+from app.schemas.common import ANDROID_APP_ID_ERROR_MSG, ANDROID_APP_ID_PATTERN
 
 Gender = Literal["male", "female"]
 Language = Literal["ru", "kz"]
@@ -164,9 +165,6 @@ class WalletLinkResponse(BaseModel):
     expires_at: datetime | None
 
 
-_ANDROID_APP_ID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
-
-
 class PushTokenRegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -184,8 +182,8 @@ class PushTokenRegisterRequest(BaseModel):
     @field_validator("app_id")
     @classmethod
     def validate_app_id(cls, v: str) -> str:
-        if not _ANDROID_APP_ID_RE.match(v):
-            raise ValueError("Invalid Android package format for app_id")
+        if not ANDROID_APP_ID_PATTERN.match(v):
+            raise ValueError(ANDROID_APP_ID_ERROR_MSG)
         return v
 
 

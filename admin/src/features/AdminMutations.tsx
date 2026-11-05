@@ -67,6 +67,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
   const [logoUrl, setLogoUrl] = useState(business?.logo_url ?? '');
   const [colorsText, setColorsText] = useState(JSON.stringify(business?.colors ?? null, null, 2));
   const [prefixesText, setPrefixesText] = useState(JSON.stringify(business?.barcode_prefixes ?? [], null, 2));
+  const [androidAppId, setAndroidAppId] = useState(business?.android_app_id ?? '');
   const [status, setStatus] = useState<'active' | 'inactive'>(business?.status === 'inactive' ? 'inactive' : 'active');
   const [tiersText, setTiersText] = useState(JSON.stringify(business?.loyalty_tiers ?? null, null, 2));
   const [error, setError] = useState('');
@@ -132,6 +133,15 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       return;
     }
 
+    const trimmedAppId = androidAppId.trim();
+    if (trimmedAppId) {
+      const appIdRegex = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
+      if (!appIdRegex.test(trimmedAppId) || trimmedAppId.length > 255) {
+        setError(t.mutations.errBusinessAndroidAppId);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -139,6 +149,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
         logo_url: normalizedLogo,
         colors,
         barcode_prefixes: barcodePrefixes,
+        android_app_id: trimmedAppId || null,
         status,
         ...(business ? { loyalty_tiers: loyaltyTiers } : {}),
       };
@@ -178,6 +189,18 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       <textarea id="business-colors" rows={5} value={colorsText} onChange={event => setColorsText(event.target.value)} />
       <label htmlFor="business-prefixes">{t.mutations.businessPrefixes}</label>
       <textarea id="business-prefixes" rows={3} value={prefixesText} onChange={event => setPrefixesText(event.target.value)} />
+      <label htmlFor="business-android-app-id">{t.mutations.businessAndroidAppId}</label>
+      <input
+        id="business-android-app-id"
+        value={androidAppId}
+        maxLength={255}
+        placeholder="kz.cashbackone.keremet"
+        onChange={event => setAndroidAppId(event.target.value)}
+        disabled={saving}
+      />
+      <small className="field-hint" style={{ display: 'block', marginTop: '0.25rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+        {t.mutations.businessAndroidAppIdHint}
+      </small>
       {business && <><label htmlFor="business-tiers">{t.mutations.businessTiers}</label>
       <textarea id="business-tiers" rows={6} value={tiersText} placeholder='[{"level": 1, "name": "Базовый", "threshold": "0", "percent": "3"}]' onChange={event => setTiersText(event.target.value)} /></>}
       <label htmlFor="business-status">{t.mutations.businessStatus}</label>

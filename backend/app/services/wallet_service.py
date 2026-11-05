@@ -152,6 +152,7 @@ def extract_branding(business: Business) -> BusinessBranding:
 async def get_customer_cards(
     session: AsyncSession,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> list[CustomerCardResponse]:
     """Retrieve all active (unhidden) cards belonging to the customer."""
     stmt = (
@@ -165,6 +166,8 @@ async def get_customer_cards(
         )
         .order_by(UserCard.bound_at.desc(), Card.id.desc())
     )
+    if business_id is not None:
+        stmt = stmt.where(Card.business_id == business_id)
     rows = (await session.execute(stmt)).all()
 
     cards: list[CustomerCardResponse] = []

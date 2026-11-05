@@ -166,9 +166,11 @@ export function BusinessDetailPage() {
                 </button>
               </>
             )}
-            <Link className="button button-secondary" to="/admin/businesses">
-              {t.businesses.backToList}
-            </Link>
+            {view.status === 'authenticated' && view.admin.role === 'superadmin' && (
+              <Link className="button button-secondary" to="/admin/businesses">
+                {t.businesses.backToList}
+              </Link>
+            )}
           </>
         }
       />
@@ -221,6 +223,11 @@ export function BusinessDetailPage() {
                 {business.barcode_prefixes?.length
                   ? business.barcode_prefixes.join(', ')
                   : t.businesses.prefixesNone}
+              </span>
+            </DetailLine>
+            <DetailLine label={t.businesses.lineAndroidAppId}>
+              <span className="mono-value">
+                {business.android_app_id || t.businesses.androidAppIdEmpty}
               </span>
             </DetailLine>
           </dl>

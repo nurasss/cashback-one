@@ -74,11 +74,26 @@ def _visible_notifications(user_id: uuid.UUID, business_ids: list[uuid.UUID]) ->
     )
 
 
-async def list_promotions(session: AsyncSession, user: User) -> PromotionsResponse:
+async def list_promotions(
+    session: AsyncSession, user: User, business_id: uuid.UUID | None = None
+) -> PromotionsResponse:
     business_ids = await customer_business_ids(session, user.id)
+    if business_id is not None:
+        if business_id not in business_ids:
+            return PromotionsResponse(banners=[], offers=[], has_new=False)
+        now = utcnow()
+        where_clause = and_(
+            Promotion.is_active.is_(True),
+            or_(Promotion.starts_at.is_(None), Promotion.starts_at <= now),
+            or_(Promotion.ends_at.is_(None), Promotion.ends_at > now),
+            Promotion.business_id == business_id,
+        )
+    else:
+        where_clause = _visible_promotions(business_ids, utcnow())
+
     stmt = (
         select(Promotion)
-        .where(_visible_promotions(business_ids, utcnow()))
+        .where(where_clause)
         .order_by(Promotion.sort_order.asc(), Promotion.created_at.desc())
     )
     rows = (await session.execute(stmt)).scalars().all()
@@ -95,15 +110,32 @@ async def list_promotions(session: AsyncSession, user: User) -> PromotionsRespon
     )
 
 
-async def get_promotion(session: AsyncSession, user: User, promotion_id: uuid.UUID) -> PromotionItem:
+async def get_promotion(
+    session: AsyncSession,
+    user: User,
+    promotion_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
+) -> PromotionItem:
     from app.core.errors import AppError
 
     business_ids = await customer_business_ids(session, user.id)
-    promo = await session.scalar(
-        select(Promotion).where(
-            Promotion.id == promotion_id, _visible_promotions(business_ids, utcnow())
-        )
-    )
+    if business_id is not None:
+        if business_id not in business_ids:
+            raise AppError("PROMOTION_NOT_FOUND", "Promotion not found", 404)
+        conditions = [
+            Promotion.id == promotion_id,
+            Promotion.business_id == business_id,
+            Promotion.is_active.is_(True),
+            or_(Promotion.starts_at.is_(None), Promotion.starts_at <= utcnow()),
+            or_(Promotion.ends_at.is_(None), Promotion.ends_at > utcnow()),
+        ]
+    else:
+        conditions = [
+            Promotion.id == promotion_id,
+            _visible_promotions(business_ids, utcnow()),
+        ]
+
+    promo = await session.scalar(select(Promotion).where(*conditions))
     if promo is None:
         raise AppError("PROMOTION_NOT_FOUND", "Promotion not found", 404)
     item = PromotionItem.model_validate(promo)
@@ -111,17 +143,32 @@ async def get_promotion(session: AsyncSession, user: User, promotion_id: uuid.UU
     return item
 
 
-async def list_notifications(session: AsyncSession, user: User) -> NotificationsResponse:
+async def list_notifications(
+    session: AsyncSession, user: User, business_id: uuid.UUID | None = None
+) -> NotificationsResponse:
     business_ids = await customer_business_ids(session, user.id)
-    visible = _visible_notifications(user.id, business_ids)
-    # Customers never see broadcasts sent before they registered.
-    since = Notification.created_at >= user.created_at
+    if business_id is not None:
+        if business_id not in business_ids:
+            return NotificationsResponse(items=[], unread_count=0)
+        visible = and_(
+            Notification.business_id == business_id,
+            or_(
+                Notification.user_id == user.id,
+                and_(Notification.user_id.is_(None), Notification.created_at >= user.created_at),
+            ),
+        )
+    else:
+        visible = and_(
+            _visible_notifications(user.id, business_ids),
+            or_(Notification.user_id == user.id, Notification.created_at >= user.created_at),
+        )
+
     rows = (
         await session.execute(
             select(Notification, RedemptionCode, Business)
             .outerjoin(RedemptionCode, RedemptionCode.id == Notification.redemption_id)
             .outerjoin(Business, Business.id == Notification.business_id)
-            .where(visible, or_(Notification.user_id == user.id, since))
+            .where(visible)
             .order_by(Notification.created_at.desc(), Notification.id.desc())
             .limit(NOTIFICATIONS_PAGE_LIMIT)
         )
@@ -143,41 +190,73 @@ async def list_notifications(session: AsyncSession, user: User) -> Notifications
                 else:
                     item.body = redemption_inactive_text(redemption.amount, biz_name)
         items.append(item)
-    unread = await _unread_notifications(session, user, business_ids)
+    unread = await _unread_notifications(session, user, business_ids, business_id=business_id)
     return NotificationsResponse(items=items, unread_count=unread)
 
 
 async def _unread_notifications(
-    session: AsyncSession, user: User, business_ids: list[uuid.UUID]
+    session: AsyncSession,
+    user: User,
+    business_ids: list[uuid.UUID],
+    business_id: uuid.UUID | None = None,
 ) -> int:
-    conditions = [
-        _visible_notifications(user.id, business_ids),
-        or_(Notification.user_id == user.id, Notification.created_at >= user.created_at),
-    ]
+    if business_id is not None:
+        if business_id not in business_ids:
+            return 0
+        conditions = [
+            Notification.business_id == business_id,
+            or_(Notification.user_id == user.id, Notification.created_at >= user.created_at),
+        ]
+    else:
+        conditions = [
+            _visible_notifications(user.id, business_ids),
+            or_(Notification.user_id == user.id, Notification.created_at >= user.created_at),
+        ]
     if user.notifications_seen_at is not None:
         conditions.append(Notification.created_at > user.notifications_seen_at)
     count = await session.scalar(select(func.count(Notification.id)).where(*conditions))
     return int(count or 0)
 
 
-async def badges(session: AsyncSession, user: User) -> BadgesResponse:
+async def badges(
+    session: AsyncSession, user: User, business_id: uuid.UUID | None = None
+) -> BadgesResponse:
     business_ids = await customer_business_ids(session, user.id)
-    promo_conditions = [_visible_promotions(business_ids, utcnow()), Promotion.kind == "offer"]
+    if business_id is not None:
+        if business_id not in business_ids:
+            return BadgesResponse(promotions_new=False, notifications_unread=0)
+        now = utcnow()
+        promo_conditions = [
+            Promotion.business_id == business_id,
+            Promotion.kind == "offer",
+            Promotion.is_active.is_(True),
+            or_(Promotion.starts_at.is_(None), Promotion.starts_at <= now),
+            or_(Promotion.ends_at.is_(None), Promotion.ends_at > now),
+        ]
+    else:
+        promo_conditions = [_visible_promotions(business_ids, utcnow()), Promotion.kind == "offer"]
+
     if user.promotions_seen_at is not None:
         promo_conditions.append(Promotion.created_at > user.promotions_seen_at)
     has_new_promo = await session.scalar(select(Promotion.id).where(*promo_conditions).limit(1))
     return BadgesResponse(
         promotions_new=has_new_promo is not None,
-        notifications_unread=await _unread_notifications(session, user, business_ids),
+        notifications_unread=await _unread_notifications(
+            session, user, business_ids, business_id=business_id
+        ),
     )
 
 
-async def mark_promotions_seen(session: AsyncSession, user: User) -> None:
+async def mark_promotions_seen(
+    session: AsyncSession, user: User, business_id: uuid.UUID | None = None
+) -> None:
     user.promotions_seen_at = utcnow()
     await session.commit()
 
 
-async def mark_notifications_read(session: AsyncSession, user: User) -> None:
+async def mark_notifications_read(
+    session: AsyncSession, user: User, business_id: uuid.UUID | None = None
+) -> None:
     user.notifications_seen_at = utcnow()
     await session.commit()
 
