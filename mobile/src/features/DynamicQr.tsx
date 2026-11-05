@@ -9,19 +9,36 @@ import type { CardQr } from '../types/api';
 // Tokens are short-lived and server-signed; a stale or malformed payload is never rendered.
 export const isQrToken = (value: string) => /^C1[A-Z2-7]{48}$/.test(value);
 
-export function DynamicQr({ qr, loading, failed, blocked }: { qr: CardQr | undefined; loading: boolean; failed: boolean; blocked: boolean }) {
+export function DynamicQr({
+  value,
+  qr,
+  loading = false,
+  failed = false,
+  blocked,
+}: {
+  value?: string;
+  qr?: CardQr | undefined;
+  loading?: boolean;
+  failed?: boolean;
+  blocked: boolean;
+}) {
   const { t: tr } = useI18n();
   const { width } = useWindowDimensions();
   const [now, setNow] = useState(Date.now());
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (!qr) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [qr]);
   const expiresAt = qr ? Date.parse(qr.expires_at) : 0;
   const valid = !!qr && isQrToken(qr.token) && expiresAt > now;
+  const payload = value !== undefined ? value : valid ? qr.token : null;
   const size = Math.max(180, Math.min(240, width - 168));
 
   return <View style={styles.card}>
     <View style={[styles.qrBox, { width: size, height: size }]}>
       {blocked ? <Text style={styles.message}>{tr('cardBlocked')}</Text> :
-        valid ? <View accessible accessibilityLabel={tr('showToCashier')} testID="qr-code"><QRCode value={qr.token} size={size} color="#000000" backgroundColor="#FFFFFF" ecl="M" /></View> :
+        payload ? <View accessible accessibilityLabel={tr('showToCashier')} testID="qr-code"><QRCode value={payload} size={size} color="#000000" backgroundColor="#FFFFFF" ecl="M" /></View> :
         loading ? <ActivityIndicator color={t.colors.primary} /> :
         <Text style={styles.message}>{failed ? tr('qrUnavailable') : tr('loading')}</Text>}
     </View>

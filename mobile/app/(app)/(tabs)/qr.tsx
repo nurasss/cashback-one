@@ -3,9 +3,9 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { requestWalletLink, useCardQr, useWalletAvailability } from '../../../src/api/app';
+import { requestWalletLink, useWalletAvailability } from '../../../src/api/app';
 import { useSession } from '../../../src/auth/provider';
-import { Button, Chip, EmptyState, ErrorNotice, Loading, ScreenHeader, styles } from '../../../src/components/ui';
+import { Button, EmptyState, ErrorNotice, Loading, ScreenHeader, styles } from '../../../src/components/ui';
 import { Icon } from '../../../src/components/icons';
 import { useActiveCard } from '../../../src/features/activeCard';
 import { DynamicQr } from '../../../src/features/DynamicQr';
@@ -17,13 +17,11 @@ export default function QrScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const { api } = useSession();
-  const { card, cards, select } = useActiveCard();
-  const qr = useCardQr(card && !card.is_blocked ? card.id : undefined);
+  const { card, cards } = useActiveCard();
   const wallet = useWalletAvailability({ enabled: Platform.OS !== 'web' });
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<unknown | null>(null);
 
-  const list = cards.data ?? [];
   const platform: 'apple' | 'google' | null =
     Platform.OS === 'ios' ? 'apple' : Platform.OS === 'android' ? 'google' : null;
   const isWalletAvailable =
@@ -53,7 +51,7 @@ export default function QrScreen() {
       {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
         <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
       </EmptyState> : <>
-        <FadeIn><DynamicQr qr={qr.data} loading={qr.isPending || qr.isFetching} failed={qr.isError} blocked={card.is_blocked} /></FadeIn>
+        <FadeIn><DynamicQr value={card.barcode} blocked={card.is_blocked} /></FadeIn>
         {isWalletAvailable && !card.is_blocked && (
           <FadeIn>
             <View style={{ gap: 8, alignItems: 'center', alignSelf: 'stretch' }}>
@@ -78,9 +76,6 @@ export default function QrScreen() {
             </View>
           </FadeIn>
         )}
-        {list.length > 1 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
-          {list.map(item => <Chip key={item.id} label={item.business.name} selected={item.id === card.id} onPress={() => select(item.id)} />)}
-        </View>}
       </>}
     </ScrollView>
   </SafeAreaView>;

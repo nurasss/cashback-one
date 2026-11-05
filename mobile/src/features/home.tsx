@@ -1,29 +1,31 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, type ImageSourcePropType, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { Icon, type IconName } from '../components/icons';
 import { motionEnabled, PressScale, useCountUp } from '../components/motion';
-import { useI18n } from '../i18n';
+import { useI18n, type Language } from '../i18n';
 import { fonts, theme as t } from '../theme';
-import type { Promotion, Tier } from '../types/api';
+import type { AppContent, Promotion, Tier } from '../types/api';
 import { pointsText } from '../utils/format';
-import { LOCAL_BANNERS, PERMANENT_OFFERS, type PromotionCard } from './promotionsArtwork';
 
 export function BalanceHeader({ phone, balance }: { phone: string; balance: string }) {
   const { t: tr } = useI18n();
   return <View style={styles.headerRow}>
     <Text style={styles.phone} numberOfLines={1}>{phone}</Text>
-    <View style={styles.balanceGroup} accessible accessibilityLabel={`${tr('pointsSum')}: ${pointsText(balance)}`}>
+    <PressScale
+      style={styles.balanceGroup}
+      onPress={() => router.push('/history')}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`${tr('pointsSum')}: ${pointsText(balance)}, ${tr('accrualHistory')}`}
+    >
       <Text style={styles.balance}>{pointsText(balance)}</Text>
       <View style={styles.brandBadge}><Text style={styles.brandBadgeText}>{tr('bonusCurrency')}</Text></View>
-    </View>
+    </PressScale>
   </View>;
 }
-
-type CarouselSlide =
-  | { kind: 'local'; id: string; image: ImageSourcePropType; label: string; aspectRatio: number }
-  | { kind: 'remote'; id: string; banner: Promotion };
 
 export function getLoopSlides<T>(slides: readonly T[]): T[] {
   if (slides.length <= 1) return [...slides];
@@ -41,29 +43,16 @@ export function getCarouselLogicalIndex(rawSlot: number, count: number): number 
   return rawSlot - 1;
 }
 
-// Banner = data-driven card: the opening word is highlighted, with campaign artwork on the right.
-// Looping carousel: neighbours are scaled down, autoplay pauses while the user drags, the active dot stretches into a pill.
-export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[]; open: (id: string) => void; openAll?: () => void }) {
-  const { t: tr } = useI18n();
-  const handleOpenAll = openAll ?? (() => router.push('/promotions'));
-  const slides: CarouselSlide[] = [
-    ...LOCAL_BANNERS.map(banner => ({
-      kind: 'local' as const,
-      id: banner.id,
-      image: banner.image,
-      label: tr(banner.labelKey),
-      aspectRatio: banner.aspectRatio,
-    })),
-    ...banners.map(banner => ({ kind: 'remote' as const, id: banner.id, banner })),
-  ];
+// Looping carousel: only server banners. Empty list returns null (no empty frame).
+export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: (id: string) => void; openAll?: () => void }) {
   const [index, setIndex] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const scrollX = useRef(new Animated.Value(0)).current;
   const dragging = useRef(false);
+  const count = banners.length;
   const cardWidth = Math.max(0, containerWidth - 72);
   const step = cardWidth + 12;
-  const count = slides.length;
 
   const settle = useCallback((rawIndex: number) => {
     if (count <= 1) return;
@@ -90,7 +79,9 @@ export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[
     return () => { clearInterval(timer); if (settleTimer) clearTimeout(settleTimer); };
   }, [index, count, cardWidth, step, settle]);
 
-  const loopSlides = getLoopSlides(slides);
+  if (count === 0) return null;
+
+  const loopSlides = getLoopSlides(banners);
   const initialOffset = count > 1 ? step : 0;
   return <View testID="banner-carousel" style={styles.carousel} onLayout={event => setContainerWidth(event.nativeEvent.layout.width)}>
     {cardWidth > 0 && <Animated.ScrollView ref={scrollRef as never} horizontal showsHorizontalScrollIndicator={false} snapToInterval={step} decelerationRate="fast"
@@ -102,17 +93,10 @@ export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[
       onScrollBeginDrag={() => { dragging.current = true; }}
       onScrollEndDrag={() => { dragging.current = false; }}
       onMomentumScrollEnd={event => settle(Math.round(event.nativeEvent.contentOffset.x / step))}>
-      {loopSlides.map((slide, slot) => {
-        if (slide.kind === 'local') {
-          return <Pressable key={`${slide.id}-${slot}`} testID={`banner-slide-${slot}`} accessibilityRole="button" accessibilityLabel={slide.label}
-            onPress={handleOpenAll} style={[styles.banner, styles.bannerLocal, { width: cardWidth, aspectRatio: slide.aspectRatio }]}>
-            <Image source={slide.image} style={styles.bannerFullImage} resizeMode="contain" accessibilityIgnoresInvertColors />
-          </Pressable>;
-        }
-        const banner = slide.banner;
-        return <Pressable key={`${banner.id}-${slot}`} testID={`banner-slide-${slot}`} accessibilityRole="button" accessibilityLabel={[banner.title, banner.subtitle].filter(Boolean).join('. ')}
+      {loopSlides.map((banner, slot) => (
+        <Pressable key={`${banner.id}-${slot}`} testID={`banner-slide-${slot}`} accessibilityRole="button" accessibilityLabel={[banner.title, banner.subtitle].filter(Boolean).join('. ')}
           onPress={() => open(banner.id)} style={[styles.banner, { width: cardWidth }]}>
-          {banner.image_url && <Image source={{ uri: banner.image_url }} style={styles.bannerImage} resizeMode="contain" accessibilityIgnoresInvertColors />}
+          {banner.image_url && <Image source={{ uri: banner.image_url }} style={styles.bannerImage} contentFit="contain" cachePolicy="memory-disk" accessibilityIgnoresInvertColors />}
           <View style={styles.bannerText}>
             <Text style={styles.bannerTitle} numberOfLines={2}>
               <Text style={styles.bannerTitleAccent}>{banner.title.trim().split(/\s+/)[0]} </Text>
@@ -120,11 +104,11 @@ export function BannerCarousel({ banners, open, openAll }: { banners: Promotion[
             </Text>
             {banner.subtitle && <Text style={styles.bannerSubtitle} numberOfLines={3}>{banner.subtitle}</Text>}
           </View>
-        </Pressable>;
-      })}
+        </Pressable>
+      ))}
     </Animated.ScrollView>}
     {count > 1 && <View style={styles.dots} accessibilityElementsHidden>
-      {slides.map((slide, dot) => <Dot key={slide.id} dot={dot} count={count} step={step} scrollX={scrollX} />)}
+      {banners.map((slide, dot) => <Dot key={slide.id} dot={dot} count={count} step={step} scrollX={scrollX} />)}
     </View>}
   </View>;
 }
@@ -163,19 +147,17 @@ export function StatusCard({ tier, balance, onPress }: { tier: Tier | null | und
   </PressScale>;
 }
 
-export function PermanentOffersGrid({ onOpenAll }: { onOpenAll?: () => void }) {
-  const { t: tr } = useI18n();
-  const handleOpenAll = onOpenAll ?? (() => router.push('/promotions'));
+export function ServerOffersGrid({ offers, onOpen }: { offers: Promotion[]; onOpen: (id: string) => void }) {
+  if (offers.length === 0) return null;
+  const displayOffers = offers.slice(0, 4);
   const rows = [
-    PERMANENT_OFFERS.slice(0, 2),
-    PERMANENT_OFFERS.slice(2, 4),
-  ];
-  return <View testID="permanent-offers-grid" style={styles.permanentGrid}>
+    displayOffers.slice(0, 2),
+    displayOffers.slice(2, 4),
+  ].filter(row => row.length > 0);
+  return <View testID="server-offers-grid" style={styles.permanentGrid}>
     {rows.map((row, r) => <View key={r} style={styles.permanentGridRow}>
-      {row.map(offer => <PressScale key={offer.id} testID={`permanent-card-${offer.id}`} accessibilityRole="button" accessibilityLabel={tr(offer.labelKey)}
-        onPress={handleOpenAll} style={styles.permanentGridCard}>
-        <Image source={offer.image} style={styles.permanentGridImage} resizeMode="contain" accessibilityIgnoresInvertColors />
-      </PressScale>)}
+      {row.map((offer, idx) => <OfferCard key={offer.id} offer={offer} index={r * 2 + idx} fill onPress={() => onOpen(offer.id)} />)}
+      {row.length === 1 && <View style={{ flex: 1 }} />}
     </View>)}
   </View>;
 }
@@ -186,7 +168,7 @@ const offerIcons: IconName[] = ['percent', 'gift', 'card', 'cart'];
 export function OfferCard({ offer, index, onPress, wide = false, fill = false }: { offer: Promotion; index: number; onPress: () => void; wide?: boolean; fill?: boolean }) {
   return <PressScale accessibilityRole="button" accessibilityLabel={[offer.badge, offer.title].filter(Boolean).join('. ')} onPress={onPress}
     style={[styles.offer, index === 0 || index === 3 ? styles.offerPink : styles.offerGray, wide && styles.offerWide, fill && styles.offerFill]}>
-    {offer.image_url ? <Image source={{ uri: offer.image_url }} style={wide ? styles.offerImageWide : styles.offerImage} resizeMode="contain" accessibilityIgnoresInvertColors /> : null}
+    {offer.image_url ? <Image source={{ uri: offer.image_url }} style={wide ? styles.offerImageWide : styles.offerImage} contentFit="contain" cachePolicy="memory-disk" accessibilityIgnoresInvertColors /> : null}
     {offer.badge ? <View style={styles.offerBadge}>
       <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={12} color={t.colors.onPrimary} strokeWidth={2.4} />
       <Text style={styles.offerBadgeText} numberOfLines={1}>{offer.badge}</Text>
@@ -195,19 +177,56 @@ export function OfferCard({ offer, index, onPress, wide = false, fill = false }:
   </PressScale>;
 }
 
-export function ArtworkOfferCard({ card, onPress }: { card: PromotionCard; onPress: () => void }) {
+export function StoreBlock({
+  appContent,
+  language,
+  onOpenMap,
+}: {
+  appContent: AppContent | null | undefined;
+  language: Language;
+  onOpenMap: (url: string) => void;
+}) {
   const { t: tr } = useI18n();
-  return <PressScale testID={`promotion-card-${card.id}`} accessibilityRole="button" accessibilityLabel={tr(card.titleKey)} onPress={onPress}
-    style={[styles.offer, styles.offerWide, { backgroundColor: card.background }]}>
-    <View style={[styles.artworkSide, { aspectRatio: card.sideAspectRatio }]}>
-      <Image testID={`promotion-image-${card.id}`} source={card.sideImage} style={styles.artworkSideImage} resizeMode="contain" accessibilityIgnoresInvertColors />
+  const stores = appContent?.stores;
+  if (!stores || stores.length === 0) return null;
+
+  const langKey = language === 'kz' ? 'kk' : 'ru';
+  const customLead = appContent.app_texts?.home_store_note_lead?.[langKey]?.trim();
+  const leadText = customLead || tr('storeNoteDefaultLead');
+  const sortedStores = [...stores].sort((a, b) => a.sort_order - b.sort_order);
+
+  return (
+    <View testID="store-block" style={styles.balanceNote}>
+      <Text style={styles.balanceNoteText}>
+        {leadText}
+        {sortedStores.map((store, index) => {
+          const address = (langKey === 'kk' ? store.address_kk : store.address_ru) || '';
+          const isLast = index === sortedStores.length - 1;
+          const separator = isLast ? '' : ', ';
+          return (
+            <Text key={store.id}>
+              {store.map_url ? (
+                <Text
+                  testID={`store-link-${store.id}`}
+                  accessibilityRole="link"
+                  accessibilityLabel={address}
+                  style={styles.storeAddress}
+                  onPress={() => onOpenMap(store.map_url!)}
+                >
+                  {address}
+                </Text>
+              ) : (
+                <Text testID={`store-text-${store.id}`} style={styles.storeAddressPlain}>
+                  {address}
+                </Text>
+              )}
+              {separator}
+            </Text>
+          );
+        })}
+      </Text>
     </View>
-    <View style={styles.offerBadge}>
-      <Icon name={card.icon} size={12} color={t.colors.onPrimary} strokeWidth={2.4} />
-      <Text style={styles.offerBadgeText} numberOfLines={1}>{tr(card.badgeKey)}</Text>
-    </View>
-    <Text style={[styles.offerTitle, styles.offerTitleWide]} numberOfLines={3}>{tr(card.titleTextKey)}</Text>
-  </PressScale>;
+  );
 }
 
 const styles = StyleSheet.create({
@@ -219,8 +238,6 @@ const styles = StyleSheet.create({
   brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 13, color: t.colors.onPrimary, letterSpacing: 0.4 },
   carousel: { gap: 12, paddingBottom: 12 },
   banner: { aspectRatio: 2.4, borderRadius: 22, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
-  bannerLocal: { backgroundColor: 'transparent' },
-  bannerFullImage: { width: '100%', height: '100%' },
   bannerImage: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '49%', height: '90%' },
   bannerText: { width: '50%', paddingLeft: 18, gap: 6, zIndex: 1 },
   bannerTitle: { fontFamily: fonts.extrabold, fontSize: 17, lineHeight: 20, color: t.colors.text, textTransform: 'uppercase' },
@@ -236,8 +253,6 @@ const styles = StyleSheet.create({
   statusValue: { fontFamily: fonts.extrabold, fontSize: 26, color: t.colors.text },
   permanentGrid: { gap: 12, paddingHorizontal: 20 },
   permanentGridRow: { flexDirection: 'row', gap: 12 },
-  permanentGridCard: { flex: 1, aspectRatio: 378 / 312, backgroundColor: 'transparent' },
-  permanentGridImage: { width: '100%', height: '100%' },
   offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 20, padding: 14, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 10, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
   offerPink: { backgroundColor: '#FCE9EC' },
   offerGray: { backgroundColor: '#F1F1F4' },
@@ -249,6 +264,8 @@ const styles = StyleSheet.create({
   offerImageWide: { position: 'absolute', right: 8, top: 8, bottom: 8, width: '34%', zIndex: 0 },
   offerTitleWide: { width: '60%', fontSize: 15, lineHeight: 19 },
   offerFill: { flexBasis: 0, minHeight: 0 },
-  artworkSide: { position: 'absolute', right: 0, top: 0, bottom: 0, zIndex: 0 },
-  artworkSideImage: { width: '100%', height: '100%' },
+  balanceNote: { backgroundColor: t.colors.softPrimary, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
+  balanceNoteText: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: t.colors.text },
+  storeAddress: { textDecorationLine: 'underline' },
+  storeAddressPlain: { textDecorationLine: 'none' },
 });

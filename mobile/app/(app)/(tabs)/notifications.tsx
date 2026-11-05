@@ -5,6 +5,7 @@ import { useNotifications } from '../../../src/api/app';
 import { Icon } from '../../../src/components/icons';
 import { FadeIn } from '../../../src/components/motion';
 import { EmptyState, ErrorNotice, Loading, NewDot, ScreenHeader, styles } from '../../../src/components/ui';
+import { PushPermissionNotice } from '../../../src/features/push';
 import { useMarkSeen } from '../../../src/features/useMarkSeen';
 import { useI18n } from '../../../src/i18n';
 import { fonts, theme } from '../../../src/theme';
@@ -19,7 +20,10 @@ export default function NotificationsScreen() {
     <ScreenHeader title={t('notifications')} />
     <FlatList data={notifications.data?.items ?? []} keyExtractor={item => item.id} contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16, paddingTop: 0, gap: 12 }]}
       refreshing={notifications.isRefetching} onRefresh={() => { void notifications.refetch(); }}
-      ListHeaderComponent={notifications.isPending ? <Loading /> : notifications.isError ? <ErrorNotice error={notifications.error} retry={() => { void notifications.refetch(); }} /> : null}
+      ListHeaderComponent={<>
+        <PushPermissionNotice />
+        {notifications.isPending ? <Loading /> : notifications.isError ? <ErrorNotice error={notifications.error} retry={() => { void notifications.refetch(); }} /> : null}
+      </>}
       ListEmptyComponent={notifications.isSuccess ? <EmptyState icon="bell" title={t('noNotifications')} /> : null}
       renderItem={({ item, index }) => <FadeIn index={Math.min(index, 6)}><View style={local.item} accessible accessibilityLabel={`${item.is_unread ? t('newBadge') + '. ' : ''}${item.title}. ${item.body}`}>
         <View style={local.icon}><Icon name={item.kind === 'accrual' ? 'plus' : item.kind === 'redemption' ? 'minus' : 'bell'} size={18} color={theme.colors.primary} /></View>

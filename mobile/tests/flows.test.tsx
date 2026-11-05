@@ -116,6 +116,8 @@ it('home shows phone, balance, status, max cashback and hot offers', async () =>
   fireEvent.press(screen.getAllByLabelText('Выиграй авто')[0]!);
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'b1' } });
   fireEvent.press(screen.getByLabelText('Скидка на хиты. Покупайте выгодно'));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'o1' } });
+  fireEvent.press(screen.getByText(ru.all));
   expect(mockPush).toHaveBeenCalledWith('/promotions');
   fireEvent.press(screen.getByLabelText(/Ваш статус 1/));
   expect(mockPush).toHaveBeenCalledWith('/status');
@@ -133,12 +135,11 @@ it('status screen shows progress to the next level and opens the levels calculat
   screen.unmount();
 });
 
-it('QR screen renders the dynamic token for the active card', async () => {
-  const token = 'C1' + 'QRSTUVWX'.repeat(6);
-  serve({ '/me/cards/card-id/qr': { token, expires_at: new Date(Date.now() + 60_000).toISOString(), ttl_seconds: 60 }, '/me/cards': [card] });
+it('QR screen renders card barcode verbatim without requesting dynamic qr', async () => {
+  serve({ '/me/cards': [card] });
   const { screen } = mountWith(<QrScreen />);
-  await waitFor(() => expect(screen.getByTestId('qr-payload').props.children).toBe(token));
-  expect(mockRequest).toHaveBeenCalledWith('/me/cards/card-id/qr', expect.objectContaining({ auth: true }));
+  await waitFor(() => expect(screen.getByTestId('qr-payload').props.children).toBe(card.barcode));
+  expect(mockRequest.mock.calls.some(call => String(call[0]).includes('/qr'))).toBe(false);
   screen.unmount();
 });
 

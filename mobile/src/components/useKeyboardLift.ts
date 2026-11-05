@@ -51,7 +51,7 @@ export function useKeyboardLift() {
     const shown = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', show);
     const hidden = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', hide);
     // Also handle an editor opened while the keyboard was already visible.
-    const current = Keyboard.metrics();
+    const current = Keyboard.metrics?.();
     if (current) {
       keyboardVisible.current = true;
       coordinates.current = { screenY: current.screenY, height: current.height };

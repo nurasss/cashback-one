@@ -29,7 +29,7 @@ export default function ProfileScreen() {
   const lift = useKeyboardLift();
   const insets = useSafeAreaInsets();
   const { t, language, setLanguage } = useI18n();
-  const { api, session } = useSession();
+  const { api } = useSession();
   const query = useQueryClient();
   const profile = useProfile();
   const [form, setForm] = useState<Form | null>(null);
@@ -248,9 +248,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const logout = () => Alert.alert(t('logoutConfirm'), undefined, [{ text: t('cancel'), style: 'cancel' }, { text: t('logout'), style: 'destructive',
-    onPress: () => { void session.logout().then(failed => { if (failed) Alert.alert(t('logout'), t('revokeFailed')); }); } }]);
-
   const genderLabel = (value: string) => value === 'male' ? t('male') : value === 'female' ? t('female') : '';
   const sheets: Record<SheetField, { title: string; hint?: string; placeholder?: string; keyboardType?: 'default' | 'email-address' | 'number-pad'; maxLength?: number;
     options?: { value: string; label: string }[]; format?: (value: string) => string; validate?: (value: string) => string | null;
@@ -307,8 +304,6 @@ export default function ProfileScreen() {
           {saved && <Text accessibilityLiveRegion="polite" style={local.saved}>{t('saved')}</Text>}
           <View style={local.links}>
             <ProfileRow icon="history" label={t('accrualHistory')} onPress={() => router.push('/history')} />
-            <ProfileRow icon="card" label={t('myCards')} onPress={() => router.push('/cards')} />
-            <ProfileRow icon="logout" label={t('logout')} onPress={logout} />
           </View>
         </>}
       </ScrollView>

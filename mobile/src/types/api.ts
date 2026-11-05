@@ -31,3 +31,26 @@ export interface CardQr { token: string; expires_at: string; ttl_seconds: number
 export interface WalletAvailability { apple: boolean; google: boolean }
 export interface WalletLinkRequest { platform: 'apple' | 'google' }
 export interface WalletLinkResponse { url: string; expires_at: string | null }
+export interface AppStoreItem {
+  id: string;
+  title_ru: string;
+  title_kk: string;
+  address_ru: string;
+  address_kk: string;
+  map_url: string | null;
+  sort_order: number;
+}
+export interface LocalizedText {
+  ru?: string | null;
+  kk?: string | null;
+}
+export interface CustomerAppTexts {
+  home_store_note_lead?: LocalizedText | null;
+  balance_delay_note?: LocalizedText | null;
+}
+export interface AppContent {
+  business_id: string;
+  stores: AppStoreItem[];
+  app_texts: CustomerAppTexts;
+  updated_at: string;
+}

@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useBadges } from '../../src/api/app';
+import { useAppContent, useBadges } from '../../src/api/app';
 import { FadeIn, motionEnabled, PressScale } from '../../src/components/motion';
 import { EmptyState, Loading, ScreenHeader, styles } from '../../src/components/ui';
 import { TabBar } from '../../src/components/TabBar';
@@ -14,11 +14,14 @@ import { fonts, theme } from '../../src/theme';
 import { amountText, pointsText } from '../../src/utils/format';
 
 export default function StatusScreen() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { card, cards } = useActiveCard();
   const badges = useBadges();
+  const appContent = useAppContent(card?.business?.id);
   const tier = card?.tier;
   const [sheetOpen, setSheetOpen] = useState(false);
+  const langKey = language === 'kz' ? 'kk' : 'ru';
+  const balanceDelayNote = appContent.data?.app_texts?.balance_delay_note?.[langKey]?.trim() || t('balanceDelayNote');
   const progress = tier?.next_threshold && tier.spend_total !== undefined
     ? Math.min(1, Math.max(0, Number(tier.spend_total ?? 0) / Number(tier.next_threshold))) : tier && !tier.next_level ? 1 : 0;
   return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
@@ -42,6 +45,11 @@ export default function StatusScreen() {
           </> : <Text style={styles.muted}>{t('statusesSoon')}</Text>}
           {tier?.levels && tier.levels.length > 0 && <PressScale accessibilityRole="button" onPress={() => setSheetOpen(true)} scale={0.97}
             style={local.cta}><Text style={local.ctaText}>{t('howToRaise')}</Text></PressScale>}
+        </FadeIn>
+        <FadeIn index={2}>
+          <View style={local.balanceNote} accessible accessibilityRole="text">
+            <Text style={local.balanceNoteText}>{balanceDelayNote}</Text>
+          </View>
         </FadeIn>
       </>}
     </ScrollView>
@@ -73,4 +81,6 @@ const local = StyleSheet.create({
   progressText: { fontFamily: fonts.medium, fontSize: 13, color: theme.colors.muted },
   cta: { marginTop: 6, minHeight: 44, borderRadius: 12, backgroundColor: theme.colors.softPrimary, alignItems: 'center', justifyContent: 'center' },
   ctaText: { fontFamily: fonts.semibold, fontSize: 14, color: theme.colors.primary },
+  balanceNote: { backgroundColor: theme.colors.softPrimary, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
+  balanceNoteText: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: theme.colors.text },
 });

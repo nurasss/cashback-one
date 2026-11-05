@@ -1,26 +1,31 @@
 import { ApiError, normalizeApiError } from './errors';
 import { validateApiBaseUrl } from './transport';
 export interface AuthHooks { access(): string | null; generation(): number; refresh(): Promise<void>; invalidate(): Promise<void> }
-interface RequestOptions { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: object | FormData; headers?: Record<string, string>; auth?: boolean; signal?: AbortSignal }
+interface RequestOptions { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: object | FormData; headers?: Record<string, string>; auth?: boolean; signal?: AbortSignal }
+export interface ResponseMeta<T> { data: T | null; status: number; etag: string | null }
 export class ApiClient {
   constructor(private readonly baseUrl: string, private readonly hooks: AuthHooks, private readonly fetcher: typeof fetch = (input, init) => fetch(input, init), private readonly timeoutMs = 15000) {}
-  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  async requestWithMeta<T>(path: string, options: RequestOptions = {}): Promise<ResponseMeta<T>> {
     const generation = this.hooks.generation();
     const usedToken = this.hooks.access();
     if (options.auth && !usedToken) throw new ApiError('UNAUTHORIZED', 401);
-    try { return await this.send<T>(path, options, usedToken, generation); }
+    try { return await this.sendWithMeta<T>(path, options, usedToken, generation); }
     catch (error) {
       if (!(error instanceof ApiError) || error.status !== 401 || !options.auth) throw error;
       if (generation !== this.hooks.generation()) throw new ApiError('SESSION_CHANGED');
       if (usedToken === this.hooks.access()) await this.hooks.refresh();
-      try { return await this.send<T>(path, options, this.hooks.access(), generation); }
+      try { return await this.sendWithMeta<T>(path, options, this.hooks.access(), generation); }
       catch (retryError) {
         if (retryError instanceof ApiError && retryError.status === 401 && generation === this.hooks.generation()) await this.hooks.invalidate();
         throw retryError;
       }
     }
   }
-  private async send<T>(path: string, options: RequestOptions, access: string | null, generation: number): Promise<T> {
+  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const res = await this.requestWithMeta<T>(path, options);
+    return (res.data ?? undefined) as T;
+  }
+  private async sendWithMeta<T>(path: string, options: RequestOptions, access: string | null, generation: number): Promise<ResponseMeta<T>> {
     if (options.auth && generation !== this.hooks.generation()) throw new ApiError('SESSION_CHANGED');
     const baseUrl = validateApiBaseUrl(this.baseUrl);
     const controller = new AbortController();
@@ -37,13 +42,15 @@ export class ApiClient {
         body: isFormData ? (options.body as FormData) : (options.body ? JSON.stringify(options.body) : undefined), signal: controller.signal,
       });
       if (options.auth && generation !== this.hooks.generation()) throw new ApiError('SESSION_CHANGED');
-      if (response.status === 204) return undefined as T;
+      const etag = response.headers?.get ? response.headers.get('etag') : null;
+      if (response.status === 304) return { data: null, status: 304, etag };
+      if (response.status === 204) return { data: null, status: 204, etag };
       // A body that is not JSON (captive portal, proxy) is a transport problem; only parsed-but-malformed tokens are INVALID_RESPONSE.
       let payload: unknown;
       try { payload = await response.json(); }
       catch { throw new ApiError(controller.signal.aborted ? 'REQUEST_TIMEOUT' : response.ok ? 'RESPONSE_UNREADABLE' : 'SERVER_UNAVAILABLE', response.status); }
       if (!response.ok) throw normalizeApiError(response.status, payload);
-      return payload as T;
+      return { data: payload as T, status: response.status, etag };
     } catch (error) {
       if (error instanceof ApiError) throw error;
       throw new ApiError(controller.signal.aborted ? 'REQUEST_TIMEOUT' : 'NETWORK_UNAVAILABLE');

@@ -1,5 +1,6 @@
 import { ApiClient } from '../api/client';
 import { ApiError } from '../api/errors';
+import { decodeJwtSub } from '../storage/appCache';
 import { parseTokens } from './tokens';
 import type { TokenStore } from '../storage/secure';
 import type { Tokens } from '../types/api';
@@ -11,11 +12,41 @@ export class Session {
   private bootstrapping: Promise<void> | null = null;
   private writes: Promise<void> = Promise.resolve();
   private listeners = new Set<() => void>();
+  private beforeLogoutHooks = new Set<() => Promise<void>>();
+  private onInvalidateHooks = new Set<() => void | Promise<void>>();
   state: SessionState = { status: 'loading' };
   readonly api: ApiClient;
   constructor(private readonly store: TokenStore, baseUrl: string, private readonly clearCache: () => void, private readonly onRefresh: () => void = () => {}, fetcher?: typeof fetch) {
     this.api = new ApiClient(baseUrl, { access: () => this.tokens?.access_token ?? null, generation: () => this.epoch,
       refresh: () => this.refresh(), invalidate: () => this.invalidate() }, fetcher);
+  }
+  registerBeforeLogout(hook: () => Promise<void>): () => void {
+    this.beforeLogoutHooks.add(hook);
+    return () => { this.beforeLogoutHooks.delete(hook); };
+  }
+  registerBeforeClear(hook: () => Promise<void>): () => void {
+    return this.registerBeforeLogout(hook);
+  }
+  registerOnInvalidate(hook: () => void | Promise<void>): () => void {
+    this.onInvalidateHooks.add(hook);
+    return () => { this.onInvalidateHooks.delete(hook); };
+  }
+  getUserId = (): string | null => decodeJwtSub(this.tokens?.access_token);
+  private async runBeforeLogout() {
+    if (!this.tokens || this.beforeLogoutHooks.size === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>(resolve => { timer = setTimeout(resolve, 3000); });
+    const work = Promise.all(Array.from(this.beforeLogoutHooks).map(h => h().catch(() => {})));
+    try {
+      await Promise.race([work, timeout]).catch(() => {});
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  private runOnInvalidate() {
+    this.onInvalidateHooks.forEach(hook => {
+      try { void hook(); } catch { /* ignore */ }
+    });
   }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   snapshot = () => this.state;
@@ -77,12 +108,14 @@ export class Session {
   }
   async invalidate() {
     this.epoch++; this.tokens = null; this.refreshing = null; this.clearCache();
+    this.runOnInvalidate();
     try { await this.persist(() => this.store.clear()); this.publish({ status: 'anonymous' }); }
     catch { this.publish({ status: 'error', error: new ApiError('SECURE_STORAGE_UNAVAILABLE'), cleanupRequired: true }); }
   }
   async logout() {
     this.publish({ status: 'signing-out' });
     try { await this.refreshing; } catch { /* Local cleanup below is unconditional. */ }
+    await this.runBeforeLogout();
     const refresh = this.tokens?.refresh_token;
     this.epoch++; this.tokens = null; this.clearCache();
     let revokeFailed = false;

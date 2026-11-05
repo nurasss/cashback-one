@@ -1,6 +1,6 @@
 // Demo mode (EXPO_PUBLIC_DEMO=1): an in-memory stand-in for the Cloud API with sample data, so the app can be
 // viewed without WhatsApp delivery or a customer database. Never used unless the flag is set at build time.
-import type { Badges, Card, CardQr, HistoryPage, Notifications, Profile, Promotion, Promotions, Tokens, Transaction, WalletAvailability } from '../types/api';
+import type { AppContent, Badges, Card, CardQr, HistoryPage, Notifications, Profile, Promotion, Promotions, Tokens, Transaction, WalletAvailability } from '../types/api';
 
 export const DEMO_ENABLED = process.env.EXPO_PUBLIC_DEMO === '1';
 export const DEMO_BASE_URL = 'https://demo.invalid';
@@ -57,6 +57,41 @@ export function createDemoApi() {
   ];
   let profile: Profile = { phone: '+7 7•• ••• •• 26', language: 'ru', first_name: null, last_name: null, email: null, gender: null, city: null, address: null, birth_date: null, iin: null, company: null, avatar_url: null };
 
+  const appContent: AppContent = {
+    business_id: card.business.id,
+    stores: [
+      {
+        id: 'demo-store-1',
+        title_ru: 'Супермаркет POSCENTER, ТЦ «Астана Молл»',
+        title_kk: 'POSCENTER супермаркеті, «Астана Молл» СОО',
+        address_ru: 'проспект Тауелсиздик, 34',
+        address_kk: 'Тәуелсіздік даңғылы, 34',
+        map_url: 'https://maps.google.com/?q=51.143,71.472',
+        sort_order: 1,
+      },
+      {
+        id: 'demo-store-2',
+        title_ru: 'Мини-маркет POSCENTER',
+        title_kk: 'POSCENTER шағын маркеті',
+        address_ru: 'улица Достык, 12',
+        address_kk: 'Достық көшесі, 12',
+        map_url: null,
+        sort_order: 2,
+      },
+    ],
+    app_texts: {
+      home_store_note_lead: {
+        ru: 'Вы можете потратить эти баллы в супермаркетах сети по адресу: ',
+        kk: 'Сіз бұл ұпайларды желі супермаркеттерінде келесі мекенжай бойынша жұмсай аласыз: ',
+      },
+      balance_delay_note: {
+        ru: 'Баллы за покупки начисляются и обновляются после закрытия кассовой смены',
+        kk: 'Сатып алулар үшін ұпайлар кассалық ауысым жабылғаннан кейін есептеледі және жаңартылады',
+      },
+    },
+    updated_at: daysAgo(0),
+  };
+
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const error = (status: number, code: string) => json({ error: { code, message: code } }, status);
   const readBody = (init?: RequestInit): Record<string, unknown> => { try { return init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {}; } catch { return {}; } };
@@ -81,6 +116,25 @@ export function createDemoApi() {
       return error(400, 'INVALID_CODE');
     }
     if (path === '/me/wallet' && method === 'GET') return json({ apple: false, google: false } satisfies WalletAvailability);
+    if (path === '/me/app-content' && method === 'GET') {
+      const ifNoneMatch = init?.headers
+        ? (init.headers instanceof Headers
+            ? init.headers.get('If-None-Match')
+            : Array.isArray(init.headers)
+            ? (init.headers.find(([k]) => k.toLowerCase() === 'if-none-match')?.[1] ?? null)
+            : ((init.headers as Record<string, string>)['If-None-Match'] ??
+               (init.headers as Record<string, string>)['if-none-match'] ??
+               null))
+        : null;
+      const demoEtag = '"demo-app-content-etag-1"';
+      if (ifNoneMatch === demoEtag) {
+        return new Response(null, { status: 304, headers: { ETag: demoEtag } });
+      }
+      return new Response(JSON.stringify(appContent), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ETag: demoEtag },
+      });
+    }
     if (path === '/me/cards' && method === 'GET') return json([card]);
     if (path === '/me/cards/bind') return json(card);
     if (path === `/me/cards/${card.id}` && method === 'GET') return json(card);

@@ -4,6 +4,8 @@ import { AppState } from 'react-native';
 import { Session } from './session';
 import { createDemoApi, DEMO_BASE_URL, DEMO_ENABLED, demoTokens } from '../demo/mockApi';
 import { tokenStore, type TokenStore } from '../storage/secure';
+import { clearAppCache } from '../storage/appCache';
+import { PushNotificationManager } from '../features/push';
 
 // Demo build: preset session + in-memory API; never active unless EXPO_PUBLIC_DEMO=1 at build time.
 const demoStore: TokenStore = { read: async () => demoTokens, write: async () => {}, clear: async () => {} };
@@ -15,10 +17,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, DEMO_ENABLED ? createDemoApi() : undefined));
   useEffect(() => { void session.bootstrap(); }, [session]);
   useEffect(() => {
+    const unregInvalidate = session.registerOnInvalidate(() => {
+      void clearAppCache();
+    });
+    const unregLogout = session.registerBeforeLogout(async () => {
+      await clearAppCache();
+    });
+    return () => {
+      unregInvalidate();
+      unregLogout();
+    };
+  }, [session]);
+  useEffect(() => {
     const subscription = AppState.addEventListener('change', state => focusManager.setFocused(state === 'active'));
     return () => subscription.remove();
   }, []);
-  return <Context.Provider value={session}><QueryClientProvider client={query}>{children}</QueryClientProvider></Context.Provider>;
+  return <Context.Provider value={session}><QueryClientProvider client={query}><PushNotificationManager />{children}</QueryClientProvider></Context.Provider>;
 }
 export function useSession() {
   const session = useContext(Context);

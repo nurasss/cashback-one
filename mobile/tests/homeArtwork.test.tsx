@@ -1,15 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
-import { Image, Text } from 'react-native';
+import { Linking } from 'react-native';
 import Home from '../app/(app)/(tabs)/index';
 import { ActiveCardProvider } from '../src/features/activeCard';
-import { getCarouselAutoplaySlot, getCarouselLogicalIndex, getLoopSlides, PermanentOffersGrid } from '../src/features/home';
-import { LOCAL_BANNERS, PERMANENT_OFFERS } from '../src/features/promotionsArtwork';
+import { getCarouselAutoplaySlot, getCarouselLogicalIndex, getLoopSlides } from '../src/features/home';
 import { I18nProvider } from '../src/i18n';
-import { kz } from '../src/i18n/kz';
 import { ru } from '../src/i18n/ru';
-import type { Card, Profile, Promotion } from '../src/types/api';
+import type { AppContent, Card, Profile, Promotion } from '../src/types/api';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -19,7 +17,7 @@ jest.mock('expo-router', () => ({
 
 const mockRequest = jest.fn();
 jest.mock('../src/auth/provider', () => ({
-  useSession: () => ({ api: { request: mockRequest }, session: { accept: jest.fn(), logout: jest.fn() } }),
+  useSession: () => ({ api: { request: mockRequest }, session: { accept: jest.fn(), logout: jest.fn(), getUserId: () => 'test-user' } }),
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -30,7 +28,29 @@ jest.mock('react-native-safe-area-context', () => {
 const tier = { level: 1, name: 'Base', percent: '3', max_percent: '12', spend_total: '150000.0000', next_level: 2, next_threshold: '500000.0000', remaining: '350000.0000' };
 const card: Card = { id: 'card-1', barcode: '0123456789012', balance: '1250.0000', is_blocked: false, updated_at: '2026-10-01T00:00:00Z', bound_at: '2026-10-01T00:00:00Z', bind_method: 'phone_auto', business: { id: 'b-1', name: 'Supermarket', branding: null }, tier };
 const profile: Profile = { phone: '+77058344326', language: 'ru', first_name: 'Иван', last_name: 'Иванов', email: null, gender: null, city: 'Алматы', address: null, birth_date: null, iin: null, company: null };
-const serverBanner: Promotion = { id: 'banner-server-1', business_id: null, kind: 'banner', title: 'Большой розыгрыш', subtitle: 'Участвуйте во всех супермаркетах сети', badge: null, body: 'Подробные условия акции', image_url: 'https://example.com/banner.png', starts_at: null, ends_at: null, is_new: true };
+const serverBanner1: Promotion = { id: 'banner-server-1', business_id: null, kind: 'banner', title: 'Большой розыгрыш', subtitle: 'Участвуйте во всех супермаркетах сети', badge: null, body: 'Подробные условия акции', image_url: 'https://example.com/banner1.png', starts_at: null, ends_at: null, is_new: true };
+const serverBanner2: Promotion = { id: 'banner-server-2', business_id: null, kind: 'banner', title: 'Кешбэк 15%', subtitle: 'На свежие фрукты', badge: null, body: 'Условия кешбэка', image_url: 'https://example.com/banner2.png', starts_at: null, ends_at: null, is_new: false };
+const serverOffer1: Promotion = { id: 'offer-server-1', business_id: null, kind: 'offer', title: 'Скидки на выпечку', subtitle: null, badge: 'Выпечка', body: 'Свежая выпечка со скидкой', image_url: 'https://example.com/offer1.png', starts_at: null, ends_at: null, is_new: true };
+const serverOffer2: Promotion = { id: 'offer-server-2', business_id: null, kind: 'offer', title: 'Молочные продукты', subtitle: null, badge: 'Молоко', body: 'Молоко со скидкой', image_url: 'https://example.com/offer2.png', starts_at: null, ends_at: null, is_new: false };
+
+const sampleAppContent: AppContent = {
+  business_id: 'b-1',
+  stores: [
+    { id: 's2', title_ru: 'Филиал 2', title_kk: '2-бөлімше', address_ru: 'ул. Абая, 20', address_kk: 'Абай к-сі, 20', map_url: null, sort_order: 2 },
+    { id: 's1', title_ru: 'Филиал 1', title_kk: '1-бөлімше', address_ru: 'пр. Республики, 5', address_kk: 'Республика д-лы, 5', map_url: 'https://maps.example.com/s1', sort_order: 1 },
+  ],
+  app_texts: {
+    home_store_note_lead: {
+      ru: 'Баллы действуют в магазинах: ',
+      kk: 'Ұпайлар мына дүкендерде жарамды: ',
+    },
+    balance_delay_note: {
+      ru: 'Баллы начисляются после смены',
+      kk: 'Ұпайлар ауысымнан кейін есептеледі',
+    },
+  },
+  updated_at: '2026-11-04T12:00:00Z',
+};
 
 function mountWith(element: ReactElement, initialLanguage: 'ru' | 'kz' = 'ru') {
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
@@ -51,263 +71,171 @@ function serve(routes: Record<string, unknown>) {
   });
 }
 
-describe('Home artwork and permanent promotions', () => {
+describe('Home screen server content and artwork', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders exactly four permanent offer cards in the grid in correct order', async () => {
+  it('hides the banner carousel when there are no banners', async () => {
     serve({
       '/me/cards': [card],
       '/me/profile': profile,
-      '/me/promotions': { banners: [], offers: [], has_new: false },
+      '/me/promotions': { banners: [], offers: [serverOffer1], has_new: false },
+      '/me/app-content': sampleAppContent,
     });
 
     const { screen } = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByTestId('permanent-offers-grid')).toBeTruthy());
-
-    // Exactly four cards present by their unique testIDs
-    const cardHits = screen.getByTestId('permanent-card-hits-discount');
-    const cardWeekly = screen.getByTestId('permanent-card-weekly-promo');
-    const cardBonus = screen.getByTestId('permanent-card-card-bonus');
-    const cardFresh = screen.getByTestId('permanent-card-fresh-products');
-
-    expect(cardHits.props.accessibilityLabel).toBe(ru.offerHitsDiscount);
-    expect(cardWeekly.props.accessibilityLabel).toBe(ru.offerWeeklyPromo);
-    expect(cardBonus.props.accessibilityLabel).toBe(ru.offerCardBonus);
-    expect(cardFresh.props.accessibilityLabel).toBe(ru.offerFreshProducts);
-
+    await waitFor(() => expect(screen.getByText('+7 705 834 43 26')).toBeTruthy());
+    expect(screen.queryByTestId('banner-carousel')).toBeNull();
     screen.unmount();
   });
 
-  it('permanent offer cards remain visible while promotions API is loading or in error state', async () => {
-    mockRequest.mockImplementation((path: string) => {
-      if (path.startsWith('/me/cards')) return Promise.resolve([card]);
-      if (path.startsWith('/me/profile')) return Promise.resolve(profile);
-      if (path.startsWith('/me/promotions')) return Promise.reject(new Error('Network error'));
-      return Promise.reject(new Error(`unexpected ${path}`));
-    });
-
-    const { screen } = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByText(ru.hotOffers)).toBeTruthy());
-
-    // Grid remains intact with all four cards
-    expect(screen.getByTestId('permanent-card-hits-discount')).toBeTruthy();
-    expect(screen.getByTestId('permanent-card-weekly-promo')).toBeTruthy();
-    expect(screen.getByTestId('permanent-card-card-bonus')).toBeTruthy();
-    expect(screen.getByTestId('permanent-card-fresh-products')).toBeTruthy();
-
-    // No error notice is shown in the offers section
-    expect(screen.queryByText(ru.noOffers)).toBeNull();
-    screen.unmount();
-  });
-
-  it('permanent cards have the correct order, keys, and navigate to /promotions', async () => {
+  it('renders server banners in the carousel and tapping opens /promotion/[id]', async () => {
     serve({
       '/me/cards': [card],
       '/me/profile': profile,
-      '/me/promotions': { banners: [], offers: [], has_new: false },
-    });
-
-    expect(PERMANENT_OFFERS).toHaveLength(4);
-    expect(PERMANENT_OFFERS[0]!.id).toBe('hits-discount');
-    expect(PERMANENT_OFFERS[0]!.labelKey).toBe('offerHitsDiscount');
-    expect(PERMANENT_OFFERS[1]!.id).toBe('weekly-promo');
-    expect(PERMANENT_OFFERS[1]!.labelKey).toBe('offerWeeklyPromo');
-    expect(PERMANENT_OFFERS[2]!.id).toBe('card-bonus');
-    expect(PERMANENT_OFFERS[2]!.labelKey).toBe('offerCardBonus');
-    expect(PERMANENT_OFFERS[3]!.id).toBe('fresh-products');
-    expect(PERMANENT_OFFERS[3]!.labelKey).toBe('offerFreshProducts');
-
-    const { screen } = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByText(ru.hotOffers)).toBeTruthy());
-
-    // Press each card and verify navigation to /promotions
-    fireEvent.press(screen.getByLabelText(ru.offerHitsDiscount));
-    expect(mockPush).toHaveBeenLastCalledWith('/promotions');
-
-    fireEvent.press(screen.getByLabelText(ru.offerWeeklyPromo));
-    expect(mockPush).toHaveBeenLastCalledWith('/promotions');
-
-    fireEvent.press(screen.getByLabelText(ru.offerCardBonus));
-    expect(mockPush).toHaveBeenLastCalledWith('/promotions');
-
-    fireEvent.press(screen.getByLabelText(ru.offerFreshProducts));
-    expect(mockPush).toHaveBeenLastCalledWith('/promotions');
-
-    // Button "Все" also navigates to /promotions
-    fireEvent.press(screen.getByRole('button', { name: ru.all }));
-    expect(mockPush).toHaveBeenLastCalledWith('/promotions');
-    screen.unmount();
-  });
-
-  it('renders the three local banners in order when API banners is empty', async () => {
-    serve({
-      '/me/cards': [card],
-      '/me/profile': profile,
-      '/me/promotions': { banners: [], offers: [], has_new: false },
+      '/me/promotions': { banners: [serverBanner1, serverBanner2], offers: [], has_new: false },
+      '/me/app-content': sampleAppContent,
     });
 
     const { screen } = mountWith(<Home />);
     await waitFor(() => expect(screen.getByTestId('banner-carousel')).toBeTruthy());
-    fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 180 } } });
+    fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 200 } } });
 
-    // The loop has a last-slide clone, three local slides, and a first-slide clone.
-    expect(screen.getByTestId('banner-slide-0').props.accessibilityLabel).toBe(ru.bannerStickers);
-    expect(screen.getByTestId('banner-slide-1').props.accessibilityLabel).toBe(ru.bannerCarPrize);
-    expect(screen.getByTestId('banner-slide-2').props.accessibilityLabel).toBe(ru.bannerCoffeeMachine);
-    expect(screen.getByTestId('banner-slide-3').props.accessibilityLabel).toBe(ru.bannerStickers);
-    expect(screen.getByTestId('banner-slide-4').props.accessibilityLabel).toBe(ru.bannerCarPrize);
-    expect(screen.queryByTestId('banner-slide-5')).toBeNull();
-    expect(screen.getByTestId('banner-dot-0', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByTestId('banner-dot-1', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByTestId('banner-dot-2', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.queryByTestId('banner-dot-3', { includeHiddenElements: true })).toBeNull();
-    expect(LOCAL_BANNERS.map(banner => banner.aspectRatio)).toEqual([675 / 294, 2000 / 862, 2000 / 860]);
-    for (const slot of [1, 2, 3]) {
-      expect(screen.getByTestId(`banner-slide-${slot}`).findByType(Image).props.resizeMode).toBe('contain');
-    }
-
-    // Clicking the local banner opens /promotions
-    fireEvent.press(screen.getByTestId('banner-slide-1'));
-    expect(mockPush).toHaveBeenCalledWith('/promotions');
+    await waitFor(() => expect(screen.getAllByText('Большой', { exact: false }).length).toBeGreaterThan(0));
+    fireEvent.press(screen.getAllByLabelText(new RegExp(serverBanner1.title, 'i'))[0]!);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: serverBanner1.id } });
     screen.unmount();
   });
 
-  it('renders N+1 logical slides and dots when N server banners are provided, preserving order and accounting for loop clones', async () => {
-    const bannerA: Promotion = {
-      ...serverBanner,
-      id: 'banner-a',
-      title: 'Акция А',
-      subtitle: 'Первая серверная акция',
-    };
-    const bannerB: Promotion = {
-      ...serverBanner,
-      id: 'banner-b',
-      title: 'Акция Б',
-      subtitle: 'Вторая серверная акция',
-    };
-
-    // Three local banners are followed by the two server banners.
+  it('hides the hot offers section when there are no offers', async () => {
     serve({
       '/me/cards': [card],
       '/me/profile': profile,
-      '/me/promotions': { banners: [bannerA, bannerB], offers: [], has_new: false },
+      '/me/promotions': { banners: [serverBanner1], offers: [], has_new: false },
+      '/me/app-content': sampleAppContent,
     });
 
     const { screen } = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByTestId('banner-carousel')).toBeTruthy());
-    fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 180 } } });
-
-    await waitFor(() => expect(screen.getAllByLabelText(/Акция А/).length).toBeGreaterThan(0));
-
-    // Five logical slides plus two loop clones.
-    const slots = Array.from({ length: 7 }, (_, index) => screen.getByTestId(`banner-slide-${index}`));
-    expect(screen.queryByTestId('banner-slide-7')).toBeNull();
-
-    // Slot 0 is the clone of the final server slide.
-    expect(slots[0]!.props.accessibilityLabel).toContain('Акция Б');
-    expect(slots[1]!.props.accessibilityLabel).toBe(ru.bannerCarPrize);
-    expect(slots[2]!.props.accessibilityLabel).toBe(ru.bannerCoffeeMachine);
-    expect(slots[3]!.props.accessibilityLabel).toBe(ru.bannerStickers);
-    expect(slots[4]!.props.accessibilityLabel).toContain('Акция А');
-    expect(slots[5]!.props.accessibilityLabel).toContain('Акция Б');
-    expect(slots[6]!.props.accessibilityLabel).toBe(ru.bannerCarPrize);
-
-    // Check click on logical Local banner -> /promotions
-    fireEvent.press(slots[1]!);
-    expect(mockPush).toHaveBeenCalledWith('/promotions');
-
-    // Check click on logical bannerA -> /promotion/banner-a
-    fireEvent.press(slots[4]!);
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'banner-a' } });
-
-    // Check click on logical bannerB -> /promotion/banner-b
-    fireEvent.press(slots[5]!);
-    expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'banner-b' } });
-
-    // Exactly five dots, one per logical slide.
-    expect(screen.getByTestId('banner-dot-0', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByTestId('banner-dot-1', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByTestId('banner-dot-2', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByTestId('banner-dot-3', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByTestId('banner-dot-4', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.queryByTestId('banner-dot-5', { includeHiddenElements: true })).toBeNull();
-
+    await waitFor(() => expect(screen.getByText('+7 705 834 43 26')).toBeTruthy());
+    expect(screen.queryByText(ru.hotOffers)).toBeNull();
+    expect(screen.queryByTestId('server-offers-grid')).toBeNull();
     screen.unmount();
   });
 
-  it('local items do not trigger an API call with dummy IDs', async () => {
+  it('renders server offers grid and tapping opens /promotion/[id]', async () => {
     serve({
       '/me/cards': [card],
       '/me/profile': profile,
-      '/me/promotions': { banners: [], offers: [], has_new: false },
+      '/me/promotions': { banners: [], offers: [serverOffer1, serverOffer2], has_new: false },
+      '/me/app-content': sampleAppContent,
     });
 
     const { screen } = mountWith(<Home />);
     await waitFor(() => expect(screen.getByText(ru.hotOffers)).toBeTruthy());
+    expect(screen.getByTestId('server-offers-grid')).toBeTruthy();
 
-    // Clicking local items
-    fireEvent.press(screen.getByLabelText(ru.offerHitsDiscount));
-    fireEvent.press(screen.getByLabelText(ru.offerWeeklyPromo));
+    expect(screen.getByText(serverOffer1.title)).toBeTruthy();
+    expect(screen.getByText(serverOffer2.title)).toBeTruthy();
 
-    // Verify all mockRequest calls were to expected standard endpoints
-    for (const call of mockRequest.mock.calls) {
-      const path = String(call[0]);
-      for (const banner of LOCAL_BANNERS) expect(path).not.toMatch(new RegExp(banner.id));
-      expect(path).not.toMatch(/hits-discount|weekly-promo|card-bonus|fresh-products/);
-    }
+    fireEvent.press(screen.getByText(serverOffer1.title));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: serverOffer1.id } });
+
+    fireEvent.press(screen.getByText(ru.all));
+    expect(mockPush).toHaveBeenCalledWith('/promotions');
     screen.unmount();
   });
 
-  it('ready artwork images do not have duplicate overlay text labels', () => {
-    const onOpen = jest.fn();
-    const screen = render(
-      <I18nProvider initial="ru">
-        <PermanentOffersGrid onOpenAll={onOpen} />
-      </I18nProvider>
-    );
+  it('renders stores sorted by sort_order with map_url clickable and non-map plain', async () => {
+    serve({
+      '/me/cards': [card],
+      '/me/profile': profile,
+      '/me/promotions': { banners: [], offers: [], has_new: false },
+      '/me/app-content': sampleAppContent,
+    });
 
-    const grid = screen.getByTestId('permanent-offers-grid');
-    // The grid should not contain duplicate overlay Text components inside the cards
-    const textNodes = grid.findAllByType(Text);
-    expect(textNodes).toHaveLength(0);
+    const openUrlSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
+    const { screen } = mountWith(<Home />);
+    await waitFor(() => expect(screen.getByTestId('store-block')).toBeTruthy());
+
+    expect(screen.getByText(sampleAppContent.app_texts.home_store_note_lead!.ru!, { exact: false })).toBeTruthy();
+    // Sorted by sort_order: s1 (order 1: пр. Республики, 5) before s2 (order 2: ул. Абая, 20)
+    const linkS1 = screen.getByTestId('store-link-s1');
+    const textS2 = screen.getByTestId('store-text-s2');
+
+    expect(linkS1).toBeTruthy();
+    expect(textS2).toBeTruthy();
+
+    fireEvent.press(linkS1);
+    expect(openUrlSpy).toHaveBeenCalledWith('https://maps.example.com/s1');
+    openUrlSpy.mockRestore();
+    screen.unmount();
   });
 
-  it('supports Kazakh accessibility labels when language is kz', async () => {
+  it('uses default lead text when server home_store_note_lead is null or empty', async () => {
+    const noLeadAppContent: AppContent = {
+      ...sampleAppContent,
+      app_texts: { home_store_note_lead: null, balance_delay_note: null },
+    };
+    serve({
+      '/me/cards': [card],
+      '/me/profile': profile,
+      '/me/promotions': { banners: [], offers: [], has_new: false },
+      '/me/app-content': noLeadAppContent,
+    });
+
+    const { screen } = mountWith(<Home />);
+    await waitFor(() => expect(screen.getByTestId('store-block')).toBeTruthy());
+    expect(screen.getByText(ru.storeNoteDefaultLead, { exact: false })).toBeTruthy();
+    screen.unmount();
+  });
+
+  it('renders store lead and addresses in Kazakh when locale is kz', async () => {
     serve({
       '/me/cards': [card],
       '/me/profile': { ...profile, language: 'kz' },
       '/me/promotions': { banners: [], offers: [], has_new: false },
+      '/me/app-content': sampleAppContent,
     });
 
     const { screen } = mountWith(<Home />, 'kz');
-    await waitFor(() => expect(screen.getByText(kz.hotOffers)).toBeTruthy());
-
-    expect(screen.getByLabelText(kz.offerHitsDiscount)).toBeTruthy();
-    expect(screen.getByLabelText(kz.offerWeeklyPromo)).toBeTruthy();
-    expect(screen.getByLabelText(kz.offerCardBonus)).toBeTruthy();
-    expect(screen.getByLabelText(kz.offerFreshProducts)).toBeTruthy();
-
-    fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 180 } } });
-    expect(screen.getAllByLabelText(kz.bannerCarPrize).length).toBeGreaterThan(0);
-    expect(screen.getAllByLabelText(kz.bannerCoffeeMachine).length).toBeGreaterThan(0);
-    expect(screen.getAllByLabelText(kz.bannerStickers).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByTestId('store-block')).toBeTruthy());
+    expect(screen.getByText(sampleAppContent.app_texts.home_store_note_lead!.kk!, { exact: false })).toBeTruthy();
+    expect(screen.getByText('Республика д-лы, 5')).toBeTruthy();
+    expect(screen.getByText('Абай к-сі, 20')).toBeTruthy();
     screen.unmount();
   });
 
-  it('keeps carousel looping and autoplay targets valid with any slide count', () => {
-    expect(getLoopSlides(['only'])).toEqual(['only']);
-    for (const count of [3, 5, 8]) {
-      const slides = Array.from({ length: count }, (_, index) => index);
-      const loopSlides = getLoopSlides(slides);
-      expect(loopSlides).toHaveLength(count + 2);
-      expect(loopSlides[0]).toBe(count - 1);
-      expect(loopSlides[count + 1]).toBe(0);
-      expect(getCarouselAutoplaySlot(0, count)).toBe(2);
-      expect(getCarouselLogicalIndex(getCarouselAutoplaySlot(count - 1, count), count)).toBe(0);
-      expect(getCarouselLogicalIndex(0, count)).toBe(count - 1);
-      expect(getCarouselLogicalIndex(count, count)).toBe(count - 1);
-    }
+  it('hides store block when stores array is empty', async () => {
+    const emptyStoresAppContent: AppContent = {
+      ...sampleAppContent,
+      stores: [],
+    };
+    serve({
+      '/me/cards': [card],
+      '/me/profile': profile,
+      '/me/promotions': { banners: [], offers: [], has_new: false },
+      '/me/app-content': emptyStoresAppContent,
+    });
+
+    const { screen } = mountWith(<Home />);
+    await waitFor(() => expect(screen.getByText('+7 705 834 43 26')).toBeTruthy());
+    expect(screen.queryByTestId('store-block')).toBeNull();
+    screen.unmount();
+  });
+
+  it('carousel helper functions loop correctly', () => {
+    expect(getLoopSlides([])).toEqual([]);
+    expect(getLoopSlides(['a'])).toEqual(['a']);
+    expect(getLoopSlides(['a', 'b', 'c'])).toEqual(['c', 'a', 'b', 'c', 'a']);
+
+    expect(getCarouselAutoplaySlot(0, 3)).toBe(2);
+    expect(getCarouselAutoplaySlot(1, 1)).toBe(0);
+
+    expect(getCarouselLogicalIndex(0, 3)).toBe(2);
+    expect(getCarouselLogicalIndex(1, 3)).toBe(0);
+    expect(getCarouselLogicalIndex(2, 3)).toBe(1);
+    expect(getCarouselLogicalIndex(3, 3)).toBe(2);
+    expect(getCarouselLogicalIndex(4, 3)).toBe(0);
   });
 });

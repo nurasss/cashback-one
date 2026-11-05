@@ -3,12 +3,13 @@
     "name": "Cashback One",
     "slug": "cashback-one",
     "scheme": "cashbackone",
-    "version": "1.0.10",
+    "version": "1.0.12",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "plugins": [
       "expo-router",
+      "expo-image",
       [
         "expo-secure-store",
         {
@@ -22,6 +23,14 @@
           "cameraPermission": "Разрешите доступ к камере для сканирования штрихкода или QR-кода карты лояльности.",
           "recordAudioAndroid": false
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon-foreground.png",
+          "color": "#FD6156",
+          "defaultChannel": "default"
+        }
       ]
     ],
     "ios": {
@@ -33,7 +42,7 @@
     },
     "android": {
       "package": "kz.cashbackone.mobile",
-      "versionCode": 11,
+      "versionCode": 13,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon-foreground.png",
         "backgroundColor": "#FD6156"

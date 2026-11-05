@@ -38,6 +38,7 @@ export const ru = {
   noCardTitle: 'Добавьте карту лояльности', noCardBody: 'Карты с вашим номером появятся автоматически. Карту можно привязать и по номеру.',
   bind: 'Привязать карту', noOffers: 'Скоро здесь появятся предложения',
   balanceDelayNote: 'Баланс обновляется не сразу. Новые начисления и списания появляются 2 раза в сутки.',
+  storeNoteDefaultLead: 'Вы можете потратить баллы по адресу: ',
   bannerCarPrize: 'Выиграй авто и другие ценные призы',
   bannerCoffeeMachine: 'Выиграй кофемашину и годовой запас кофе',
   bannerStickers: 'Стикеры в подарок к заказам от 10 000 ₸',
@@ -67,6 +68,9 @@ export const ru = {
   promotions: 'Акции', noPromotions: 'Сейчас нет активных акций', promotionNotFound: 'Акция не найдена', validUntil: 'До {date}', promotion: 'Акция',
   // Notifications
   notifications: 'Уведомления', noNotifications: 'Новых уведомлений нет',
+  enableNotificationsPrompt: 'Включите уведомления. Без них кассир не сможет списать баллы: код подтверждения приходит в уведомлении.',
+  enableNotificationsAction: 'Включить',
+  notificationChannelName: 'Коды и уведомления',
   // Profile
   myProfile: 'Мой профиль', profileOptionalNote: 'Поля профиля необязательны. Заполняйте только то, чем хотите поделиться.',
   langKz: 'Қаз', langRu: 'Рус', firstName: 'Имя', lastName: 'Фамилия', firstNamePh: 'Введите имя', lastNamePh: 'Введите фамилию',
