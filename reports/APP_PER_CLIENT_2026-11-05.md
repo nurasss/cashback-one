@@ -1,8 +1,8 @@
 # Отчёт: приложение под клиента (задача I-app) и первый клиент KeremEt
 
-Дата: 2026-11-05  
-Окружение: macOS, Expo 55, React Native 0.83.10, Hermes, OpenJDK 17 (Zulu 17.68.203)  
-Исполнитель: Claude (app)  
+Дата: 2026-11-05
+Окружение: macOS, Expo 55, React Native 0.83.10, Hermes, OpenJDK 17 (Zulu 17.68.203)
+Исполнитель: Claude (app)
 Промпты: `docs/PROMPT_APP_PER_CLIENT_2026-11-05.md`, «Дополнение 1 (2026-11-05): первый настоящий клиент — keremet»
 
 ---
@@ -127,7 +127,7 @@ mobile/clients/
 +++ mobile/android/app/build.gradle
 @@ -96,7 +96,44 @@
          versionName "1.0.12"
- 
+
          buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
 +        manifestPlaceholders = [scheme: "cashbackone"]
 +        resValue "string", "scheme", "cashbackone"
@@ -172,7 +172,7 @@ mobile/clients/
              storeFile file(System.getenv('CASHBACK_STORE_FILE'))
 @@ -188,3 +225,15 @@
  }
- 
+
  apply plugin: "com.google.gms.google-services"
 +
 +afterEvaluate {
@@ -574,5 +574,318 @@ Ran all test suites.
   62:20  warning  The ref value 'generation.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'generation.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
 
 ✖ 1 problem (0 errors, 1 warning)
+```
+
+---
+
+## 8. Имя файла APK (2026-11-05)
+
+### 8.1. Выбранный подход
+
+1. **Поле `apk_name` в `client.json`:**
+   - В `mobile/clients/keremet/client.json` добавлено `"apk_name": "keremet-cashback"`.
+   - В `mobile/clients/cashbackone/client.json` добавлено `"apk_name": "cashback-one"`.
+   - В `mobile/clients/example/client.json` поле опущено (fallback на `slug`).
+   - Поле `apk_name?: string;` добавлено в интерфейс `ClientConfig` (`mobile/src/config/client.ts`).
+
+2. **Модификация `mobile/scripts/build-client.sh`:**
+   - Чтение `apk_name` выполняется тем же способом (`node -p`), что и чтение версии из `app.json`:
+     ```bash
+     VERSION="$(node -p "require('./app.json').expo.version")"
+     APK_NAME="$(node -p "require('./${CLIENT_CONFIG}').apk_name || '${SLUG}'")"
+     ```
+   - Добавлена валидация формата: `^[a-z0-9]+(-[a-z0-9]+)*$`.
+   - Добавлен режим `--print-apk-name` для проверки вычисления имени файла без сборки (поддерживается вызов как `build-client.sh --print-apk-name <slug>`, так и `build-client.sh <slug> --print-apk-name`).
+   - При сборке результирующий файл копируется в `mobile/dist/<apk_name>-<version>.apk` (или `<slug>-<version>.apk`, если `apk_name` отсутствует).
+   - Все остальные механизмы скрипта (`cp -n`, проверка свободного места на диске, ключи подписи, `unset EXPO_PUBLIC_DEMO`) сохранены без изменений.
+
+3. **Тестирование и валидация схемы:**
+   - В `mobile/tests/clientConfig.test.tsx` добавлена проверка поля `apk_name` для всех зарегистрированных клиентов.
+   - Добавлен юнит-тест валидации регулярного выражения `/^[a-z0-9]+(-[a-z0-9]+)*$/` на корректных и некорректных примерах.
+   - Добавлены тесты вызова `build-client.sh --print-apk-name` через `child_process.execFileSync` для всех трёх клиентов и для разного порядка аргументов.
+
+### 8.2. Вывод вычисленного имени для трёх клиентов
+
+```
+$ mobile/scripts/build-client.sh --print-apk-name keremet
+keremet-cashback-1.0.12.apk
+
+$ mobile/scripts/build-client.sh --print-apk-name cashbackone
+cashback-one-1.0.12.apk
+
+$ mobile/scripts/build-client.sh --print-apk-name example
+example-1.0.12.apk
+```
+
+### 8.3. Git Diff
+
+```diff
+diff --git a/mobile/clients/cashbackone/client.json b/mobile/clients/cashbackone/client.json
+index 097f817..778bf6b 100644
+--- a/mobile/clients/cashbackone/client.json
++++ b/mobile/clients/cashbackone/client.json
+@@ -1,5 +1,6 @@
+ {
+   "slug": "cashbackone",
++  "apk_name": "cashback-one",
+   "android_app_id": "kz.cashbackone.mobile",
+   "app_name": {
+     "ru": "Cashback One",
+diff --git a/mobile/clients/keremet/client.json b/mobile/clients/keremet/client.json
+index 96f7805..7e816fa 100644
+--- a/mobile/clients/keremet/client.json
++++ b/mobile/clients/keremet/client.json
+@@ -1,5 +1,6 @@
+ {
+   "slug": "keremet",
++  "apk_name": "keremet-cashback",
+   "android_app_id": "kz.cashbackone.keremet",
+   "app_name": {
+     "ru": "Keremet Bonus",
+diff --git a/mobile/scripts/build-client.sh b/mobile/scripts/build-client.sh
+index 570e1be..a217127 100755
+--- a/mobile/scripts/build-client.sh
++++ b/mobile/scripts/build-client.sh
+@@ -2,7 +2,7 @@
+ # Builds a signed release APK for a specific client flavor without EAS and without expo prebuild.
+ #
+ # Usage:
+-#   mobile/scripts/build-client.sh <slug>
++#   mobile/scripts/build-client.sh [--print-apk-name] <slug>
+ #
+ # Environment variables:
+ #   API_BASE_URL    API the app talks to (default: https://api.cashback-qr.poscenter.kz)
+@@ -13,12 +13,36 @@
+ #   FORCE_SPACE     Set to 1 to bypass disk space check
+ set -euo pipefail
+
+-if [ $# -lt 1 ]; then
+-  echo "Usage: $0 <slug>" >&2
++PRINT_ONLY=0
++SLUG=""
++
++for arg in "$@"; do
++  case "$arg" in
++    --print-apk-name)
++      PRINT_ONLY=1
++      ;;
++    -*)
++      echo "Unknown option: $arg" >&2
++      echo "Usage: $0 [--print-apk-name] <slug>" >&2
++      exit 1
++      ;;
++    *)
++      if [ -z "$SLUG" ]; then
++        SLUG="$arg"
++      else
++        echo "Unexpected argument: $arg" >&2
++        echo "Usage: $0 [--print-apk-name] <slug>" >&2
++        exit 1
++      fi
++      ;;
++  esac
++done
++
++if [ -z "$SLUG" ]; then
++  echo "Usage: $0 [--print-apk-name] <slug>" >&2
+   exit 1
+ fi
+
+-SLUG="$1"
+ cd "$(dirname "$0")/.."
+
+ CLIENT_CONFIG="clients/${SLUG}/client.json"
+@@ -27,6 +51,21 @@ if [ ! -f "$CLIENT_CONFIG" ]; then
+   exit 1
+ fi
+
++VERSION="$(node -p "require('./app.json').expo.version")"
++APK_NAME="$(node -p "require('./${CLIENT_CONFIG}').apk_name || '${SLUG}'")"
++
++if ! [[ "$APK_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
++  echo "Error: Invalid apk_name in $CLIENT_CONFIG: $APK_NAME (must match ^[a-z0-9]+(-[a-z0-9]+)*$)" >&2
++  exit 1
++fi
++
++APK_FILENAME="${APK_NAME}-${VERSION}.apk"
++
++if [ "$PRINT_ONLY" = "1" ]; then
++  echo "$APK_FILENAME"
++  exit 0
++fi
++
+ # 1. Check free disk space
+ MIN_FREE_KB="${MIN_FREE_KB:-3000000}"
+ FREE_KB="$(df -k "$HOME" | awk 'NR==2 {print $4}')"
+@@ -81,8 +120,7 @@ echo "=== Building client '${SLUG}' (flavor: ${FLAVOR}, task: app:${TASK}) ==="
+     --console=plain
+ )
+
+-# 6. Copy APK to mobile/dist/<slug>-<version>.apk
+-VERSION="$(node -p "require('./app.json').expo.version")"
++# 6. Copy APK to mobile/dist/<apk_name>-<version>.apk
+ OUTPUT_DIR="android/app/build/outputs/apk/${SLUG}/release"
+ SRC_APK="$(ls -t "$OUTPUT_DIR"/*.apk 2>/dev/null | head -1 || true)"
+
+@@ -92,7 +130,7 @@ if [ -z "$SRC_APK" ] || [ ! -f "$SRC_APK" ]; then
+ fi
+
+ mkdir -p dist
+-DEST_APK="dist/${SLUG}-${VERSION}.apk"
++DEST_APK="dist/${APK_FILENAME}"
+
+ if [ -f "$DEST_APK" ]; then
+   echo "Target APK already exists: $DEST_APK (not overwriting with cp -n)"
+diff --git a/mobile/src/config/client.ts b/mobile/src/config/client.ts
+index a824508..9c7cd44 100644
+--- a/mobile/src/config/client.ts
++++ b/mobile/src/config/client.ts
+@@ -6,6 +6,7 @@ import { KeremetLogo } from '../../clients/keremet/Logo';
+
+ export interface ClientConfig {
+   slug: string;
++  apk_name?: string;
+   android_app_id: string;
+   app_name: {
+     ru: string;
+diff --git a/mobile/tests/clientConfig.test.tsx b/mobile/tests/clientConfig.test.tsx
+index ff7df51..30bb4ee 100644
+--- a/mobile/tests/clientConfig.test.tsx
++++ b/mobile/tests/clientConfig.test.tsx
+@@ -1,6 +1,7 @@
+ import React from 'react';
+ import fs from 'fs';
+ import path from 'path';
++import { execFileSync } from 'child_process';
+ import { View, Text } from 'react-native';
+ import { render, act, waitFor } from '@testing-library/react-native';
+ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+@@ -49,6 +50,19 @@ describe('Client Configuration & Multi-Tenant Support', () => {
+         expect(config.primary_color).toMatch(/^#[0-9A-Fa-f]{6}$/);
+         expect(config.scheme).toMatch(/^[a-z0-9]+$/);
+
++        if (config.apk_name !== undefined) {
++          expect(typeof config.apk_name).toBe('string');
++          expect(config.apk_name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
++        }
++
++        if (slug === 'keremet') {
++          expect(config.apk_name).toBe('keremet-cashback');
++        } else if (slug === 'cashbackone') {
++          expect(config.apk_name).toBe('cashback-one');
++        } else if (slug === 'example') {
++          expect(config.apk_name).toBeUndefined();
++        }
++
+         // Verify Android resources directory
+         const resDir = path.join(clientsDir, slug, 'android/res');
+         expect(fs.existsSync(resDir)).toBe(true);
+@@ -371,4 +385,54 @@ describe('Client Configuration & Multi-Tenant Support', () => {
+       screen.unmount();
+     });
+   });
++
++  describe('8. APK File Name Calculation & Format Validation (build-client.sh --print-apk-name)', () => {
++    const buildScript = path.resolve(__dirname, '../scripts/build-client.sh');
++    const appJsonPath = path.resolve(__dirname, '../app.json');
++    const version = JSON.parse(fs.readFileSync(appJsonPath, 'utf-8')).expo.version;
++
++    it('validates apk_name format regex against valid and invalid values', () => {
++      const regex = /^[a-z0-9]+(-[a-z0-9]+)*$/;
++      expect(regex.test('keremet-cashback')).toBe(true);
++      expect(regex.test('cashback-one')).toBe(true);
++      expect(regex.test('app1')).toBe(true);
++      expect(regex.test('my-cool-app-2026')).toBe(true);
++
++      expect(regex.test('')).toBe(false);
++      expect(regex.test('Keremet')).toBe(false);
++      expect(regex.test('keremet_cashback')).toBe(false);
++      expect(regex.test('-leading')).toBe(false);
++      expect(regex.test('trailing-')).toBe(false);
++      expect(regex.test('double--hyphen')).toBe(false);
++      expect(regex.test('with spaces')).toBe(false);
++    });
++
++    it('calculates keremet-cashback-<version>.apk for keremet', () => {
++      const output = execFileSync(buildScript, ['--print-apk-name', 'keremet'], {
++        encoding: 'utf-8',
++      }).trim();
++      expect(output).toBe(`keremet-cashback-${version}.apk`);
++    });
++
++    it('calculates cashback-one-<version>.apk for cashbackone', () => {
++      const output = execFileSync(buildScript, ['--print-apk-name', 'cashbackone'], {
++        encoding: 'utf-8',
++      }).trim();
++      expect(output).toBe(`cashback-one-${version}.apk`);
++    });
++
++    it('calculates example-<version>.apk for example (fallback to slug when apk_name is omitted)', () => {
++      const output = execFileSync(buildScript, ['--print-apk-name', 'example'], {
++        encoding: 'utf-8',
++      }).trim();
++      expect(output).toBe(`example-${version}.apk`);
++    });
++
++    it('supports argument order: <slug> --print-apk-name', () => {
++      const output = execFileSync(buildScript, ['keremet', '--print-apk-name'], {
++        encoding: 'utf-8',
++      }).trim();
++      expect(output).toBe(`keremet-cashback-${version}.apk`);
++    });
++  });
+ });
+```
+
+### 8.4. Сырой вывод проверок
+
+#### `npx jest --runInBand`
+```
+PASS tests/clientConfig.test.tsx
+PASS tests/appUpdate.test.tsx
+PASS tests/profileSave.test.tsx
+PASS tests/qrScreen.test.tsx
+PASS tests/flows.test.tsx
+PASS tests/homeArtwork.test.tsx
+PASS tests/cityCustom.test.tsx
+PASS tests/historyPeriod.test.tsx
+PASS tests/wallet.test.tsx
+PASS tests/cardScanner.test.tsx
+PASS tests/avatar.test.tsx
+PASS tests/serverContentAndCache.test.tsx
+PASS tests/components.test.tsx
+PASS tests/push.test.tsx
+PASS tests/demo.test.ts
+PASS tests/promotionsArtwork.test.tsx
+PASS tests/levels.test.tsx
+PASS tests/loginScreen.test.tsx
+PASS tests/transport.test.ts
+PASS tests/session.test.ts
+PASS tests/core.test.ts
+PASS tests/keyboardLift.test.ts
+
+Test Suites: 22 passed, 22 total
+Tests:       301 passed, 301 total
+Snapshots:   0 total
+Time:        19.016 s, estimated 22 s
+Ran all test suites.
+```
+
+#### `npx tsc --noEmit`
+```
+(exit code 0, no output)
+```
+
+#### `npx eslint .`
+```
+/Users/nuras/Desktop/cashback-one/mobile/src/components/useKeyboardLift.ts
+  62:20  warning  The ref value 'generation.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'generation.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+
+✖ 1 problem (0 errors, 1 warning)
+```
+
+#### `bash -n scripts/build-client.sh`
+```
+(exit code 0, no output)
 ```
 

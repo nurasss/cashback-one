@@ -6,6 +6,7 @@ import { KeremetLogo } from '../../clients/keremet/Logo';
 
 export interface ClientConfig {
   slug: string;
+  apk_name?: string;
   android_app_id: string;
   app_name: {
     ru: string;

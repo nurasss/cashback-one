@@ -1,6 +1,7 @@
 import React from 'react';
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { View, Text } from 'react-native';
 import { render, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -48,6 +49,19 @@ describe('Client Configuration & Multi-Tenant Support', () => {
 
         expect(config.primary_color).toMatch(/^#[0-9A-Fa-f]{6}$/);
         expect(config.scheme).toMatch(/^[a-z0-9]+$/);
+
+        if (config.apk_name !== undefined) {
+          expect(typeof config.apk_name).toBe('string');
+          expect(config.apk_name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+        }
+
+        if (slug === 'keremet') {
+          expect(config.apk_name).toBe('keremet-cashback');
+        } else if (slug === 'cashbackone') {
+          expect(config.apk_name).toBe('cashback-one');
+        } else if (slug === 'example') {
+          expect(config.apk_name).toBeUndefined();
+        }
 
         // Verify Android resources directory
         const resDir = path.join(clientsDir, slug, 'android/res');
@@ -369,6 +383,56 @@ describe('Client Configuration & Multi-Tenant Support', () => {
       expect(cached?.[1]?.id).toBe('km-card-1');
 
       screen.unmount();
+    });
+  });
+
+  describe('8. APK File Name Calculation & Format Validation (build-client.sh --print-apk-name)', () => {
+    const buildScript = path.resolve(__dirname, '../scripts/build-client.sh');
+    const appJsonPath = path.resolve(__dirname, '../app.json');
+    const version = JSON.parse(fs.readFileSync(appJsonPath, 'utf-8')).expo.version;
+
+    it('validates apk_name format regex against valid and invalid values', () => {
+      const regex = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+      expect(regex.test('keremet-cashback')).toBe(true);
+      expect(regex.test('cashback-one')).toBe(true);
+      expect(regex.test('app1')).toBe(true);
+      expect(regex.test('my-cool-app-2026')).toBe(true);
+
+      expect(regex.test('')).toBe(false);
+      expect(regex.test('Keremet')).toBe(false);
+      expect(regex.test('keremet_cashback')).toBe(false);
+      expect(regex.test('-leading')).toBe(false);
+      expect(regex.test('trailing-')).toBe(false);
+      expect(regex.test('double--hyphen')).toBe(false);
+      expect(regex.test('with spaces')).toBe(false);
+    });
+
+    it('calculates keremet-cashback-<version>.apk for keremet', () => {
+      const output = execFileSync(buildScript, ['--print-apk-name', 'keremet'], {
+        encoding: 'utf-8',
+      }).trim();
+      expect(output).toBe(`keremet-cashback-${version}.apk`);
+    });
+
+    it('calculates cashback-one-<version>.apk for cashbackone', () => {
+      const output = execFileSync(buildScript, ['--print-apk-name', 'cashbackone'], {
+        encoding: 'utf-8',
+      }).trim();
+      expect(output).toBe(`cashback-one-${version}.apk`);
+    });
+
+    it('calculates example-<version>.apk for example (fallback to slug when apk_name is omitted)', () => {
+      const output = execFileSync(buildScript, ['--print-apk-name', 'example'], {
+        encoding: 'utf-8',
+      }).trim();
+      expect(output).toBe(`example-${version}.apk`);
+    });
+
+    it('supports argument order: <slug> --print-apk-name', () => {
+      const output = execFileSync(buildScript, ['keremet', '--print-apk-name'], {
+        encoding: 'utf-8',
+      }).trim();
+      expect(output).toBe(`keremet-cashback-${version}.apk`);
     });
   });
 });
