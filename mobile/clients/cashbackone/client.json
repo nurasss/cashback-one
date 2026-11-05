@@ -1,0 +1,12 @@
+{
+  "slug": "cashbackone",
+  "android_app_id": "kz.cashbackone.mobile",
+  "app_name": {
+    "ru": "Cashback One",
+    "kk": "Cashback One"
+  },
+  "android_label": "Cashback One",
+  "business_id": null,
+  "primary_color": "#EE1D3E",
+  "scheme": "cashbackone"
+}

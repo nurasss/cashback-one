@@ -9,6 +9,7 @@ import { ApiClient } from '../api/client';
 import { keys } from '../api/app';
 import { useSession } from '../auth/provider';
 import { DEMO_ENABLED } from '../demo/mockApi';
+import { getClientConfig } from '../config/client';
 import { useI18n, type Language } from '../i18n';
 import { fonts, theme } from '../theme';
 import { Button } from '../components/ui';
@@ -60,9 +61,11 @@ export function isDemoMode(): boolean {
 }
 
 export function getPushAppId(): string {
+  const client = getClientConfig();
   return (
-    Constants.expoConfig?.android?.package ??
-    (Constants as { applicationId?: string }).applicationId ??
+    client.android_app_id ||
+    Constants.expoConfig?.android?.package ||
+    (Constants as { applicationId?: string }).applicationId ||
     'kz.cashbackone.mobile'
   );
 }

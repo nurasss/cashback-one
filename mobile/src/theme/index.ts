@@ -1,3 +1,13 @@
+import { getClientConfig } from '../config/client';
+
+const clientPrimary = (() => {
+  try {
+    return getClientConfig().primary_color;
+  } catch {
+    return '#EE1D3E';
+  }
+})();
+
 // Montserrat weights are separate font families on Android, so text styles use fontFamily, not fontWeight.
 export const fonts = {
   regular: 'Montserrat_400Regular',
@@ -10,7 +20,7 @@ export const fonts = {
 export const theme = {
   colors: {
     background: '#F4F4F6', surface: '#FFFFFF', text: '#111111', muted: '#6E6E76', placeholder: '#6C6C74', subtle: '#B4B4BA',
-    primary: '#EE1D3E', primaryPressed: '#D0102F', onPrimary: '#FFFFFF', softPrimary: '#FDE9EC', tint: '#F8EEF0',
+    primary: clientPrimary, primaryPressed: '#D0102F', onPrimary: '#FFFFFF', softPrimary: '#FDE9EC', tint: '#F8EEF0',
     status: '#F8BEB2', border: '#E7E7EB', input: '#F2F2F4', error: '#C8102E', success: '#1F8A4C', softError: '#FFF1F0',
     qr: '#FFFFFF', shadow: '#1B1B1F',
   },

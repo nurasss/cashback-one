@@ -1,5 +1,6 @@
 // Demo mode (EXPO_PUBLIC_DEMO=1): an in-memory stand-in for the Cloud API with sample data, so the app can be
 // viewed without WhatsApp delivery or a customer database. Never used unless the flag is set at build time.
+import { getClientConfig } from '../config/client';
 import type { AppContent, Badges, Card, CardQr, HistoryPage, Notifications, Profile, Promotion, Promotions, Tokens, Transaction, WalletAvailability } from '../types/api';
 
 export const DEMO_ENABLED = process.env.EXPO_PUBLIC_DEMO === '1';
@@ -12,9 +13,16 @@ const REF_IMG = `${IMG}reference-redesign/`;
 const daysAgo = (days: number, hour = 12) => { const d = new Date(); d.setDate(d.getDate() - days); d.setHours(hour, 15, 0, 0); return d.toISOString(); };
 
 export function createDemoApi() {
+  const clientBusinessId = (() => {
+    try {
+      return getClientConfig().business_id;
+    } catch {
+      return null;
+    }
+  })();
   const card: Card = {
     id: 'demo-card', barcode: '0123456789012', balance: '0.0000', is_blocked: false, updated_at: daysAgo(0), bound_at: daysAgo(30), bind_method: 'phone_auto',
-    business: { id: 'demo-business', name: 'POSCENTER Маркет', branding: null },
+    business: { id: clientBusinessId ?? 'demo-business', name: 'POSCENTER Маркет', branding: null },
     tier: {
       level: 1, name: 'Статус 1', percent: '3.0000', max_percent: '12.0000', spend_total: '0.0000', next_level: 2, next_threshold: '350000.0000', remaining: '350000.0000',
       levels: [

@@ -6,6 +6,7 @@ import { Animated, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError } from '../../src/api/errors';
 import { walletKey } from '../../src/api/wallet';
+import { getClientConfig, withClientBusiness } from '../../src/config/client';
 import { useSession } from '../../src/auth/provider';
 import { Button, ErrorNotice, ScreenHeader, styles } from '../../src/components/ui';
 import { useActiveCard } from '../../src/features/activeCard';
@@ -21,8 +22,12 @@ export default function Bind() {
   const query = useQueryClient();
   const [barcode, setBarcode] = useState('');
   const mutation = useMutation({
-    mutationFn: ({ value, business }: { value: string; business?: string }) => api.request<Card>('/me/cards/bind',
-      { method: 'POST', body: { barcode: value, ...(business ? { business_id: business } : {}) }, auth: true }),
+    mutationFn: ({ value, business }: { value: string; business?: string }) => {
+      const client = getClientConfig();
+      const effectiveBusiness = business ?? client.business_id ?? undefined;
+      return api.request<Card>(withClientBusiness('/me/cards/bind'),
+        { method: 'POST', body: { barcode: value, ...(effectiveBusiness ? { business_id: effectiveBusiness } : {}) }, auth: true });
+    },
     onSuccess: async card => {
       query.setQueryData<Card[]>([...walletKey, 'cards'], previous => previous ? [card, ...previous.filter(item => item.id !== card.id)] : undefined);
       await query.invalidateQueries({ queryKey: walletKey });

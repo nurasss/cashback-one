@@ -3,6 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef } from 'react';
 import { keys } from '../api/app';
 import { useSession } from '../auth/provider';
+import { withClientBusiness } from '../config/client';
 
 // When a tab with "new" content is opened, tell the server once and refresh the tab bar badges.
 export function useMarkSeen(path: '/me/promotions/seen' | '/me/notifications/read', hasNew: boolean) {
@@ -12,7 +13,7 @@ export function useMarkSeen(path: '/me/promotions/seen' | '/me/notifications/rea
   useFocusEffect(useCallback(() => {
     if (!hasNew || sending.current) return;
     sending.current = true;
-    api.request<void>(path, { method: 'POST', auth: true })
+    api.request<void>(withClientBusiness(path), { method: 'POST', auth: true })
       .then(() => query.invalidateQueries({ queryKey: keys.badges }))
       .catch(() => { /* Badge stays until the next successful visit. */ })
       .finally(() => { sending.current = false; });

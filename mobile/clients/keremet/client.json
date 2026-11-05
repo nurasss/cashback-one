@@ -1,0 +1,12 @@
+{
+  "slug": "keremet",
+  "android_app_id": "kz.cashbackone.keremet",
+  "app_name": {
+    "ru": "Keremet Bonus",
+    "kk": "Keremet Bonus"
+  },
+  "android_label": "Keremet Bonus",
+  "business_id": "f3a0cf2d-4a1d-4c0e-af27-b363054394f0",
+  "primary_color": "#FA2247",
+  "scheme": "keremetbonus"
+}

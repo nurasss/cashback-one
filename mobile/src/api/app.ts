@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSession } from '../auth/provider';
 import { ApiError } from './errors';
 import type { ApiClient } from './client';
+import { getClientConfig, withClientBusiness } from '../config/client';
 import { getCachedAppContent, getCachedPromotions, initAppCache, setCachedAppContent, setCachedPromotions } from '../storage/appCache';
 import type { AppContent, Badges, CardQr, Notifications, Profile, Promotion, Promotions, WalletAvailability, WalletLinkResponse } from '../types/api';
 
@@ -30,7 +31,7 @@ export async function fetchPromotionsWithCache(
   }
   try {
     if (typeof api.requestWithMeta === 'function') {
-      const res = await api.requestWithMeta<Promotions>('/me/promotions', {
+      const res = await api.requestWithMeta<Promotions>(withClientBusiness('/me/promotions'), {
         auth: true,
         headers,
         signal,
@@ -44,7 +45,7 @@ export async function fetchPromotionsWithCache(
       }
       return cached ? cached.data : { banners: [], offers: [], has_new: false };
     }
-    const data = await api.request<Promotions>('/me/promotions', {
+    const data = await api.request<Promotions>(withClientBusiness('/me/promotions'), {
       auth: true,
       headers,
       signal,
@@ -127,26 +128,42 @@ export function usePromotions() {
 export function useAppContent(businessId: string | undefined) {
   const { api, session } = useSession();
   const userId = session.getUserId?.() ?? 'anonymous';
+  const client = getClientConfig();
+  const effectiveBusinessId = client.business_id ?? businessId;
   return useQuery<AppContent | null>({
-    queryKey: keys.appContent(businessId),
-    enabled: !!businessId,
-    initialData: () => (businessId ? getCachedAppContent(userId, businessId)?.data : undefined),
-    queryFn: ({ signal }) => (businessId ? fetchAppContentWithCache(api, userId, businessId, signal) : null),
+    queryKey: keys.appContent(effectiveBusinessId),
+    enabled: !!effectiveBusinessId,
+    initialData: () => (effectiveBusinessId ? getCachedAppContent(userId, effectiveBusinessId)?.data : undefined),
+    queryFn: ({ signal }) => (effectiveBusinessId ? fetchAppContentWithCache(api, userId, effectiveBusinessId, signal) : null),
   });
 }
 export function usePromotion(id: string) {
   const { api } = useSession();
-  return useQuery({ queryKey: keys.promotion(id), queryFn: ({ signal }) => api.request<Promotion>(`/me/promotions/${encodeURIComponent(id)}`, { auth: true, signal }) });
+  return useQuery({
+    queryKey: keys.promotion(id),
+    queryFn: ({ signal }) =>
+      api.request<Promotion>(withClientBusiness(`/me/promotions/${encodeURIComponent(id)}`), {
+        auth: true,
+        signal,
+      }),
+  });
 }
 export function useNotifications() {
   const { api } = useSession();
-  return useQuery({ queryKey: keys.notifications, queryFn: ({ signal }) => api.request<Notifications>('/me/notifications', { auth: true, signal }) });
+  return useQuery({
+    queryKey: keys.notifications,
+    queryFn: ({ signal }) => api.request<Notifications>(withClientBusiness('/me/notifications'), { auth: true, signal }),
+  });
 }
 // Badges drive the tab bar dots; poll gently while the app is in the foreground.
 export function useBadges() {
   const { api } = useSession();
-  return useQuery({ queryKey: keys.badges, refetchInterval: 60_000, staleTime: 15_000,
-    queryFn: ({ signal }) => api.request<Badges>('/me/badges', { auth: true, signal }) });
+  return useQuery({
+    queryKey: keys.badges,
+    refetchInterval: 60_000,
+    staleTime: 15_000,
+    queryFn: ({ signal }) => api.request<Badges>(withClientBusiness('/me/badges'), { auth: true, signal }),
+  });
 }
 // Dynamic QR: the token lives ttl_seconds on the server; refresh at half-life so the code never expires on screen.
 export function useCardQr(cardId: string | undefined) {

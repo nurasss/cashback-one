@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { getClientConfig, withClientBusiness } from '../config/client';
 import { useSession } from '../auth/provider';
 import type { Card, HistoryPage } from '../types/api';
 import { type HistoryPeriod, historyRange } from '../features/historyPeriod';
@@ -6,7 +7,18 @@ export const walletKey = ['wallet'] as const;
 export type HistoryFilter = 'all' | 'accrual' | 'redemption';
 export function useCards() {
   const { api } = useSession();
-  return useQuery({ queryKey: [...walletKey, 'cards'], queryFn: ({ signal }) => api.request<Card[]>('/me/cards', { auth: true, signal }) });
+  const client = getClientConfig();
+  return useQuery({
+    queryKey: [...walletKey, 'cards'],
+    queryFn: async ({ signal }) => {
+      const path = withClientBusiness('/me/cards');
+      const cards = await api.request<Card[]>(path, { auth: true, signal });
+      if (client.business_id) {
+        return cards.filter(c => c.business?.id === client.business_id);
+      }
+      return cards;
+    },
+  });
 }
 export function useCard(id: string) {
   const { api } = useSession();

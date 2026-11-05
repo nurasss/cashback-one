@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContent, useProfile, usePromotions } from '../../../src/api/app';
+import { getClientConfig } from '../../../src/config/client';
 import { Icon } from '../../../src/components/icons';
 import { FadeIn } from '../../../src/components/motion';
 import { Button, EmptyState, ErrorNotice, Loading, styles } from '../../../src/components/ui';
@@ -20,7 +21,7 @@ export default function Home() {
   const { card, cards } = useActiveCard();
   const profile = useProfile();
   const promotions = usePromotions();
-  const appContent = useAppContent(card?.business?.id);
+  const appContent = useAppContent(getClientConfig().business_id ?? card?.business?.id);
   const openPromotion = (id: string) => router.push({ pathname: '/promotion/[id]', params: { id } });
   const openPromotions = () => router.push('/promotions');
   const openStoreMap = (url: string) => {

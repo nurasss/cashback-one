@@ -6,6 +6,7 @@ import { ApiError } from '../src/api/errors';
 import { useSession } from '../src/auth/provider';
 import { FadeIn } from '../src/components/motion';
 import { Button, ErrorNotice, Input, styles } from '../src/components/ui';
+import { BrandBadge } from '../src/components/BrandBadge';
 import { useI18n } from '../src/i18n';
 import { deviceId } from '../src/storage/secure';
 import { fonts, theme } from '../src/theme';
@@ -54,7 +55,7 @@ export default function Login() {
     <Animated.View ref={lift.ref} collapsable={false} onLayout={lift.onLayout} style={[styles.screen, lift.style]}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={local.content}>
         <FadeIn style={{ gap: 12 }}>
-          <View style={local.brand}><Text style={local.brandText}>{t('bonusCurrency')}</Text></View>
+          <BrandBadge height={28} style={local.brand} textStyle={local.brandText} />
           <Text style={local.title}>{t('loginTitle')}</Text>
           <Text style={[styles.body, { color: theme.colors.muted }]}>{t('loginBody')}</Text>
         </FadeIn>

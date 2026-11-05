@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppContent, useBadges } from '../../src/api/app';
+import { getClientConfig } from '../../src/config/client';
 import { FadeIn, motionEnabled, PressScale } from '../../src/components/motion';
 import { EmptyState, Loading, ScreenHeader, styles } from '../../src/components/ui';
 import { TabBar } from '../../src/components/TabBar';
@@ -17,7 +18,7 @@ export default function StatusScreen() {
   const { t, language } = useI18n();
   const { card, cards } = useActiveCard();
   const badges = useBadges();
-  const appContent = useAppContent(card?.business?.id);
+  const appContent = useAppContent(getClientConfig().business_id ?? card?.business?.id);
   const tier = card?.tier;
   const [sheetOpen, setSheetOpen] = useState(false);
   const langKey = language === 'kz' ? 'kk' : 'ru';

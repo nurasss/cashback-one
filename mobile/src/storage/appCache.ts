@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getClientConfig } from '../config/client';
 import type { AppContent, Promotions } from '../types/api';
 
 const CACHE_PREFIX = 'cashback-one.cache.v1:';
@@ -46,8 +47,16 @@ export function getAppContentCacheKey(userId: string, businessId: string): strin
   return `${CACHE_PREFIX}user:${userId}:business:${businessId}:app-content`;
 }
 
-export function getPromotionsCacheKey(userId: string): string {
-  return `${CACHE_PREFIX}user:${userId}:promotions`;
+export function getPromotionsCacheKey(userId: string, businessId?: string | null): string {
+  let b = businessId;
+  if (b === undefined) {
+    try {
+      b = getClientConfig().business_id;
+    } catch {
+      b = null;
+    }
+  }
+  return b ? `${CACHE_PREFIX}user:${userId}:business:${b}:promotions` : `${CACHE_PREFIX}user:${userId}:promotions`;
 }
 
 export function initAppCache(): Promise<void> {

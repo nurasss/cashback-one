@@ -1,0 +1,12 @@
+{
+  "slug": "example",
+  "android_app_id": "kz.cashbackone.example",
+  "app_name": {
+    "ru": "Example Bonus",
+    "kk": "Example Bonus"
+  },
+  "android_label": "Example Bonus",
+  "business_id": "00000000-0000-0000-0000-000000000000",
+  "primary_color": "#2563EB",
+  "scheme": "examplebonus"
+}

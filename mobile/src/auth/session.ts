@@ -1,5 +1,6 @@
 import { ApiClient } from '../api/client';
 import { ApiError } from '../api/errors';
+import { withClientBusiness } from '../config/client';
 import { decodeJwtSub } from '../storage/appCache';
 import { parseTokens } from './tokens';
 import type { TokenStore } from '../storage/secure';
@@ -71,7 +72,7 @@ export class Session {
       if (!saved) { this.publish({ status: 'anonymous' }); return; }
       await this.refresh();
       // Refresh does not check a deleted user in the current backend.
-      await this.api.request('/me/cards', { auth: true });
+      await this.api.request(withClientBusiness('/me/cards'), { auth: true });
       if (epoch === this.epoch) this.publish({ status: 'authenticated' });
     } catch (error) {
       if (epoch !== this.epoch) return;
