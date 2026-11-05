@@ -39,3 +39,21 @@ EntropyAnsi := DPAPI_ENTROPY_STR;
 ## Отчёт
 
 `reports/AGENT_EXE_0_3_0_2026-11-05.md`: сырой вывод падения и исправления, `git diff`, проверки по основному промпту.
+
+## Дополнение 2 (после второго СТОП): `installer.iss`, строка 366
+
+Остановка была правильной. Решение куратора: предложение принято. Правки из первого раздела оставить, `harness_serializer.iss` уже компилируется, `test_installer_config.py` 16/16.
+
+1. В `agent/packaging/installer.iss`, функция `ExecuteCheckOne`:
+   ```pascal
+     ProbeExe, ResultJsonFile, CmdParams, JsonContent: string;
+   ```
+   заменить на
+   ```pascal
+     ProbeExe, ResultJsonFile, CmdParams: string;
+     JsonContent: AnsiString;
+   ```
+   Больше ничего не менять. Агент пишет файл как `{"code": "ok"}` (`main.py`, `json.dumps`, только ASCII-коды), поэтому `Pos` по `AnsiString` находит те же строки.
+2. Если при следующей компиляции снова будет `Type mismatch`, разрешено исправить его без нового СТОП **только при одном условии**. Причина должна быть та же: переменная `string` передаётся во встроенную функцию Inno Setup, которая ждёт `AnsiString` (`LoadStringFromFile`, `SaveStringToFile` и подобные). Исправлять только сменой типа этой переменной на `AnsiString`. Каждую такую правку покажи в `git diff` и в отчёте с номером строки. Любая другая ошибка компиляции — СТОП с сырым выводом и предложением, без правки.
+3. Затем шаги 3–6 первого раздела: компиляция `installer.iss`, полный `pytest agent/tests -v` (0 failed), совместимость DPAPI. Тест `test_pascal_harness_serialization_roundtrip` уже ответил на этот вопрос, ручную проверку не повторять. Сборка, изолированная проверка, хеши прежних Setup, служба 0.2.2 Running.
+4. Дополнительно в изолированной проверке: из собранного EXE запусти `check-one --output-file C:\cb-smoke-030\r.json` на несуществующей базе. Покажи содержимое `r.json`: в нём только код, без секретов. Оно должно содержать одну из строк, которые ищет `ExecuteCheckOne` (например `"code": "db_not_found"`).
