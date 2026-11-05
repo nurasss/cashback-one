@@ -167,7 +167,7 @@ begin
 
   PlainAnsi := UTF8Encode(PlainText);
   PlainLen := Length(PlainAnsi);
-  EntropyAnsi := AnsiString(DPAPI_ENTROPY_STR);
+  EntropyAnsi := DPAPI_ENTROPY_STR;
   EntropyLen := Length(EntropyAnsi);
 
   pIn := LocalAlloc(0, PlainLen);
@@ -266,7 +266,7 @@ begin
     Exit;
 
   pIn := LocalAlloc(0, cbBinary);
-  EntropyAnsi := AnsiString(DPAPI_ENTROPY_STR);
+  EntropyAnsi := DPAPI_ENTROPY_STR;
   EntropyLen := Length(EntropyAnsi);
   pEntropy := LocalAlloc(0, EntropyLen);
 

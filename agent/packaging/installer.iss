@@ -333,7 +333,8 @@ end;
 
 function ExecuteCheckOne(const DbPath, User, Pass: string; var OutCode: string): Boolean;
 var
-  ProbeExe, ResultJsonFile, CmdParams, JsonContent: string;
+  ProbeExe, ResultJsonFile, CmdParams: string;
+  JsonContent: AnsiString;
   ResultCode: Integer;
 begin
   Result := False;
