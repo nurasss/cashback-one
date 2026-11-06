@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle, type TextStyle } from 'react-native';
+import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle, type TextStyle } from 'react-native';
 import { getClientConfig } from '../config/client';
 import { useI18n } from '../i18n';
 import { fonts, theme } from '../theme';
@@ -8,6 +8,24 @@ export interface BrandBadgeProps {
   height?: number;
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
+}
+
+// Home header badge: a round picture when the client provides one, otherwise the shared BrandBadge.
+export function HeaderBadge({ size = 38 }: { size?: number }) {
+  const client = getClientConfig();
+  const { language } = useI18n();
+  if (!client.headerBadge) return <BrandBadge height={24} />;
+  const label =
+    client.app_name[language === 'kz' ? 'kk' : 'ru'] || client.app_name.ru || client.android_label || client.slug;
+  return (
+    <Image
+      source={client.headerBadge}
+      style={{ width: size, height: size, borderRadius: size / 2 }}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={label}
+    />
+  );
 }
 
 export function BrandBadge({ height = 24, style, textStyle }: BrandBadgeProps) {

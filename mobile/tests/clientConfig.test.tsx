@@ -6,7 +6,7 @@ import { View, Text } from 'react-native';
 import { render, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { appendBusinessId, getClientConfig, withClientBusiness, type ClientConfig } from '../src/config/client';
-import { BrandBadge } from '../src/components/BrandBadge';
+import { BrandBadge, HeaderBadge } from '../src/components/BrandBadge';
 import { getPushAppId } from '../src/features/push';
 import { useCards, walletKey } from '../src/api/wallet';
 import type { Card } from '../src/types/api';
@@ -79,6 +79,41 @@ describe('Client Configuration & Multi-Tenant Support', () => {
           expect(hasLauncher).toBe(true);
         }
       });
+    });
+
+    it('verifies keremet mipmap resources and dimensions across all densities', () => {
+      const resDir = path.join(clientsDir, 'keremet/android/res');
+      const expectedDensities = [
+        { name: 'mdpi', fg: 108, icon: 48 },
+        { name: 'hdpi', fg: 162, icon: 72 },
+        { name: 'xhdpi', fg: 216, icon: 96 },
+        { name: 'xxhdpi', fg: 324, icon: 144 },
+        { name: 'xxxhdpi', fg: 432, icon: 192 },
+      ];
+
+      function getPngDimensions(filePath: string) {
+        const buf = fs.readFileSync(filePath);
+        return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+      }
+
+      for (const d of expectedDensities) {
+        const dir = path.join(resDir, `mipmap-${d.name}`);
+        const fgPath = path.join(dir, 'ic_launcher_foreground.png');
+        const legPath = path.join(dir, 'ic_launcher.png');
+        const rndPath = path.join(dir, 'ic_launcher_round.png');
+
+        expect(fs.existsSync(fgPath)).toBe(true);
+        expect(fs.existsSync(legPath)).toBe(true);
+        expect(fs.existsSync(rndPath)).toBe(true);
+
+        const fg = getPngDimensions(fgPath);
+        const leg = getPngDimensions(legPath);
+        const rnd = getPngDimensions(rndPath);
+
+        expect(fg).toEqual({ width: d.fg, height: d.fg });
+        expect(leg).toEqual({ width: d.icon, height: d.icon });
+        expect(rnd).toEqual({ width: d.icon, height: d.icon });
+      }
     });
   });
 
@@ -202,6 +237,37 @@ describe('Client Configuration & Multi-Tenant Support', () => {
       process.env.EXPO_PUBLIC_CLIENT = 'keremet';
       const { queryByText, getByLabelText } = render(<BrandBadge height={24} />);
       expect(queryByText('ONE')).toBeNull();
+      expect(getByLabelText('Keremet Bonus')).toBeTruthy();
+    });
+  });
+
+  describe('5b. Home header badge', () => {
+    const originalEnv = process.env.EXPO_PUBLIC_CLIENT;
+    afterEach(() => {
+      process.env.EXPO_PUBLIC_CLIENT = originalEnv;
+    });
+
+    it('renders a round image badge for keremet', () => {
+      process.env.EXPO_PUBLIC_CLIENT = 'keremet';
+      const { queryByText, getByLabelText } = render(<HeaderBadge />);
+      expect(queryByText('ONE')).toBeNull();
+      const img = getByLabelText('Keremet Bonus');
+      expect(img.props.accessibilityRole).toBe('image');
+      expect(fs.existsSync(path.resolve(__dirname, '../clients/keremet/header_badge.png'))).toBe(true);
+    });
+
+    it('renders text ONE for cashbackone and example', () => {
+      for (const slug of ['cashbackone', 'example']) {
+        process.env.EXPO_PUBLIC_CLIENT = slug;
+        const { getByText, unmount } = render(<HeaderBadge />);
+        expect(getByText('ONE')).toBeTruthy();
+        unmount();
+      }
+    });
+
+    it('keeps the old logo on the login screen badge for keremet', () => {
+      process.env.EXPO_PUBLIC_CLIENT = 'keremet';
+      const { getByLabelText } = render(<BrandBadge height={28} />);
       expect(getByLabelText('Keremet Bonus')).toBeTruthy();
     });
   });

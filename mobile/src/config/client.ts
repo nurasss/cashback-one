@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { ImageSourcePropType } from 'react-native';
 import cashbackoneJson from '../../clients/cashbackone/client.json';
 import exampleJson from '../../clients/example/client.json';
 import keremetJson from '../../clients/keremet/client.json';
@@ -17,6 +18,8 @@ export interface ClientConfig {
   primary_color: string;
   scheme: string;
   Logo?: ComponentType<{ height?: number; accessibilityLabel?: string }>;
+  // Round badge for the home header; when absent the shared text badge is used.
+  headerBadge?: ImageSourcePropType;
 }
 
 const CLIENT_CONFIGS: Record<string, ClientConfig> = {
@@ -29,6 +32,7 @@ const CLIENT_CONFIGS: Record<string, ClientConfig> = {
   keremet: {
     ...keremetJson,
     Logo: KeremetLogo,
+    headerBadge: require('../../clients/keremet/header_badge.png') as ImageSourcePropType,
   },
 };
 

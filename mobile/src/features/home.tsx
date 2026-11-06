@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { BrandBadge } from '../components/BrandBadge';
+import { HeaderBadge } from '../components/BrandBadge';
 import { Icon, type IconName } from '../components/icons';
 import { motionEnabled, PressScale, useCountUp } from '../components/motion';
 import { useI18n, type Language } from '../i18n';
@@ -23,7 +23,7 @@ export function BalanceHeader({ phone, balance }: { phone: string; balance: stri
       accessibilityLabel={`${tr('pointsSum')}: ${pointsText(balance)}, ${tr('accrualHistory')}`}
     >
       <Text style={styles.balance}>{pointsText(balance)}</Text>
-      <BrandBadge height={24} />
+      <HeaderBadge />
     </PressScale>
   </View>;
 }
