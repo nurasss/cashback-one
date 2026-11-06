@@ -511,3 +511,224 @@ async def test_one_com_source_full_resync_bypasses_known_hashes(tmp_path: Path) 
     b3 = await source.fetch_cards(cursor=None, limit=10)
     assert len(b3.items) == 1
     assert b3.items[0].barcode == "1000000000001"
+
+
+# ---------------------------------------------------------------------------
+# 9. OneComLoyaltySource multi-page full_resync paging and cursor defense
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_one_com_source_full_resync_multi_page_transactions(tmp_path: Path) -> None:
+    """Multi-page full_resync on OneComLoyaltySource with Mock COM:
+    - 3+ pages of transactions
+    - Previous cursor is at the end of the window (TxDoneCursor)
+    - Full resync sends all pages exactly once without repeating page 1
+    - Final cursor is not behind previous cursor
+    - Network break on page 2 preserves cursor not behind previous and subsequent normal sync works.
+    """
+    from datetime import timedelta
+    from unittest.mock import MagicMock
+
+    from poscenter_loyalty_agent.one_time import to_one_naive_datetime
+
+    db_file = tmp_path / "mock_one_tx.db"
+    store = StateStore(db_file)
+    mapping_file = tmp_path / "mapping_tx.json"
+
+    mapping_cfg = MagicMock(spec=OneMappingConfig)
+    mapping_cfg.card_catalog_name = "Cards"
+    mapping_cfg.card_id_field = "Ссылка"
+    mapping_cfg.card_barcode_field = "Код"
+    mapping_cfg.card_phone_field = "Телефон"
+    mapping_cfg.card_full_name_field = "Наименование"
+    mapping_cfg.balance_register_name = "CardBalances"
+    mapping_cfg.balance_card_dimension = "БонуснаяКарта"
+    mapping_cfg.balance_resource = "СуммаОстаток"
+    mapping_cfg.balance_amount_resource = "СуммаОстаток"
+    mapping_cfg.tx_register_name = "CardMovements"
+    mapping_cfg.tx_occurred_at_field = "Период"
+    mapping_cfg.tx_card_field = "БонуснаяКарта"
+    mapping_cfg.tx_type_field = "ВидДвижения"
+    mapping_cfg.tx_amount_field = "Сумма"
+    mapping_cfg.tx_type_mapping = {"0": "accrual", "1": "redemption"}
+    mapping_cfg.receipt_ref_enabled = False
+    mapping_cfg.store_enabled = False
+    mapping_cfg.verify_configuration = MagicMock(return_value=None)
+
+    settings = AgentSettings(
+        agent_env="test",
+        agent_api_key="test-key-mock-tx",
+        agent_state_db_path=db_file,
+        one_mapping_path=mapping_file,
+        one_adapter_mode="com",
+        agent_one_initial_history_days=30,
+        agent_tx_batch_size=2,  # 2 per page -> 5 tx = 3 pages!
+        agent_card_batch_size=10,
+    )
+
+    now = datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC)
+    card_uuid = "00000000-0000-0000-0000-000000000001"
+
+    # 5 transaction rows with increasing timestamps
+    movements_rows = []
+    for i in range(1, 6):
+        tx_time = now - timedelta(days=20) + timedelta(hours=i)
+        movements_rows.append(
+            MockRow(
+                Период=to_one_naive_datetime(tx_time),
+                Регистратор=f"00000000-0000-0000-0000-0000000000{i:02d}",
+                НомерСтроки=1,
+                БонуснаяКарта=card_uuid,
+                КартаКод="1000000000001",
+                ВидДвижения=0,  # 0 = Приход (accrual)
+                Сумма=10 * i,
+                ЧекНомер="",
+                СкладНаименование="", 
+            )
+        )
+
+    def query_handler(sql: str, params: dict[str, Any]) -> list[MockRow]:
+        if "Справочник." in sql or "Cards" in sql:
+            return []  # No cards
+        if "Остатки(&WindowStart" in sql:
+            return [MockRow(БонуснаяКарта=card_uuid, НачальныйОстаток=50)]
+        if "РегистрНакопления." in sql:
+            return movements_rows
+        return []
+
+    mock_conn = MockComConnection(query_handler)
+    source = OneComLoyaltySource(settings, store, mapping_cfg, com_connector=mock_conn)
+
+    # Establish previous cursor in StateStore at the end of the window
+    prev_done_cursor = encode_tx_done_cursor(
+        TxDoneCursor(
+            hw_period=now.isoformat(),
+            hw_doc_uuid="00000000-0000-0000-0000-000000000099",
+            hw_line=1,
+            completed_at=now.isoformat(),
+        )
+    )
+    store.commit_cursor("transactions", prev_done_cursor, synced_at=now)
+    assert store.get_cursor("transactions") == prev_done_cursor
+
+    cloud = FakeCloudClient()
+    runtime = AgentRuntime(settings=settings, state_store=store, cloud_client=cloud, source=source)
+
+    # --- PART 1: Full resync runs cleanly across all 3 pages ---
+    await runtime.sync_cycle(full_resync=True)
+
+    # Check transactions received by cloud
+    # 5 items total: page 1 (2), page 2 (2), page 3 (1) -> exactly 3 sync calls!
+    assert len(cloud.synced_transactions) == 3, "Must be exactly 3 batches/pages"
+    all_synced_ext_ids = [
+        tx.external_id
+        for payload in cloud.synced_transactions
+        for tx in payload.transactions
+    ]
+    expected_ext_ids = [
+        f"00000000-0000-0000-0000-0000000000{i:02d}:1" for i in range(1, 6)
+    ]
+    assert all_synced_ext_ids == expected_ext_ids, "All pages must be sent exactly once without repeating page 1!"
+    assert len(all_synced_ext_ids) == 5
+
+    # Cursor in store must NOT be behind prev_done_cursor
+    cur_after = store.get_cursor("transactions")
+    assert is_cursor_ahead_or_equal(cur_after, prev_done_cursor)
+
+    # --- PART 2: Full resync breaks on page 2 ---
+    call_count = 0
+    orig_sync = cloud.sync_transactions
+
+    async def fail_on_second_page(payload: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise CloudRetryableError("Network connection dropped on page 2")
+        return await orig_sync(payload)
+
+    cloud.sync_transactions = fail_on_second_page  # type: ignore[assignment]
+
+    with pytest.raises(CloudRetryableError):
+        await runtime.sync_cycle(full_resync=True)
+
+    # State store cursor must STILL not be behind prev_done_cursor!
+    cur_after_break = store.get_cursor("transactions")
+    assert is_cursor_ahead_or_equal(cur_after_break, prev_done_cursor)
+
+    # Source full_resync mode must be finished/reset
+    assert getattr(source, "_full_resync_tx", False) is False
+
+    # Next regular cycle works without error
+    cloud.sync_transactions = orig_sync
+    await runtime.sync_cycle(full_resync=False)
+
+    await source.close()
+
+
+# ---------------------------------------------------------------------------
+# 10. Command failure preserves retry backoff delays
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_command_failure_preserves_retry_backoff_delays(tmp_path: Path) -> None:
+    """When a remote command causes a cycle error, the trigger event is cleared
+    so retry backoff pauses between attempts are strictly observed rather than skipped.
+    """
+    db_file = tmp_path / "backoff.db"
+    store = StateStore(db_file)
+    cloud = FakeCloudClient()
+    source = FakeLoyaltySource()
+
+    settings = AgentSettings(
+        agent_env="test",
+        agent_api_key="test-key-backoff",
+        agent_state_db_path=db_file,
+        agent_poll_interval_seconds=60,
+        agent_sync_backoff_initial_seconds=1.0,
+        agent_sync_backoff_max_seconds=30.0,
+        agent_sync_backoff_jitter_ratio=0.0,
+    )
+
+    recorded_delays: list[float] = []
+
+    async def mock_sleep(seconds: float) -> None:
+        recorded_delays.append(seconds)
+        # Yield control
+        await asyncio.sleep(0.001)
+
+    runtime = AgentRuntime(
+        settings=settings,
+        state_store=store,
+        cloud_client=cloud,
+        source=source,
+        sleep_fn=mock_sleep,
+    )
+
+    # Simulate failing sync_cycle
+    attempt_count = 0
+
+    async def failing_sync_cycle(full_resync: bool = False) -> None:
+        nonlocal attempt_count
+        attempt_count += 1
+        if attempt_count >= 3:
+            # Trigger shutdown after 3 failed attempts
+            runtime._shutdown_event.set()
+        raise CloudRetryableError("Cloud unavailable")
+
+    runtime.sync_cycle = failing_sync_cycle  # type: ignore[assignment]
+
+    # Enqueue a remote command
+    runtime._pending_commands.append(AgentCommandItem(id="cmd-fail-1", type="sync_now"))
+    runtime._sync_trigger_event.set()
+
+    # Run sync loop
+    await runtime._sync_loop()
+
+    # Delays must have been recorded for each failure according to retry_state
+    # Delay 1: 1.0 (after command failure)
+    # Delay 2: 2.0 (after regular cycle attempt 2 failure)
+    # Delay 3: 4.0 (after regular cycle attempt 3 failure)
+    assert len(recorded_delays) >= 2, f"Delays were not honored! Recorded: {recorded_delays}"
+    assert recorded_delays[0] == 1.0
+    assert recorded_delays[1] == 2.0
+    assert runtime.state_store.get_status().last_error is not None

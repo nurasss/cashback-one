@@ -902,6 +902,11 @@ class OneComLoyaltySource(LoyaltySource):
         self._active_tx_session = None
         self.state_store.clear_pending_cards()
 
+    def finish_full_resync(self) -> None:
+        """Reset full resync mode so subsequent sync passes use normal incremental filtering."""
+        self._full_resync_cards = False
+        self._full_resync_tx = False
+
     async def close(self) -> None:
         self._connection = None
         gc.collect()

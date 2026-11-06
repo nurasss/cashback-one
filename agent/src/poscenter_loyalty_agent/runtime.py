@@ -317,6 +317,10 @@ class AgentRuntime:
             # 1. Check for queued remote commands (sync_now, full_resync)
             cmd = self._pending_commands.pop(0) if self._pending_commands else None
             if cmd is not None:
+                # Clear trigger when command is taken into work (if no more commands pending)
+                if not self._pending_commands:
+                    self._sync_trigger_event.clear()
+
                 logger.info("Command received: type=%s id=%s", cmd.type, cmd.id)
                 is_full = (cmd.type == "full_resync")
                 try:
@@ -329,18 +333,20 @@ class AgentRuntime:
                     logger.error("Command %s (%s) failed: %s", cmd.id, cmd.type, err_msg)
                     self.state_store.record_error(err_msg)
                     await self._complete_command_with_retry(cmd, status="failed", error=err_msg)
+                    # Clear trigger before backoff pause so retry delay is honored
+                    self._sync_trigger_event.clear()
                     delay = self.retry_state.next_delay()
                     await self._sleep_cancellable(delay)
                 continue
 
             # 2. Regular sync cycle
+            self._sync_trigger_event.clear()
             try:
                 await self.sync_cycle(full_resync=False)
                 self.retry_state.reset()
                 self.state_store.clear_error()
 
                 # Sleep idle interval before next cycle (or wake up on command)
-                self._sync_trigger_event.clear()
                 await self._wait_for_next_interval_or_trigger(float(self.settings.sync_interval_seconds))
 
             except asyncio.CancelledError:
@@ -349,6 +355,7 @@ class AgentRuntime:
                 err_msg = f"CLOUD_PROTOCOL_ERROR: {exc}"
                 logger.warning(err_msg)
                 self.state_store.record_error(err_msg)
+                self._sync_trigger_event.clear()
                 delay = self.retry_state.next_delay(retry_after=exc.retry_after)
                 await self._sleep_cancellable(delay)
 
@@ -356,6 +363,7 @@ class AgentRuntime:
                 err_msg = f"Cloud temporary error: {exc}"
                 logger.warning(err_msg)
                 self.state_store.record_error(err_msg)
+                self._sync_trigger_event.clear()
                 delay = self.retry_state.next_delay(retry_after=exc.retry_after)
                 await self._sleep_cancellable(delay)
 
@@ -363,6 +371,7 @@ class AgentRuntime:
                 err_msg = f"SOURCE_PROTOCOL_ERROR: {exc}"
                 logger.error(err_msg)
                 self.state_store.record_error(err_msg)
+                self._sync_trigger_event.clear()
                 delay = self.retry_state.next_delay()
                 await self._sleep_cancellable(delay)
 
@@ -370,6 +379,7 @@ class AgentRuntime:
                 err_msg = f"ONE_MAPPING_NOT_CONFIGURED: {exc}"
                 logger.error(err_msg)
                 self.state_store.record_error(err_msg)
+                self._sync_trigger_event.clear()
                 delay = self.settings.sync_backoff_max_seconds
                 await self._sleep_cancellable(delay)
 
@@ -377,6 +387,7 @@ class AgentRuntime:
                 err_msg = f"SOURCE_CURSOR_STALLED: {exc}"
                 logger.error(err_msg)
                 self.state_store.record_error(err_msg)
+                self._sync_trigger_event.clear()
                 delay = self.retry_state.next_delay()
                 await self._sleep_cancellable(delay)
 
@@ -384,6 +395,7 @@ class AgentRuntime:
                 err_msg = f"Cloud fatal/rejected error: {exc}"
                 logger.error(err_msg)
                 self.state_store.record_error(err_msg)
+                self._sync_trigger_event.clear()
                 delay = self.settings.sync_backoff_max_seconds
                 await self._sleep_cancellable(delay)
 
@@ -391,6 +403,7 @@ class AgentRuntime:
                 err_msg = f"Unexpected sync error: {exc}"
                 logger.exception(err_msg)
                 self.state_store.record_error(err_msg)
+                self._sync_trigger_event.clear()
                 delay = self.retry_state.next_delay()
                 await self._sleep_cancellable(delay)
 
@@ -416,21 +429,22 @@ class AgentRuntime:
         """Executes one complete sync pass: cards stream then transactions stream."""
         if full_resync and hasattr(self.source, "prepare_full_resync"):
             self.source.prepare_full_resync()
-        await self._sync_cards_stream(full_resync=full_resync)
-        await self._sync_transactions_stream(full_resync=full_resync)
+        try:
+            await self._sync_cards_stream(full_resync=full_resync)
+            await self._sync_transactions_stream(full_resync=full_resync)
+        finally:
+            if full_resync and hasattr(self.source, "finish_full_resync"):
+                self.source.finish_full_resync()
 
     async def _sync_cards_stream(self, full_resync: bool = False) -> None:
         """Paginate through pending card batches up to max_pages_per_cycle."""
         pages_synced = 0
         max_pages = 10000 if full_resync else self.settings.max_pages_per_cycle
-        first_fetch = True
+        saved_prev_cards_cursor = self.state_store.get_cursor("cards")
+        page_cursor: str | None = None if full_resync else saved_prev_cards_cursor
 
         while not self._shutdown_event.is_set() and pages_synced < max_pages:
-            if full_resync and first_fetch:
-                current_cursor = None
-                first_fetch = False
-            else:
-                current_cursor = self.state_store.get_cursor("cards")
+            current_cursor = page_cursor
 
             batch = await self.source.fetch_cards(
                 cursor=current_cursor,
@@ -470,6 +484,8 @@ class AgentRuntime:
                     "SOURCE_CURSOR_STALLED: Cards source returned has_more=True with unchanged cursor."
                 )
 
+            page_cursor = batch.next_cursor
+
             if not batch.has_more:
                 break
 
@@ -481,14 +497,10 @@ class AgentRuntime:
         pages_synced = 0
         max_pages = 10000 if full_resync else self.settings.max_pages_per_cycle
         saved_prev_tx_cursor = self.state_store.get_cursor("transactions")
-        first_fetch = True
+        page_cursor: str | None = None if full_resync else saved_prev_tx_cursor
 
         while not self._shutdown_event.is_set() and pages_synced < max_pages:
-            if full_resync and first_fetch:
-                current_cursor = None
-                first_fetch = False
-            else:
-                current_cursor = self.state_store.get_cursor("transactions")
+            current_cursor = page_cursor
 
             batch = await self.source.fetch_transactions(
                 cursor=current_cursor,
@@ -533,8 +545,16 @@ class AgentRuntime:
                     "SOURCE_CURSOR_STALLED: Transactions source returned has_more=True with unchanged cursor."
                 )
 
+            page_cursor = batch.next_cursor
+
             if not batch.has_more:
                 break
+
+        if full_resync:
+            # Ensure state store cursor is not behind saved_prev_tx_cursor at the end of full_resync
+            final_cursor = self.state_store.get_cursor("transactions")
+            if not is_cursor_ahead_or_equal(final_cursor, saved_prev_tx_cursor):
+                self.state_store.commit_cursor("transactions", saved_prev_tx_cursor, synced_at=datetime.now(UTC))
 
         if pages_synced >= max_pages and not full_resync:
             logger.info("Transactions stream reached max page budget (%d pages); cycle continuing.", max_pages)

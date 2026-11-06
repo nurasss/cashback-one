@@ -64,6 +64,9 @@ class LoyaltySource(Protocol):
     def prepare_full_resync(self) -> None:
         ...
 
+    def finish_full_resync(self) -> None:
+        ...
+
     async def close(self) -> None:
         ...
 
@@ -85,6 +88,9 @@ class StubLoyaltySource:
         return False
 
     def prepare_full_resync(self) -> None:
+        pass
+
+    def finish_full_resync(self) -> None:
         pass
 
     async def close(self) -> None:
@@ -191,6 +197,10 @@ class FakeLoyaltySource:
     def prepare_full_resync(self) -> None:
         self.full_resync_cards_requested = True
         self.full_resync_tx_requested = True
+
+    def finish_full_resync(self) -> None:
+        self.full_resync_cards_requested = False
+        self.full_resync_tx_requested = False
 
     async def close(self) -> None:
         self.is_closed = True
