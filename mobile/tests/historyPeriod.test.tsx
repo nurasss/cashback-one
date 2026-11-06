@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import HistoryScreen from '../app/(app)/history';
 import { PeriodSheet } from '../src/features/PeriodSheet';
 import { historyRange } from '../src/features/historyPeriod';
@@ -7,6 +8,7 @@ import { ActiveCardProvider } from '../src/features/activeCard';
 import { I18nProvider } from '../src/i18n';
 import { kz } from '../src/i18n/kz';
 import { ru } from '../src/i18n/ru';
+import { theme } from '../src/theme';
 import type { Card } from '../src/types/api';
 
 const mockRequest = jest.fn();
@@ -448,5 +450,88 @@ describe('HistoryScreen period integration', () => {
     expect(screen.getByText(ru.periodCustom)).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
     screen.unmount();
+  });
+});
+
+describe('HistoryScreen transaction colors and store exclusion', () => {
+  beforeEach(() => {
+    mockRequest.mockClear();
+  });
+
+  it('renders accrual as green and redemption as red, never displays store name', async () => {
+    mockRequest.mockImplementation((path: string) => {
+      if (path.includes('/transactions')) {
+        return Promise.resolve({
+          items: [
+            {
+              id: 'tx-1',
+              external_id: 'e1',
+              type: 'accrual',
+              amount: '1250.0000',
+              balance_after: '2250.0000',
+              occurred_at: '2026-11-05T10:00:00Z',
+              receipt_ref: null,
+              store: 'Основной склад',
+            },
+            {
+              id: 'tx-2',
+              external_id: 'e2',
+              type: 'redemption',
+              amount: '500.0000',
+              balance_after: '1750.0000',
+              occurred_at: '2026-11-06T12:00:00Z',
+              receipt_ref: null,
+              store: 'Склад №2',
+            },
+          ],
+          has_more: false,
+          next_cursor: null,
+        });
+      }
+      if (path.startsWith('/me/cards')) {
+        return Promise.resolve([sampleCard]);
+      }
+      return Promise.resolve({});
+    });
+
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    const screen = render(
+      <QueryClientProvider client={query}>
+        <I18nProvider>
+          <ActiveCardProvider>
+            <HistoryScreen />
+          </ActiveCardProvider>
+        </I18nProvider>
+      </QueryClientProvider>
+    );
+
+    // Accrual amount: green (theme.colors.success = '#1F8A4C')
+    await waitFor(() => expect(screen.getByText('+1 250,00')).toBeTruthy());
+    const accrualAmount = screen.getByText('+1 250,00');
+    expect(StyleSheet.flatten(accrualAmount.props.style).color).toBe('#1F8A4C');
+    expect(StyleSheet.flatten(accrualAmount.props.style).color).toBe(theme.colors.success);
+
+    // Redemption amount: red (theme.colors.error = '#C8102E')
+    const redemptionAmount = screen.getByText('−500,00');
+    expect(StyleSheet.flatten(redemptionAmount.props.style).color).toBe('#C8102E');
+    expect(StyleSheet.flatten(redemptionAmount.props.style).color).toBe(theme.colors.error);
+
+    // Neither uses client primary color
+    expect(StyleSheet.flatten(accrualAmount.props.style).color).not.toBe(sampleCard.business.branding?.primary_color);
+    expect(StyleSheet.flatten(redemptionAmount.props.style).color).not.toBe(sampleCard.business.branding?.primary_color);
+
+    // Store names are completely excluded from history UI even when present in payload
+    expect(screen.queryByText('Основной склад')).toBeNull();
+    expect(screen.queryByText('Склад №2')).toBeNull();
+
+    screen.unmount();
+  });
+
+  it('ensures accrual is green (#1F8A4C) and redemption is red (#C8102E) across clients without using primary_color', () => {
+    expect(theme.colors.success).toBe('#1F8A4C');
+    expect(theme.colors.error).toBe('#C8102E');
+    expect(theme.colors.softSuccess).toBe('#E8F5EC');
+    expect(theme.colors.softError).toBe('#FFF1F0');
+    expect(theme.colors.success).not.toBe(theme.colors.primary);
   });
 });

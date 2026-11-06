@@ -21,7 +21,7 @@ export const theme = {
   colors: {
     background: '#F4F4F6', surface: '#FFFFFF', text: '#111111', muted: '#6E6E76', placeholder: '#6C6C74', subtle: '#B4B4BA',
     primary: clientPrimary, primaryPressed: '#D0102F', onPrimary: '#FFFFFF', softPrimary: '#FDE9EC', tint: '#F8EEF0',
-    status: '#F8BEB2', border: '#E7E7EB', input: '#F2F2F4', error: '#C8102E', success: '#1F8A4C', softError: '#FFF1F0',
+    status: '#F8BEB2', border: '#E7E7EB', input: '#F2F2F4', error: '#C8102E', success: '#1F8A4C', softSuccess: '#E8F5EC', softError: '#FFF1F0',
     qr: '#FFFFFF', shadow: '#1B1B1F',
   },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 },

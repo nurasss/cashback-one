@@ -47,16 +47,15 @@ export default function HistoryScreen() {
       renderItem={({ item, index }) => {
         const incoming = item.type === 'accrual';
         return <FadeIn index={Math.min(index, 6)} style={local.row}>
-          <View style={[local.icon, { backgroundColor: incoming ? theme.colors.softPrimary : '#EFEFF2' }]}>
-            <Icon name={incoming ? 'plus' : 'minus'} size={18} color={incoming ? theme.colors.primary : theme.colors.muted} />
+          <View style={[local.icon, { backgroundColor: incoming ? theme.colors.softSuccess : theme.colors.softError }]}>
+            <Icon name={incoming ? 'plus' : 'minus'} size={18} color={incoming ? theme.colors.success : theme.colors.error} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={local.title}>{transactionLabel(item.type, language)}</Text>
-            {item.store && <Text style={styles.muted} numberOfLines={1}>{item.store}</Text>}
             <Text style={styles.muted}>{dateText(item.occurred_at, language)}</Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 2 }}>
-            <Text style={[local.amount, { color: incoming ? theme.colors.primary : theme.colors.text }]}>{incoming ? '+' : '−'}{pointsText(item.amount.replace('-', ''))}</Text>
+            <Text style={[local.amount, { color: incoming ? theme.colors.success : theme.colors.error }]}>{incoming ? '+' : '−'}{pointsText(item.amount.replace('-', ''))}</Text>
             <Text style={styles.muted}>{t('balanceAfter')} {pointsText(item.balance_after)}</Text>
           </View>
         </FadeIn>;

@@ -147,6 +147,7 @@ it('accrual history filters by type through the backend', async () => {
   serve({ '/me/cards/card-id/transactions': { items: [{ id: 't', external_id: 'e', type: 'accrual', amount: '1500.0000', balance_after: '1500.0000', occurred_at: '2026-10-01T00:00:00Z', receipt_ref: null, store: 'Shop 1' }], has_more: false, next_cursor: null }, '/me/cards': [card] });
   const { screen } = mountWith(<HistoryScreen />);
   await waitFor(() => expect(screen.getByText('+1 500,00')).toBeTruthy());
+  expect(screen.queryByText('Shop 1')).toBeNull();
   fireEvent.press(screen.getByRole('button', { name: ru.filterAccrual }));
   await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/cards/card-id/transactions?limit=20&type=accrual', expect.anything()));
   screen.unmount();

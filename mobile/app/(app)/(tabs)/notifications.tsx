@@ -25,15 +25,21 @@ export default function NotificationsScreen() {
         {notifications.isPending ? <Loading /> : notifications.isError ? <ErrorNotice error={notifications.error} retry={() => { void notifications.refetch(); }} /> : null}
       </>}
       ListEmptyComponent={notifications.isSuccess ? <EmptyState icon="bell" title={t('noNotifications')} /> : null}
-      renderItem={({ item, index }) => <FadeIn index={Math.min(index, 6)}><View style={local.item} accessible accessibilityLabel={`${item.is_unread ? t('newBadge') + '. ' : ''}${item.title}. ${item.body}`}>
-        <View style={local.icon}><Icon name={item.kind === 'accrual' ? 'plus' : item.kind === 'redemption' ? 'minus' : 'bell'} size={18} color={theme.colors.primary} /></View>
-        <View style={{ flex: 1, gap: 4 }}>
-          <Text style={local.title}>{item.title}</Text>
-          <Text style={local.body}>{item.body}</Text>
-          <Text style={styles.muted}>{dateText(item.created_at, language)}</Text>
-        </View>
-        {item.is_unread && <NewDot />}
-      </View></FadeIn>} />
+      renderItem={({ item, index }) => {
+        const isAccrual = item.kind === 'accrual';
+        const isRedemption = item.kind === 'redemption';
+        const iconBg = isAccrual ? theme.colors.softSuccess : isRedemption ? theme.colors.softError : theme.colors.softPrimary;
+        const iconColor = isAccrual ? theme.colors.success : isRedemption ? theme.colors.error : theme.colors.primary;
+        return <FadeIn index={Math.min(index, 6)}><View style={local.item} accessible accessibilityLabel={`${item.is_unread ? t('newBadge') + '. ' : ''}${item.title}. ${item.body}`}>
+          <View style={[local.icon, { backgroundColor: iconBg }]}><Icon name={isAccrual ? 'plus' : isRedemption ? 'minus' : 'bell'} size={18} color={iconColor} /></View>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={local.title}>{item.title}</Text>
+            <Text style={local.body}>{item.body}</Text>
+            <Text style={styles.muted}>{dateText(item.created_at, language)}</Text>
+          </View>
+          {item.is_unread && <NewDot />}
+        </View></FadeIn>;
+      }} />
   </SafeAreaView>;
 }
 
