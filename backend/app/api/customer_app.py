@@ -385,26 +385,12 @@ async def get_app_content(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
-    # 1. Customer must have an active visible card of this business
-    card_exists = await session.scalar(
-        select(Card.id)
-        .join(UserCard, UserCard.card_id == Card.id)
-        .where(
-            UserCard.user_id == current_user.id,
-            UserCard.hidden_at.is_(None),
-            Card.business_id == business_id,
-        )
-        .limit(1)
-    )
-    if not card_exists:
-        raise AppError("CUSTOMER_RESOURCE_NOT_FOUND", "Business content not found", 404)
-
-    # 2. Business must exist and be active
+    # 1. Business must exist and be active (no card requirement for tenant app)
     business = await session.get(Business, business_id)
     if not business or business.status != "active":
         raise AppError("CUSTOMER_RESOURCE_NOT_FOUND", "Business content not found", 404)
 
-    # 3. Active stores ordered by sort_order ASC, created_at ASC, id ASC
+    # 2. Active stores ordered by sort_order ASC, created_at ASC, id ASC
     stores_stmt = (
         select(BusinessStore)
         .where(

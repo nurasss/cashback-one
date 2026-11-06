@@ -60,11 +60,13 @@ async def test_platform_banners_without_card(
 ) -> None:
     """Customer without card in business B:
 
-    - /me/promotions?business_id=B -> only active platform banners;
-    - offers of B and banners of B are not visible;
+    - /me/promotions?business_id=B -> banners of B + global platform banners;
+    - offers of B are visible;
+    - global offers are NOT shown;
     - GET /me/promotions/{global_banner} -> 200 OK;
-    - GET /me/promotions/{banner_B} -> 404;
-    - GET /me/promotions/{offer_B} -> 404.
+    - GET /me/promotions/{banner_B} -> 200 OK;
+    - GET /me/promotions/{offer_B} -> 200 OK;
+    - GET /me/promotions/{global_offer} -> 404 PROMOTION_NOT_FOUND.
     """
     _user, headers = await create_customer(db_session, "+77011112233")
 
@@ -109,11 +111,13 @@ async def test_platform_banners_without_card(
     assert resp.status_code == 200
     data = resp.json()
 
-    # Only active global banner is returned
+    # Banners: banner_b (sort_order 5) and global_banner (sort_order 10)
     banner_titles = [b["title"] for b in data["banners"]]
-    assert banner_titles == ["Общий баннер POSCENTER"]
-    assert data["offers"] == []
-    assert data["has_new"] is False
+    assert banner_titles == ["Баннер Керемет", "Общий баннер POSCENTER"]
+    # Offers of B are visible
+    offer_titles = [o["title"] for o in data["offers"]]
+    assert offer_titles == ["Скидка Керемет"]
+    assert data["has_new"] is True
 
     # GET /me/promotions/{global_banner.id}?business_id=biz_b.id -> 200 OK
     resp_gb = await client.get(
@@ -122,19 +126,19 @@ async def test_platform_banners_without_card(
     assert resp_gb.status_code == 200
     assert resp_gb.json()["title"] == "Общий баннер POSCENTER"
 
-    # GET /me/promotions/{banner_b.id}?business_id=biz_b.id -> 404
+    # GET /me/promotions/{banner_b.id}?business_id=biz_b.id -> 200 OK
     resp_bb = await client.get(
         f"/me/promotions/{banner_b.id}?business_id={biz_b.id}", headers=headers
     )
-    assert resp_bb.status_code == 404
-    assert resp_bb.json()["error"]["code"] == "PROMOTION_NOT_FOUND"
+    assert resp_bb.status_code == 200
+    assert resp_bb.json()["title"] == "Баннер Керемет"
 
-    # GET /me/promotions/{offer_b.id}?business_id=biz_b.id -> 404
+    # GET /me/promotions/{offer_b.id}?business_id=biz_b.id -> 200 OK
     resp_ob = await client.get(
         f"/me/promotions/{offer_b.id}?business_id={biz_b.id}", headers=headers
     )
-    assert resp_ob.status_code == 404
-    assert resp_ob.json()["error"]["code"] == "PROMOTION_NOT_FOUND"
+    assert resp_ob.status_code == 200
+    assert resp_ob.json()["title"] == "Скидка Керемет"
 
     # GET /me/promotions/{global_offer.id}?business_id=biz_b.id -> 404
     resp_go = await client.get(

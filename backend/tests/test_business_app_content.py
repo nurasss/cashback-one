@@ -397,21 +397,22 @@ async def test_customer_app_content_endpoint(
     assert res304.headers.get("Cache-Control") == "private, max-age=300"
     assert not res304.content  # empty body on 304
 
-    # 3. Customer without a card of another business gets 404
+    # 3. Customer without a card of another active business gets 200 (no card required)
     res_no_card = await client.get(
         f"/me/app-content?business_id={other_biz.id}", headers=auth
     )
-    assert res_no_card.status_code == 404
+    assert res_no_card.status_code == 200
+    assert res_no_card.json()["business_id"] == str(other_biz.id)
+    assert res_no_card.json()["stores"] == []
 
-    # 4. Customer with soft-hidden card gets 404
-    user_card = await db_session.scalar(
-        select(UserCard).where(UserCard.user_id == user.id)
-    )
-    assert user_card is not None
-    user_card.hidden_at = s1.created_at
+    # 4. Inactive or non-existent business gets 404
+    fake_id = uuid.uuid4()
+    assert (
+        await client.get(f"/me/app-content?business_id={fake_id}", headers=auth)
+    ).status_code == 404
+
+    other_biz.status = "suspended"
     await db_session.commit()
-
-    res_hidden = await client.get(
-        f"/me/app-content?business_id={biz.id}", headers=auth
-    )
-    assert res_hidden.status_code == 404
+    assert (
+        await client.get(f"/me/app-content?business_id={other_biz.id}", headers=auth)
+    ).status_code == 404
