@@ -140,6 +140,8 @@ class OneComLoyaltySource(LoyaltySource):
 
         # In-memory buffer for active tx pagination: (session_id, [TransactionSyncItem], w_start_iso, w_end_iso)
         self._active_tx_session: tuple[str, list[TransactionSyncItem], str, str] | None = None
+        self._full_resync_cards = False
+        self._full_resync_tx = False
 
     @property
     def last_warning(self) -> str | None:
@@ -361,7 +363,7 @@ class OneComLoyaltySource(LoyaltySource):
             raw_payload = f"{barcode}|{phone or ''}|{full_name or ''}|{is_blocked}|{emitted_balance}"
             content_hash = compute_card_hmac(self._hmac_key, raw_payload)
 
-            if card_uuid in known_hashes and known_hashes[card_uuid][0] == content_hash:
+            if not self._full_resync_cards and card_uuid in known_hashes and known_hashes[card_uuid][0] == content_hash:
                 continue
 
             if was_clamped:
@@ -425,6 +427,7 @@ class OneComLoyaltySource(LoyaltySource):
                         )
                     )
                 else:
+                    self._full_resync_cards = False
                     next_cursor = encode_cards_done_cursor(
                         CardsDoneCursor(
                             session_id=decoded.session_id,
@@ -476,6 +479,7 @@ class OneComLoyaltySource(LoyaltySource):
                 )
             )
         else:
+            self._full_resync_cards = False
             next_cursor = encode_cards_done_cursor(
                 CardsDoneCursor(
                     session_id=sid,
@@ -675,7 +679,7 @@ class OneComLoyaltySource(LoyaltySource):
 
             # Filter already sent transactions (Amendment П4: balance_after was computed above!)
             ext_id = f"{m['reg_uuid']}:{m['line_num']}"
-            if ext_id in known_tx_ids:
+            if not self._full_resync_tx and ext_id in known_tx_ids:
                 self.counters["tx_filtered_already_sent"] += 1
                 continue
 
@@ -741,6 +745,7 @@ class OneComLoyaltySource(LoyaltySource):
                         )
                     )
                 else:
+                    self._full_resync_tx = False
                     hw = all_candidates[-1]
                     hw_u, hw_l = hw.external_id.split(":")
                     next_cursor = encode_tx_done_cursor(
@@ -788,6 +793,7 @@ class OneComLoyaltySource(LoyaltySource):
                         )
                     )
                 else:
+                    self._full_resync_tx = False
                     hw = candidates[-1]
                     hw_u, hw_l = hw.external_id.split(":")
                     next_cursor = encode_tx_done_cursor(
@@ -803,8 +809,8 @@ class OneComLoyaltySource(LoyaltySource):
                 self.state_store.record_pending_tx(next_cursor, staged)
                 return SourceBatch(items=page_items, next_cursor=next_cursor, has_more=has_more)
 
-        # Fresh window query (Initial load, Done cursor, or fallback on decode failure)
-        if cursor is None:
+        # Fresh window query (Initial load, Done cursor, full_resync, or fallback on decode failure)
+        if self._full_resync_tx or cursor is None:
             if self.settings.agent_one_initial_history_days > 0:
                 window_start = now_utc - timedelta(days=self.settings.agent_one_initial_history_days)
             else:
@@ -856,6 +862,7 @@ class OneComLoyaltySource(LoyaltySource):
                 )
             )
         else:
+            self._full_resync_tx = False
             hw = candidates[-1]
             hw_u, hw_l = hw.external_id.split(":")
             next_cursor = encode_tx_done_cursor(
@@ -886,6 +893,14 @@ class OneComLoyaltySource(LoyaltySource):
 
     async def check_health(self) -> bool:
         return await self._run_in_sta(self._ping_worker)
+
+    def prepare_full_resync(self) -> None:
+        """Prepare source for a full resync: do not skip cards by hash, and query initial history window for transactions."""
+        self._full_resync_cards = True
+        self._full_resync_tx = True
+        self._active_cards_session = None
+        self._active_tx_session = None
+        self.state_store.clear_pending_cards()
 
     async def close(self) -> None:
         self._connection = None

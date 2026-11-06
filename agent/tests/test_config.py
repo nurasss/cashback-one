@@ -177,3 +177,10 @@ def test_com_mode_in_production_requires_valid_mapping(tmp_path: Path) -> None:
     )
     assert settings.mapping_path == valid_file
 
+
+
+def test_default_poll_interval_is_60() -> None:
+    settings = AgentSettings(agent_api_key="test-key-12345678")
+    assert settings.agent_poll_interval_seconds == 60
+    assert settings.sync_interval_seconds == 60
+    assert settings.agent_version == "0.4.0"

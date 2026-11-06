@@ -8,6 +8,9 @@ from typing import Protocol, runtime_checkable
 import httpx
 
 from poscenter_loyalty_agent.models import (
+    AgentCommandCompletePayload,
+    AgentCommandItem,
+    AgentCommandsClaimResult,
     CardsSyncPayload,
     CardsSyncResult,
     HeartbeatPayload,
@@ -21,6 +24,8 @@ logger = logging.getLogger(__name__)
 CARDS_SYNC_PATH = "/agent/sync/cards"
 TRANSACTIONS_SYNC_PATH = "/agent/sync/transactions"
 HEARTBEAT_PATH = "/agent/heartbeat"
+COMMANDS_CLAIM_PATH = "/agent/commands/claim"
+COMMANDS_COMPLETE_PATH_TMPL = "/agent/commands/{command_id}/complete"
 
 
 class CloudClientError(Exception):
@@ -62,6 +67,12 @@ class CloudClient(Protocol):
         ...
 
     async def send_heartbeat(self, payload: HeartbeatPayload) -> HeartbeatResult:
+        ...
+
+    async def claim_commands(self) -> AgentCommandsClaimResult:
+        ...
+
+    async def complete_command(self, command_id: str, payload: AgentCommandCompletePayload) -> None:
         ...
 
     async def close(self) -> None:
@@ -186,6 +197,47 @@ class HttpCloudClient:
                 f"CLOUD_PROTOCOL_ERROR: Failed parsing Cloud 2xx heartbeat response: {type(exc).__name__}"
             ) from None
 
+    async def claim_commands(self) -> AgentCommandsClaimResult:
+        client = self._get_client()
+        try:
+            resp = await client.post(COMMANDS_CLAIM_PATH)
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as exc:
+            raise CloudRetryableError(f"Network error while claiming commands: {exc}") from exc
+        except Exception as exc:
+            raise CloudNonRetryableError(f"Unexpected error while claiming commands: {exc}") from exc
+
+        if resp.status_code == 404:
+            logger.debug("Commands claim returned 404 (server does not support agent commands)")
+            return AgentCommandsClaimResult(commands=[])
+
+        if resp.is_error:
+            self._handle_response_error(resp)
+
+        try:
+            body = resp.json()
+            return AgentCommandsClaimResult.model_validate(body)
+        except Exception as exc:
+            raise CloudProtocolError(
+                f"CLOUD_PROTOCOL_ERROR: Failed parsing Cloud 2xx commands claim response: {type(exc).__name__}"
+            ) from None
+
+    async def complete_command(self, command_id: str, payload: AgentCommandCompletePayload) -> None:
+        client = self._get_client()
+        url = COMMANDS_COMPLETE_PATH_TMPL.format(command_id=command_id)
+        try:
+            resp = await client.post(url, json=payload.model_dump(mode="json"))
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as exc:
+            raise CloudRetryableError(f"Network error while completing command {command_id}: {exc}") from exc
+        except Exception as exc:
+            raise CloudNonRetryableError(f"Unexpected error while completing command {command_id}: {exc}") from exc
+
+        if resp.status_code == 409:
+            logger.debug("Command %s already completed (409)", command_id)
+            return
+
+        if resp.is_error:
+            self._handle_response_error(resp)
+
 
 class FakeCloudClient:
     """Deterministic in-memory CloudClient for testing without network calls."""
@@ -194,9 +246,14 @@ class FakeCloudClient:
         self.synced_cards: list[CardsSyncPayload] = []
         self.synced_transactions: list[TransactionsSyncPayload] = []
         self.heartbeats: list[HeartbeatPayload] = []
+        self.pending_commands: list[AgentCommandItem] = []
+        self.completed_commands: list[tuple[str, str, str | None]] = []
+        self.claim_calls_count: int = 0
         self.next_cards_error: Exception | None = None
         self.next_transactions_error: Exception | None = None
         self.next_heartbeat_error: Exception | None = None
+        self.next_claim_error: Exception | None = None
+        self.next_complete_error: Exception | None = None
         self.is_closed = False
 
     async def sync_cards(self, payload: CardsSyncPayload) -> CardsSyncResult:
@@ -231,6 +288,23 @@ class FakeCloudClient:
             raise err
         self.heartbeats.append(payload)
         return HeartbeatResult(status="ok")
+
+    async def claim_commands(self) -> AgentCommandsClaimResult:
+        self.claim_calls_count += 1
+        if self.next_claim_error:
+            err = self.next_claim_error
+            self.next_claim_error = None
+            raise err
+        cmds = list(self.pending_commands)
+        self.pending_commands.clear()
+        return AgentCommandsClaimResult(commands=cmds)
+
+    async def complete_command(self, command_id: str, payload: AgentCommandCompletePayload) -> None:
+        if self.next_complete_error:
+            err = self.next_complete_error
+            self.next_complete_error = None
+            raise err
+        self.completed_commands.append((command_id, payload.status, payload.error))
 
     async def close(self) -> None:
         self.is_closed = True

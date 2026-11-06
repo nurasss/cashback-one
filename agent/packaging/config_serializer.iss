@@ -439,7 +439,7 @@ begin
     'ONE_ADAPTER_MODE=''com''' + #13#10 +
     'ONE_CONNECTION_STRING=' + FormatDotEnvValue(ConnString) + #13#10 +
     'ONE_PASSWORD_DPAPI=' + FormatDotEnvValue(PassDpapi) + #13#10 +
-    'AGENT_POLL_INTERVAL_SECONDS=''300''' + #13#10 +
+    'AGENT_POLL_INTERVAL_SECONDS=''60''' + #13#10 +
     'AGENT_CLAMP_NEGATIVE_BALANCE=''false''' + #13#10;
 end;
 
@@ -545,6 +545,18 @@ begin
       begin
         NewContent := NewContent + Line + #13#10;
         OnePassDpapiInserted := True;
+      end;
+    end
+    else if Pos('AGENT_POLL_INTERVAL_SECONDS=', LineTrim) = 1 then
+    begin
+      RawVal := UnquoteDotEnvValue(Copy(LineTrim, Length('AGENT_POLL_INTERVAL_SECONDS=') + 1, Length(LineTrim)));
+      if RawVal = '300' then
+      begin
+        NewContent := NewContent + 'AGENT_POLL_INTERVAL_SECONDS=''60''' + #13#10;
+      end
+      else
+      begin
+        NewContent := NewContent + Line + #13#10;
       end;
     end
     else

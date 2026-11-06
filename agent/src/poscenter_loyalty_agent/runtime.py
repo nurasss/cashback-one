@@ -18,11 +18,15 @@ from poscenter_loyalty_agent.cloud_client import (
     HttpCloudClient,
 )
 from poscenter_loyalty_agent.config import AgentSettings
+from poscenter_loyalty_agent.logging import sanitize_message
 from poscenter_loyalty_agent.models import (
+    AgentCommandCompletePayload,
+    AgentCommandItem,
     CardsSyncPayload,
     HeartbeatPayload,
     TransactionsSyncPayload,
 )
+from poscenter_loyalty_agent.one_cursor import is_cursor_ahead_or_equal
 from poscenter_loyalty_agent.pos_server import PosServer
 from poscenter_loyalty_agent.process_lock import AgentAlreadyRunningError, ProcessLock
 from poscenter_loyalty_agent.retry import RetryState
@@ -76,6 +80,9 @@ class AgentRuntime:
         )
 
         self._shutdown_event = asyncio.Event()
+        self._sync_trigger_event = asyncio.Event()
+        self._pending_commands: list[AgentCommandItem] = []
+        self._pending_completions: list[tuple[AgentCommandItem, AgentCommandCompletePayload]] = []
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._sync_task: asyncio.Task[None] | None = None
         self._is_running = False
@@ -198,6 +205,7 @@ class AgentRuntime:
                 now = datetime.now(UTC)
                 self.state_store.record_heartbeat(now)
                 logger.debug("Heartbeat sent successfully at %s", now.isoformat())
+                await self._poll_and_enqueue_commands()
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -212,24 +220,128 @@ class AgentRuntime:
             except TimeoutError:
                 continue
 
+    async def _poll_and_enqueue_commands(self) -> None:
+        """Poll Cloud for pending commands and flush any retryable completions."""
+        await self._flush_pending_completions()
+
+        try:
+            res = await self.cloud_client.claim_commands()
+        except CloudAuthError as exc:
+            logger.error("Commands claim auth failed: %s", exc)
+            return
+        except Exception as exc:
+            logger.warning("Temporary error polling commands (will retry next heartbeat): %s", exc)
+            return
+
+        if not res.commands:
+            return
+
+        for cmd in res.commands:
+            self._pending_commands.append(cmd)
+
+        self._sync_trigger_event.set()
+
+    async def _flush_pending_completions(self) -> None:
+        """Retry sending any unconfirmed command completions from earlier network failures."""
+        if not self._pending_completions:
+            return
+
+        remaining: list[tuple[AgentCommandItem, AgentCommandCompletePayload]] = []
+        for cmd, payload in self._pending_completions:
+            try:
+                await self.cloud_client.complete_command(cmd.id, payload)
+                logger.info("Command completed: type=%s status=%s", cmd.type, payload.status)
+            except CloudRetryableError:
+                remaining.append((cmd, payload))
+            except Exception as exc:
+                logger.warning("Discarding uncompletable command %s (%s): %s", cmd.id, cmd.type, exc)
+
+        self._pending_completions = remaining
+
+    async def _complete_command_with_retry(
+        self,
+        command: AgentCommandItem,
+        status: str,
+        error: str | None,
+    ) -> None:
+        """Send command completion to Cloud with immediate retry on network errors, falling back to background retry."""
+        payload = AgentCommandCompletePayload(status=status, error=error)
+        max_retries = 3
+        delay = 1.0
+
+        for attempt in range(max_retries):
+            if self._shutdown_event.is_set():
+                break
+            try:
+                await self.cloud_client.complete_command(command.id, payload)
+                logger.info("Command completed: type=%s status=%s", command.type, status)
+                return
+            except CloudRetryableError as exc:
+                logger.warning(
+                    "Temporary error completing command %s (attempt %d/%d): %s",
+                    command.id,
+                    attempt + 1,
+                    max_retries,
+                    exc,
+                )
+                await self._sleep_cancellable(delay)
+                delay = min(delay * 2, 5.0)
+            except Exception as exc:
+                logger.warning("Non-retryable error completing command %s: %s", command.id, exc)
+                return
+
+        self._pending_completions.append((command, payload))
+
+    async def _wait_for_next_interval_or_trigger(self, seconds: float) -> None:
+        """Wait for interval timeout, shutdown event, or sync trigger (e.g. newly arrived command)."""
+        if self._shutdown_event.is_set() or self._sync_trigger_event.is_set():
+            return
+        trigger_task = asyncio.create_task(self._sync_trigger_event.wait())
+        shutdown_task = asyncio.create_task(self._shutdown_event.wait())
+        sleep_task = asyncio.create_task(self.sleep_fn(seconds))
+        done, pending = await asyncio.wait(
+            [trigger_task, shutdown_task, sleep_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
+
     async def _sync_loop(self) -> None:
-        """Main synchronization loop with retry, backoff, and pagination."""
+        """Main synchronization loop with retry, backoff, pagination, and remote command execution."""
         logger.debug("Sync loop started.")
         while not self._shutdown_event.is_set():
+            # 1. Check for queued remote commands (sync_now, full_resync)
+            cmd = self._pending_commands.pop(0) if self._pending_commands else None
+            if cmd is not None:
+                logger.info("Command received: type=%s id=%s", cmd.type, cmd.id)
+                is_full = (cmd.type == "full_resync")
+                try:
+                    await self.sync_cycle(full_resync=is_full)
+                    self.retry_state.reset()
+                    self.state_store.clear_error()
+                    await self._complete_command_with_retry(cmd, status="completed", error=None)
+                except Exception as exc:
+                    err_msg = sanitize_message(str(exc))[:512]
+                    logger.error("Command %s (%s) failed: %s", cmd.id, cmd.type, err_msg)
+                    self.state_store.record_error(err_msg)
+                    await self._complete_command_with_retry(cmd, status="failed", error=err_msg)
+                    delay = self.retry_state.next_delay()
+                    await self._sleep_cancellable(delay)
+                continue
+
+            # 2. Regular sync cycle
             try:
-                # Execute one full sync cycle (cards + transactions)
-                await self.sync_cycle()
+                await self.sync_cycle(full_resync=False)
                 self.retry_state.reset()
                 self.state_store.clear_error()
 
-                # Sleep idle interval before next cycle
-                try:
-                    await asyncio.wait_for(
-                        self._shutdown_event.wait(),
-                        timeout=float(self.settings.sync_interval_seconds),
-                    )
-                except TimeoutError:
-                    continue
+                # Sleep idle interval before next cycle (or wake up on command)
+                self._sync_trigger_event.clear()
+                await self._wait_for_next_interval_or_trigger(float(self.settings.sync_interval_seconds))
 
             except asyncio.CancelledError:
                 break
@@ -258,7 +370,6 @@ class AgentRuntime:
                 err_msg = f"ONE_MAPPING_NOT_CONFIGURED: {exc}"
                 logger.error(err_msg)
                 self.state_store.record_error(err_msg)
-                # Sleep max backoff when mapping is missing to avoid spamming
                 delay = self.settings.sync_backoff_max_seconds
                 await self._sleep_cancellable(delay)
 
@@ -284,13 +395,14 @@ class AgentRuntime:
                 await self._sleep_cancellable(delay)
 
     async def _sleep_cancellable(self, seconds: float) -> None:
-        """Sleep for duration or until shutdown event is triggered."""
+        """Sleep for duration or until shutdown or sync trigger is set."""
         if self._shutdown_event.is_set():
             return
         sleep_task = asyncio.create_task(self.sleep_fn(seconds))
         shutdown_task = asyncio.create_task(self._shutdown_event.wait())
+        trigger_task = asyncio.create_task(self._sync_trigger_event.wait())
         done, pending = await asyncio.wait(
-            [sleep_task, shutdown_task],
+            [sleep_task, shutdown_task, trigger_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:
@@ -300,18 +412,26 @@ class AgentRuntime:
             except (asyncio.CancelledError, Exception):
                 pass
 
-    async def sync_cycle(self) -> None:
+    async def sync_cycle(self, full_resync: bool = False) -> None:
         """Executes one complete sync pass: cards stream then transactions stream."""
-        await self._sync_cards_stream()
-        await self._sync_transactions_stream()
+        if full_resync and hasattr(self.source, "prepare_full_resync"):
+            self.source.prepare_full_resync()
+        await self._sync_cards_stream(full_resync=full_resync)
+        await self._sync_transactions_stream(full_resync=full_resync)
 
-    async def _sync_cards_stream(self) -> None:
+    async def _sync_cards_stream(self, full_resync: bool = False) -> None:
         """Paginate through pending card batches up to max_pages_per_cycle."""
         pages_synced = 0
-        max_pages = self.settings.max_pages_per_cycle
+        max_pages = 10000 if full_resync else self.settings.max_pages_per_cycle
+        first_fetch = True
 
         while not self._shutdown_event.is_set() and pages_synced < max_pages:
-            current_cursor = self.state_store.get_cursor("cards")
+            if full_resync and first_fetch:
+                current_cursor = None
+                first_fetch = False
+            else:
+                current_cursor = self.state_store.get_cursor("cards")
+
             batch = await self.source.fetch_cards(
                 cursor=current_cursor,
                 limit=self.settings.batch_size_cards,
@@ -326,10 +446,11 @@ class AgentRuntime:
             if batch.items:
                 pages_synced += 1
                 logger.info(
-                    "Syncing %d cards (page=%d/%d, stream=cards)",
+                    "Syncing %d cards (page=%d/%d, stream=cards%s)",
                     len(batch.items),
                     pages_synced,
                     max_pages,
+                    ", full_resync=True" if full_resync else "",
                 )
                 payload = CardsSyncPayload(cards=batch.items)
                 ack = await self.cloud_client.sync_cards(payload)
@@ -340,7 +461,6 @@ class AgentRuntime:
                     ack.ignored_stale,
                 )
 
-                # Cursor advances ONLY after 2xx ACK from Cloud
                 now = datetime.now(UTC)
                 self.state_store.commit_cursor("cards", batch.next_cursor, synced_at=now)
 
@@ -353,16 +473,23 @@ class AgentRuntime:
             if not batch.has_more:
                 break
 
-        if pages_synced >= max_pages:
+        if pages_synced >= max_pages and not full_resync:
             logger.info("Cards stream reached max page budget (%d pages); cycle continuing.", max_pages)
 
-    async def _sync_transactions_stream(self) -> None:
+    async def _sync_transactions_stream(self, full_resync: bool = False) -> None:
         """Paginate through pending transaction batches up to max_pages_per_cycle."""
         pages_synced = 0
-        max_pages = self.settings.max_pages_per_cycle
+        max_pages = 10000 if full_resync else self.settings.max_pages_per_cycle
+        saved_prev_tx_cursor = self.state_store.get_cursor("transactions")
+        first_fetch = True
 
         while not self._shutdown_event.is_set() and pages_synced < max_pages:
-            current_cursor = self.state_store.get_cursor("transactions")
+            if full_resync and first_fetch:
+                current_cursor = None
+                first_fetch = False
+            else:
+                current_cursor = self.state_store.get_cursor("transactions")
+
             batch = await self.source.fetch_transactions(
                 cursor=current_cursor,
                 limit=self.settings.batch_size_transactions,
@@ -377,10 +504,11 @@ class AgentRuntime:
             if batch.items:
                 pages_synced += 1
                 logger.info(
-                    "Syncing %d transactions (page=%d/%d, stream=transactions)",
+                    "Syncing %d transactions (page=%d/%d, stream=transactions%s)",
                     len(batch.items),
                     pages_synced,
                     max_pages,
+                    ", full_resync=True" if full_resync else "",
                 )
                 payload = TransactionsSyncPayload(transactions=batch.items)
                 ack = await self.cloud_client.sync_transactions(payload)
@@ -390,9 +518,14 @@ class AgentRuntime:
                     ack.duplicates,
                 )
 
-                # Cursor advances ONLY after 2xx ACK from Cloud
                 now = datetime.now(UTC)
-                self.state_store.commit_cursor("transactions", batch.next_cursor, synced_at=now)
+                if full_resync:
+                    if is_cursor_ahead_or_equal(batch.next_cursor, saved_prev_tx_cursor):
+                        self.state_store.commit_cursor("transactions", batch.next_cursor, synced_at=now)
+                    else:
+                        self.state_store.commit_cursor("transactions", saved_prev_tx_cursor, synced_at=now)
+                else:
+                    self.state_store.commit_cursor("transactions", batch.next_cursor, synced_at=now)
 
             # Check for stalled cursor
             if batch.has_more and batch.next_cursor == current_cursor:
@@ -403,5 +536,5 @@ class AgentRuntime:
             if not batch.has_more:
                 break
 
-        if pages_synced >= max_pages:
+        if pages_synced >= max_pages and not full_resync:
             logger.info("Transactions stream reached max page budget (%d pages); cycle continuing.", max_pages)

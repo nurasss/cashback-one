@@ -29,3 +29,29 @@ ONE read completed: type=transactions_window, records_read=5, changes_to_send=3,
 Период движения ONE должен быть `datetime`, включая datetime-совместимое представление pywin32. Если поле отсутствует, равно `None` или имеет другой тип, окно отклоняется с `SourceProtocolError` и безопасным фиксированным текстом. Дата не подставляется и движение не пропускается молча; успешного завершения/выдачи нового курсора нет. Валидная дата обрабатывается прежним преобразованием локального времени ONE в UTC.
 
 Для эксплуатации используйте завершённые чтения, heartbeat и `last_error` вместе. Старый `last_sync_at` при пустой дельте сам по себе не доказывает поломку. Исторические строки старой службы без новых полей остаются свидетельством её прежних чтений, а не текущей версии.
+
+
+## Команды из кабинета (версия 0.4.0)
+
+Начиная с версии 0.4.0 агент поддерживает получение и выполнение удалённых команд из кабинета администратора (`sync_now`, `full_resync`).
+Команды запрашиваются методом `POST /agent/commands/claim` после каждого успешного heartbeat.
+
+В журнал агента записываются следующие строки:
+- При получении команды к исполнению:
+  `Command received: type=<type> id=<id>`
+- При завершении обработки команды:
+  `Command completed: type=<type> status=<status>`
+  где `status` — `completed` либо `failed`.
+
+Примеры записей:
+```text
+INFO poscenter_loyalty_agent.runtime: Command received: type=sync_now id=550e8400-e29b-41d4-a716-446655440000
+INFO poscenter_loyalty_agent.runtime: Command completed: type=sync_now status=completed
+
+INFO poscenter_loyalty_agent.runtime: Command received: type=full_resync id=6ba7b810-9dad-11d1-80b4-00c04fd430c8
+INFO poscenter_loyalty_agent.runtime: Command completed: type=full_resync status=completed
+```
+
+**Безопасность журнала:**
+- Сообщения содержат исключительно технический идентификатор команды (`uuid`), её тип (`sync_now`, `full_resync`) и статус (`completed`, `failed`).
+- Ключи API, пароли, токены авторизации, номера карт, телефоны и любые персональные данные в журнал **не выводятся**.

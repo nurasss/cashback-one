@@ -258,6 +258,8 @@ def test_pascal_harness_serialization_roundtrip(one_path: str, one_user: str, on
         assert settings.one_connection_string == expected_conn_str
         assert one_path in settings.one_connection_string
         assert decoded_text.count("AGENT_ENV='production'") == 1
+        assert "AGENT_POLL_INTERVAL_SECONDS='60'" in decoded_text
+        assert settings.agent_poll_interval_seconds == 60
 
 
 @pytest.mark.parametrize(
