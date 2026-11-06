@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -168,3 +169,40 @@ def decode_tx_cursor(token: str | None) -> TxPageCursor | TxDoneCursor | None:
     except Exception:
         logger.warning("CORRUPTED_CURSOR: Received malformed transactions cursor token. Resetting to None.")
         return None
+
+
+def is_cursor_ahead_or_equal(new_cursor: str | None, prev_cursor: str | None) -> bool:
+    """Check if new_cursor represents a position ahead of or equal to prev_cursor.
+
+    Used by full_resync to ensure transactions cursor never rolls back behind existing state.
+    """
+    if prev_cursor is None:
+        return True
+    if new_cursor is None:
+        return False
+    if new_cursor == prev_cursor:
+        return True
+
+    # Numeric cursors (e.g. used in FakeLoyaltySource / tests)
+    if new_cursor.isdigit() and prev_cursor.isdigit():
+        return int(new_cursor) >= int(prev_cursor)
+
+    # 1C transaction cursors (TxDoneCursor / TxPageCursor)
+    try:
+        prev_decoded = decode_tx_cursor(prev_cursor)
+        new_decoded = decode_tx_cursor(new_cursor)
+        if prev_decoded is not None and new_decoded is not None:
+            def _extract_hw(cur: Any) -> tuple[datetime, str, int]:
+                if isinstance(cur, TxDoneCursor):
+                    return (datetime.fromisoformat(cur.hw_period), cur.hw_doc_uuid, cur.hw_line)
+                if isinstance(cur, TxPageCursor):
+                    return (datetime.fromisoformat(cur.last_period), cur.last_doc_uuid, cur.last_line)
+                return (datetime.min.replace(tzinfo=UTC), "", 0)
+
+            prev_hw = _extract_hw(prev_decoded)
+            new_hw = _extract_hw(new_decoded)
+            return new_hw >= prev_hw
+    except Exception:
+        pass
+
+    return True

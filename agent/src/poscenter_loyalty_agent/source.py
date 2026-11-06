@@ -61,6 +61,12 @@ class LoyaltySource(Protocol):
     async def check_health(self) -> bool:
         ...
 
+    def prepare_full_resync(self) -> None:
+        ...
+
+    def finish_full_resync(self) -> None:
+        ...
+
     async def close(self) -> None:
         ...
 
@@ -80,6 +86,12 @@ class StubLoyaltySource:
     async def check_health(self) -> bool:
         # Returns False because mapping is not configured
         return False
+
+    def prepare_full_resync(self) -> None:
+        pass
+
+    def finish_full_resync(self) -> None:
+        pass
 
     async def close(self) -> None:
         pass
@@ -102,6 +114,8 @@ class FakeLoyaltySource:
         self.simulate_stalled_cursor_on_transactions = False
         self.simulate_empty_page_with_more_on_cards = False
         self.simulate_empty_page_with_more_on_transactions = False
+        self.full_resync_cards_requested = False
+        self.full_resync_tx_requested = False
         self.is_closed = False
 
     async def fetch_cards(self, cursor: str | None, limit: int) -> SourceBatch[CardSyncItem]:
@@ -117,7 +131,11 @@ class FakeLoyaltySource:
                 has_more=True,
             )
 
-        offset = int(cursor) if (cursor and cursor.isdigit()) else 0
+        if self.full_resync_cards_requested:
+            self.full_resync_cards_requested = False
+            offset = 0
+        else:
+            offset = int(cursor) if (cursor and cursor.isdigit()) else 0
         batch = self.cards[offset : offset + limit]
         next_offset = offset + len(batch)
         has_more = next_offset < len(self.cards)
@@ -150,7 +168,11 @@ class FakeLoyaltySource:
                 has_more=True,
             )
 
-        offset = int(cursor) if (cursor and cursor.isdigit()) else 0
+        if self.full_resync_tx_requested:
+            self.full_resync_tx_requested = False
+            offset = 0
+        else:
+            offset = int(cursor) if (cursor and cursor.isdigit()) else 0
         batch = self.transactions[offset : offset + limit]
         next_offset = offset + len(batch)
         has_more = next_offset < len(self.transactions)
@@ -171,6 +193,14 @@ class FakeLoyaltySource:
 
     async def check_health(self) -> bool:
         return self.is_healthy
+
+    def prepare_full_resync(self) -> None:
+        self.full_resync_cards_requested = True
+        self.full_resync_tx_requested = True
+
+    def finish_full_resync(self) -> None:
+        self.full_resync_cards_requested = False
+        self.full_resync_tx_requested = False
 
     async def close(self) -> None:
         self.is_closed = True

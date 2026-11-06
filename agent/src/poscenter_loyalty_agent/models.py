@@ -158,3 +158,29 @@ class AgentStatus(BaseModel):
     last_error_at: datetime | None = None
     cards_committed_cursor: str | None = None
     transactions_committed_cursor: str | None = None
+
+
+class AgentCommandItem(BaseModel):
+    """Command received from Cloud Backend."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    type: str
+
+
+class AgentCommandsClaimResult(BaseModel):
+    """Response from POST /agent/commands/claim."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    commands: list[AgentCommandItem] = Field(default_factory=list)
+
+
+class AgentCommandCompletePayload(BaseModel):
+    """Payload for POST /agent/commands/{id}/complete."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    error: str | None = Field(default=None, max_length=512)

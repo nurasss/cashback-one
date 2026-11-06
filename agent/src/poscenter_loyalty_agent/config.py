@@ -77,7 +77,7 @@ class AgentSettings(BaseSettings):
         repr=False,
     )
     agent_poll_interval_seconds: int = Field(
-        default=120,
+        default=60,
         ge=1,
         le=86400,
         description="Interval between sync cycles in seconds",
@@ -148,7 +148,7 @@ class AgentSettings(BaseSettings):
         description="Directory for rotating log files",
     )
     agent_version: str = Field(
-        default="0.3.0",
+        default="0.4.0",
         description="Agent release version",
     )
     one_adapter_mode: str = Field(
