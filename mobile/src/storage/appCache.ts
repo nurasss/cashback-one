@@ -105,9 +105,10 @@ export function setCachedAppContent(
   businessId: string,
   data: AppContent,
   etag: string | null,
+  cachedAt: number = Date.now(),
 ): void {
   const key = getAppContentCacheKey(userId, businessId);
-  const entry: CachedEntry<AppContent> = { data, etag, cachedAt: Date.now() };
+  const entry: CachedEntry<AppContent> = { data, etag, cachedAt };
   memoryCache.set(key, entry as CachedEntry<unknown>);
   void AsyncStorage.setItem(key, JSON.stringify(entry)).catch(() => {});
 }
@@ -117,9 +118,14 @@ export function getCachedPromotions(userId: string): CachedEntry<Promotions> | n
   return (memoryCache.get(key) as CachedEntry<Promotions> | undefined) ?? null;
 }
 
-export function setCachedPromotions(userId: string, data: Promotions, etag: string | null): void {
+export function setCachedPromotions(
+  userId: string,
+  data: Promotions,
+  etag: string | null,
+  cachedAt: number = Date.now(),
+): void {
   const key = getPromotionsCacheKey(userId);
-  const entry: CachedEntry<Promotions> = { data, etag, cachedAt: Date.now() };
+  const entry: CachedEntry<Promotions> = { data, etag, cachedAt };
   memoryCache.set(key, entry as CachedEntry<unknown>);
   void AsyncStorage.setItem(key, JSON.stringify(entry)).catch(() => {});
 }

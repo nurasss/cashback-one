@@ -1,6 +1,6 @@
 import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { router } from 'expo-router';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContent, useProfile, usePromotions } from '../../../src/api/app';
 import { getClientConfig } from '../../../src/config/client';
@@ -30,6 +30,16 @@ export default function Home() {
     });
   };
 
+  const isRefreshing = promotions.isRefetching || cards.isRefetching || profile.isRefetching || appContent.isRefetching;
+  const onRefresh = () => {
+    void Promise.all([
+      promotions.refetch(),
+      cards.refetch(),
+      profile.refetch(),
+      appContent.refetch(),
+    ]);
+  };
+
   const banners = promotions.data?.banners ?? [];
   const offers = promotions.data?.offers ?? [];
 
@@ -38,6 +48,13 @@ export default function Home() {
       style={local.scrollView}
       contentContainerStyle={[local.pageContent, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16 }]}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={onRefresh}
+          tintColor={theme.colors.primary}
+        />
+      }
     >
       <FadeIn style={local.topSheet}>
         <BalanceHeader phone={phoneText(profile.data?.phone)} balance={card?.balance ?? '0'} />

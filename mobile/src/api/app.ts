@@ -122,6 +122,7 @@ export function usePromotions() {
   return useQuery({
     queryKey: keys.promotions,
     initialData: () => getCachedPromotions(userId)?.data,
+    initialDataUpdatedAt: () => getCachedPromotions(userId)?.cachedAt ?? 0,
     queryFn: ({ signal }) => fetchPromotionsWithCache(api, userId, signal),
   });
 }
@@ -134,6 +135,7 @@ export function useAppContent(businessId: string | undefined) {
     queryKey: keys.appContent(effectiveBusinessId),
     enabled: !!effectiveBusinessId,
     initialData: () => (effectiveBusinessId ? getCachedAppContent(userId, effectiveBusinessId)?.data : undefined),
+    initialDataUpdatedAt: () => (effectiveBusinessId ? (getCachedAppContent(userId, effectiveBusinessId)?.cachedAt ?? 0) : 0),
     queryFn: ({ signal }) => (effectiveBusinessId ? fetchAppContentWithCache(api, userId, effectiveBusinessId, signal) : null),
   });
 }
