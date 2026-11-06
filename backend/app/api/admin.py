@@ -86,6 +86,7 @@ from app.services.admin_queries import (
 )
 from app.services.image_service import process_and_store_image
 from app.services.media_storage import MediaStorage, get_media_storage
+from app.services.push_sender import PushSender, get_push_sender
 
 router = APIRouter(dependencies=[Depends(require_admin_origin)])
 
@@ -487,8 +488,9 @@ async def admin_create_notification(
     body: NotificationCreateRequest,
     admin: Annotated[AdminUser, Depends(authenticate_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    sender: Annotated[PushSender, Depends(get_push_sender)],
 ) -> NotificationAdminItem:
-    return await admin_content.create_notification(db, admin, body)
+    return await admin_content.create_notification(db, admin, body, sender=sender)
 
 
 @router.delete("/notifications/{notification_id}", status_code=204)

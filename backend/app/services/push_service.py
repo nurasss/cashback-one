@@ -1,14 +1,17 @@
 """Push notification service for user devices."""
+import asyncio
 import logging
 import uuid
+from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.time import utcnow
-from app.models.entities import Business, Device
-from app.services.push_sender import PushSender, PushStatus
+from app.models.entities import Business, Card, Device, UserCard
+from app.schemas.admin_content import BroadcastPushResult
+from app.services.push_sender import PushResult, PushSender, PushStatus
 
 logger = logging.getLogger(__name__)
 
@@ -126,3 +129,150 @@ async def send_to_user(
         await session.commit()
 
     return delivered_count
+
+
+async def get_broadcast_target_devices(
+    session: AsyncSession, business_id: uuid.UUID | None
+) -> list[Device]:
+    """Resolve active target devices for a broadcast notification.
+
+    - business_id is None ('Все бизнесы'): all active devices (disabled_at IS NULL).
+    - business_id is set (Business B):
+        - if B is inactive or not found: returns empty list.
+        - devices with app_id == B.android_app_id (if set), with or without a card;
+        - devices with app_id == push_shared_app_id whose user has a visible card of B (hidden_at IS NULL).
+    Deduplicates devices by push_token so each device receives at most 1 message.
+    """
+    if business_id is None:
+        stmt = select(Device).where(Device.disabled_at.is_(None))
+    else:
+        biz = await session.get(Business, business_id)
+        if biz is None or biz.status != "active":
+            return []
+
+        shared_app_id = settings.push_shared_app_id
+        user_has_visible_card = (
+            select(UserCard.user_id)
+            .join(Card, Card.id == UserCard.card_id)
+            .where(
+                Card.business_id == business_id,
+                UserCard.hidden_at.is_(None),
+            )
+        )
+
+        conditions = [
+            and_(
+                Device.app_id == shared_app_id,
+                Device.user_id.in_(user_has_visible_card),
+            )
+        ]
+        if biz.android_app_id:
+            conditions.append(Device.app_id == biz.android_app_id)
+
+        stmt = select(Device).where(
+            Device.disabled_at.is_(None),
+            or_(*conditions),
+        )
+
+    raw_devices = (await session.scalars(stmt)).all()
+    seen_tokens: set[str] = set()
+    devices: list[Device] = []
+    for d in raw_devices:
+        if d.push_token not in seen_tokens:
+            seen_tokens.add(d.push_token)
+            devices.append(d)
+    return devices
+
+
+async def send_broadcast_push(
+    session: AsyncSession,
+    sender: PushSender,
+    notification_id: uuid.UUID,
+    title: str,
+    body: str,
+    business_id: uuid.UUID | None = None,
+    send_push: bool = True,
+) -> BroadcastPushResult:
+    """Deliver a broadcast notification via push to active candidate devices.
+
+    Never raises: any push error is handled, device states updated on invalid tokens,
+    and returns BroadcastPushResult with status ('sent', 'disabled', 'skipped', 'failed').
+    """
+    if not send_push:
+        return BroadcastPushResult(status="skipped", devices=0, delivered=0)
+
+    if getattr(sender, "disabled", False):
+        return BroadcastPushResult(status="disabled", devices=0, delivered=0)
+
+    devices = await get_broadcast_target_devices(session, business_id)
+    total_devices = len(devices)
+    if total_devices == 0:
+        return BroadcastPushResult(status="skipped", devices=0, delivered=0)
+
+    data = {"type": "broadcast", "notification_id": str(notification_id)}
+    sem = asyncio.Semaphore(10)
+    now = utcnow()
+    delivered_count = 0
+    has_mutations = False
+
+    async def _send_one(device: Device) -> tuple[Device, PushResult]:
+        async with sem:
+            res = await sender.send(
+                token=device.push_token,
+                title=title,
+                body=body,
+                data=data,
+            )
+            return device, res
+
+    try:
+        raw_results = await asyncio.wait_for(
+            asyncio.gather(*[_send_one(d) for d in devices], return_exceptions=True),
+            timeout=30.0,
+        )
+    except TimeoutError:
+        logger.warning("Broadcast push timed out during dispatch")
+        return BroadcastPushResult(status="failed", devices=total_devices, delivered=0)
+    except Exception:
+        logger.exception("Broadcast push failed during dispatch")
+        return BroadcastPushResult(status="failed", devices=total_devices, delivered=0)
+
+    for item in raw_results:
+        if isinstance(item, BaseException):
+            logger.warning("Push send exception during dispatch: %s", item)
+            continue
+        device, res = item
+        if res.status == PushStatus.DELIVERED:
+            delivered_count += 1
+        elif res.status == PushStatus.INVALID_TOKEN:
+            device.disabled_at = now
+            has_mutations = True
+            logger.info(
+                "Device push token marked disabled: reason=%s device_id=%s",
+                res.error_details,
+                device.id,
+            )
+        elif res.status in (PushStatus.TEMPORARY_ERROR, PushStatus.REJECTED):
+            logger.warning(
+                "Push delivery failure (device kept active): status=%s reason=%s device_id=%s",
+                res.status.value,
+                res.error_details,
+                device.id,
+            )
+
+    if has_mutations:
+        try:
+            await session.commit()
+        except Exception:
+            logger.exception("Failed to commit disabled_at for invalid push tokens")
+
+    if delivered_count > 0:
+        status: Literal["sent", "disabled", "skipped", "failed"] = "sent"
+    else:
+        status = "failed"
+
+    return BroadcastPushResult(
+        status=status,
+        devices=total_devices,
+        delivered=delivered_count,
+    )

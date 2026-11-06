@@ -3,6 +3,7 @@
 Superadmins manage global content (business_id NULL) and any business; business managers
 manage only their own business. Every mutation is audited.
 """
+import logging
 import uuid
 from typing import Any
 
@@ -18,6 +19,7 @@ from app.schemas.admin import Page
 from app.schemas.admin_content import (
     AppTextsResponse,
     AppTextsUpdateRequest,
+    BroadcastPushResult,
     BusinessStoreAdminItem,
     BusinessStoreCreateRequest,
     BusinessStoreUpdateRequest,
@@ -30,6 +32,10 @@ from app.schemas.admin_content import (
 )
 from app.services.admin_mutations import _audit
 from app.services.media_storage import MediaStorage, maybe_cleanup_old_media_file
+from app.services.push_sender import PushSender, get_push_sender
+from app.services.push_service import send_broadcast_push
+
+logger = logging.getLogger(__name__)
 
 
 def _not_found() -> AppError:
@@ -180,17 +186,29 @@ async def list_notifications(
     return _page(list(rows), limit, offset, NotificationAdminItem)
 
 
-def _notification_state(note: Notification) -> dict[str, Any]:
-    return {
+def _notification_state(
+    note: Notification,
+    push_devices: int | None = None,
+    push_delivered: int | None = None,
+) -> dict[str, Any]:
+    state: dict[str, Any] = {
         "notification_id": str(note.id),
         "business_id": str(note.business_id) if note.business_id else None,
         "kind": note.kind,
         "targeted_user": note.user_id is not None,
     }
+    if push_devices is not None:
+        state["push_devices"] = push_devices
+    if push_delivered is not None:
+        state["push_delivered"] = push_delivered
+    return state
 
 
 async def create_notification(
-    db: AsyncSession, admin: AdminUser, body: NotificationCreateRequest
+    db: AsyncSession,
+    admin: AdminUser,
+    body: NotificationCreateRequest,
+    sender: PushSender | None = None,
 ) -> NotificationAdminItem:
     scope = scope_for_admin(admin)
     business_id = _owner_business(scope, body.business_id)
@@ -198,10 +216,54 @@ async def create_notification(
     note = Notification(business_id=business_id, kind="info", title=body.title, body=body.body)
     db.add(note)
     await db.flush()
-    _audit(db, admin, business_id, "notification_created", "notification", None, _notification_state(note))
     await db.commit()
     await db.refresh(note)
-    return NotificationAdminItem.model_validate(note)
+
+    if sender is None:
+        sender = get_push_sender()
+
+    try:
+        push_res = await send_broadcast_push(
+            session=db,
+            sender=sender,
+            notification_id=note.id,
+            title=note.title,
+            body=note.body,
+            business_id=business_id,
+            send_push=body.send_push,
+        )
+    except Exception:
+        logger.exception("Broadcast push unhandled failure")
+        push_res = BroadcastPushResult(status="failed", devices=0, delivered=0)
+
+    try:
+        _audit(
+            db,
+            admin,
+            business_id,
+            "notification_created",
+            "notification",
+            None,
+            _notification_state(
+                note,
+                push_devices=push_res.devices,
+                push_delivered=push_res.delivered,
+            ),
+        )
+        await db.commit()
+    except Exception:
+        logger.exception("Failed to write audit log for notification")
+
+    return NotificationAdminItem(
+        id=note.id,
+        business_id=note.business_id,
+        user_id=note.user_id,
+        kind=note.kind,
+        title=note.title,
+        body=note.body,
+        created_at=note.created_at,
+        push=push_res,
+    )
 
 
 async def delete_notification(db: AsyncSession, admin: AdminUser, notification_id: uuid.UUID) -> None:

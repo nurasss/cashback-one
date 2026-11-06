@@ -95,6 +95,14 @@ class PromotionUpdateRequest(_PromotionFields):
         return self
 
 
+class BroadcastPushResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["sent", "disabled", "skipped", "failed"]
+    devices: int
+    delivered: int
+
+
 class NotificationAdminItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,6 +113,7 @@ class NotificationAdminItem(BaseModel):
     title: str
     body: str
     created_at: datetime
+    push: BroadcastPushResult | None = None
 
 
 class NotificationCreateRequest(BaseModel):
@@ -113,6 +122,7 @@ class NotificationCreateRequest(BaseModel):
     business_id: uuid.UUID | None = None
     title: str = Field(min_length=1, max_length=120)
     body: str = Field(min_length=1, max_length=2000)
+    send_push: bool = True
 
     _text = field_validator("title", "body", mode="before")(_strip_required)
 

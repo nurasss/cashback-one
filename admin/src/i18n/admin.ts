@@ -349,6 +349,12 @@ export const adminRu = {
     sendBtn: 'Отправить',
     sendingBtn: 'Отправляем…',
     noticeErrFields: 'Заполните заголовок и текст.',
+    noticeSendPush: 'Отправить push на телефоны',
+    noticePushSent: (delivered: number, devices: number) =>
+      `Push отправлен на ${delivered} из ${devices} устройств`,
+    noticePushDisabled: 'Push выключен на сервере',
+    noticePushNoDevices: 'Push не отправлен: нет устройств',
+    noticePushFailed: 'Push не отправлен: ошибка',
   },
   mutations: {
     closeDialog: 'Закрыть окно',
@@ -897,6 +903,12 @@ export const adminKk: AdminTranslations = {
     sendBtn: 'Жіберу',
     sendingBtn: 'Жіберудеміз…',
     noticeErrFields: 'Тақырып пен мәтінді толтырыңыз.',
+    noticeSendPush: 'Телефондарға push жіберу',
+    noticePushSent: (delivered: number, devices: number) =>
+      `${devices} құрылғының ${delivered}-не push жіберілді`,
+    noticePushDisabled: 'Серверде push өшірулі',
+    noticePushNoDevices: 'Push жіберілмеді: құрылғылар жоқ',
+    noticePushFailed: 'Push жіберілмеді: қате',
   },
   mutations: {
     closeDialog: 'Терезені жабу',

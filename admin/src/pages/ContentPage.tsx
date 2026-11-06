@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, useAppNotifications, useBusinesses, usePromotions } from '../api/queries';
-import type { AppNotification, Promotion, PromotionKind } from '../api/types';
+import type { AppNotification, BroadcastPushResult, Promotion, PromotionKind } from '../api/types';
 import { useAdminSession } from '../auth/provider';
 import { DataTable } from '../components/DataTable';
 import { useTableExpansion } from '../components/CompactTable';
@@ -41,6 +41,22 @@ export function ContentPage() {
   const [businessFilter, setBusinessFilter] = useState(GLOBAL);
   const [editing, setEditing] = useState<Promotion | 'new' | null>(null);
   const [noticeOpen, setNoticeOpen] = useState(false);
+  const [noticeFeedback, setNoticeFeedback] = useState<string | null>(null);
+
+  const handleNoticeCreated = (push?: BroadcastPushResult | null) => {
+    if (!push) return;
+    if (push.status === 'sent') {
+      setNoticeFeedback(t.content.noticePushSent(push.delivered, push.devices));
+    } else if (push.status === 'disabled') {
+      setNoticeFeedback(t.content.noticePushDisabled);
+    } else if (push.status === 'skipped') {
+      if (push.devices === 0) {
+        setNoticeFeedback(t.content.noticePushNoDevices);
+      }
+    } else if (push.status === 'failed') {
+      setNoticeFeedback(t.content.noticePushFailed);
+    }
+  };
 
   const managerBusinessId =
     view.status === 'authenticated' && view.admin.role === 'business_manager'
@@ -107,7 +123,31 @@ export function ContentPage() {
       {tab === 'promotions' ? (
         <PromotionsTable businessId={businessFilter || undefined} onEdit={setEditing} />
       ) : tab === 'notifications' ? (
-        <NotificationsTable businessId={businessFilter || undefined} />
+        <>
+          {noticeFeedback && (
+            <section
+              className="notice"
+              role="status"
+              style={{
+                marginBottom: '1rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <p>{noticeFeedback}</p>
+              <button
+                className="link-button"
+                type="button"
+                onClick={() => setNoticeFeedback(null)}
+                aria-label="Закрыть"
+              >
+                ×
+              </button>
+            </section>
+          )}
+          <NotificationsTable businessId={businessFilter || undefined} />
+        </>
       ) : activeAppBusinessId ? (
         <BusinessAppContent businessId={activeAppBusinessId} />
       ) : (
@@ -116,7 +156,12 @@ export function ContentPage() {
         </section>
       )}
       {editing && <PromotionDialog promotion={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
-      {noticeOpen && <NotificationDialog onClose={() => setNoticeOpen(false)} />}
+      {noticeOpen && (
+        <NotificationDialog
+          onClose={() => setNoticeOpen(false)}
+          onCreated={handleNoticeCreated}
+        />
+      )}
     </div>
   );
 }
@@ -439,7 +484,13 @@ export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion;
   );
 }
 
-function NotificationDialog({ onClose }: { onClose: () => void }) {
+function NotificationDialog({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated?: (push?: BroadcastPushResult | null) => void;
+}) {
   const { session } = useAdminSession();
   const { locale } = useLocale();
   const t = useAdminTranslation();
@@ -448,6 +499,7 @@ function NotificationDialog({ onClose }: { onClose: () => void }) {
   const [businessId, setBusinessId] = useState(GLOBAL);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [sendPush, setSendPush] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -460,16 +512,18 @@ function NotificationDialog({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError('');
     try {
-      await session.api.request<AppNotification>('/admin/notifications', {
+      const res = await session.api.request<AppNotification>('/admin/notifications', {
         method: 'POST',
         body: {
           title: title.trim(),
           body: body.trim(),
+          send_push: sendPush,
           ...(superadmin && businessId ? { business_id: businessId } : {}),
         },
       });
       await queryClient.invalidateQueries({ queryKey: [...privateKey, 'app-notifications'] });
       onClose();
+      onCreated?.(res.push);
     } catch (saveError) {
       setError(messageForError(saveError, locale));
     } finally {
@@ -490,6 +544,16 @@ function NotificationDialog({ onClose }: { onClose: () => void }) {
         <input id="note-title" value={title} maxLength={120} onChange={event => setTitle(event.target.value)} required autoFocus />
         <label htmlFor="note-body">{t.content.noticeFieldBody}</label>
         <textarea id="note-body" rows={4} value={body} maxLength={2000} onChange={event => setBody(event.target.value)} required />
+        <label htmlFor="note-push">
+          <input
+            id="note-push"
+            type="checkbox"
+            checked={sendPush}
+            style={{ width: 'auto', minHeight: 0, marginRight: 8 }}
+            onChange={event => setSendPush(event.target.checked)}
+          />
+          {t.content.noticeSendPush}
+        </label>
         <p className="muted-copy">{t.content.noticeHint}</p>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="mutation-actions">

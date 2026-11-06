@@ -347,6 +347,9 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
             elif k in ("is_active", "targeted_user"):
                 if isinstance(v, bool):
                     projected[k] = v
+            elif k in ("push_devices", "push_delivered"):
+                if isinstance(v, int) and v >= 0:
+                    projected[k] = v
             elif k == "kind":
                 if isinstance(v, str) and v in ("banner", "offer", "info"):
                     projected[k] = v
@@ -439,7 +442,14 @@ def safe_audit_snapshot(
         return None
     if admin_user_id is None:
         return None
-    if business_id is None and action != "media_uploaded":
+    if business_id is None and action not in (
+        "media_uploaded",
+        "notification_created",
+        "notification_deleted",
+        "promotion_created",
+        "promotion_updated",
+        "promotion_deleted",
+    ):
         return None
 
     return _project_action_snapshot(action, value)
