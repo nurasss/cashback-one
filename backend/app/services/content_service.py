@@ -77,19 +77,33 @@ def _visible_notifications(user_id: uuid.UUID, business_ids: list[uuid.UUID]) ->
 async def list_promotions(
     session: AsyncSession, user: User, business_id: uuid.UUID | None = None
 ) -> PromotionsResponse:
+    now = utcnow()
     business_ids = await customer_business_ids(session, user.id)
     if business_id is not None:
-        if business_id not in business_ids:
-            return PromotionsResponse(banners=[], offers=[], has_new=False)
-        now = utcnow()
-        where_clause = and_(
+        active_window = and_(
             Promotion.is_active.is_(True),
             or_(Promotion.starts_at.is_(None), Promotion.starts_at <= now),
             or_(Promotion.ends_at.is_(None), Promotion.ends_at > now),
-            Promotion.business_id == business_id,
         )
+        global_banners = and_(
+            Promotion.business_id.is_(None),
+            Promotion.kind == "banner",
+        )
+        if business_id in business_ids:
+            where_clause = and_(
+                active_window,
+                or_(
+                    Promotion.business_id == business_id,
+                    global_banners,
+                ),
+            )
+        else:
+            where_clause = and_(
+                active_window,
+                global_banners,
+            )
     else:
-        where_clause = _visible_promotions(business_ids, utcnow())
+        where_clause = _visible_promotions(business_ids, now)
 
     stmt = (
         select(Promotion)
@@ -118,21 +132,35 @@ async def get_promotion(
 ) -> PromotionItem:
     from app.core.errors import AppError
 
+    now = utcnow()
     business_ids = await customer_business_ids(session, user.id)
     if business_id is not None:
-        if business_id not in business_ids:
-            raise AppError("PROMOTION_NOT_FOUND", "Promotion not found", 404)
+        active_window = and_(
+            Promotion.is_active.is_(True),
+            or_(Promotion.starts_at.is_(None), Promotion.starts_at <= now),
+            or_(Promotion.ends_at.is_(None), Promotion.ends_at > now),
+        )
+        global_banners = and_(
+            Promotion.business_id.is_(None),
+            Promotion.kind == "banner",
+        )
+        if business_id in business_ids:
+            allowed_scope = or_(
+                Promotion.business_id == business_id,
+                global_banners,
+            )
+        else:
+            allowed_scope = global_banners
+
         conditions = [
             Promotion.id == promotion_id,
-            Promotion.business_id == business_id,
-            Promotion.is_active.is_(True),
-            or_(Promotion.starts_at.is_(None), Promotion.starts_at <= utcnow()),
-            or_(Promotion.ends_at.is_(None), Promotion.ends_at > utcnow()),
+            active_window,
+            allowed_scope,
         ]
     else:
         conditions = [
             Promotion.id == promotion_id,
-            _visible_promotions(business_ids, utcnow()),
+            _visible_promotions(business_ids, now),
         ]
 
     promo = await session.scalar(select(Promotion).where(*conditions))
