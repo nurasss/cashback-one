@@ -1,6 +1,6 @@
 ﻿# Cashback One: перезапуск агента KeremEt с чистым состоянием.
 # Ничего не удаляет: файлы состояния переносятся в копию C:\cashback-stage0\state_keremet_before_reset_<время>.
-# Ключ агента, пароль 1С, настройки и mapping не меняются. База 1С не открывается.
+# Ключ агента, пароль 1С и mapping не меняются; интервал синхронизации ставится 1 минута (копия настроек — в папке копии). База 1С не открывается.
 $ErrorActionPreference = 'Stop'
 $service = 'POSCENTERLoyaltyAgent'
 $dataDir = 'C:\ProgramData\POSCENTER\LoyaltyAgent'
@@ -41,6 +41,19 @@ try {
     foreach ($f in $files) { Move-Item $f.FullName $backup }
     $left = @(Get-ChildItem $stateDir -File)
     if ($left.Count -ne 0) { throw "В папке состояния остались файлы: $($left.Name -join ', ')" }
+
+    $envFile = Join-Path $dataDir 'config\.env.service'
+    if (Test-Path $envFile) {
+        Copy-Item $envFile (Join-Path $backup 'env.service.bak') -Force
+        $lines = Get-Content $envFile
+        if ($lines -match '^AGENT_POLL_INTERVAL_SECONDS=') {
+            $lines = $lines -replace '^AGENT_POLL_INTERVAL_SECONDS=.*$', "AGENT_POLL_INTERVAL_SECONDS='60'"
+        } else {
+            $lines += "AGENT_POLL_INTERVAL_SECONDS='60'"
+        }
+        Set-Content -Path $envFile -Value $lines -Encoding ASCII
+        Write-Host '    Интервал синхронизации: 1 минута.'
+    }
 
     Write-Host '3/4 Запускаю агента...'
     Start-Service $service
