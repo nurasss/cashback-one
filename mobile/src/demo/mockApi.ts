@@ -45,13 +45,13 @@ export function createDemoApi() {
     banners: [
       { ...offer('b1', 'Выиграй авто', ''), kind: 'banner', subtitle: 'и другие ценные призы', badge: null, image_url: `${REF_IMG}banner-car-ribbon.png` },
       { ...offer('b2', 'Кэшбэк до 12%', ''), kind: 'banner', subtitle: 'за каждую покупку', badge: null, image_url: `${IMG}card.jpg` },
-      { ...offer('b3', 'Подарки за покупки', ''), kind: 'banner', subtitle: 'каждый день', badge: null, image_url: `${IMG}gifts.jpg` },
+      { ...offer('b3', 'Подарки за покупки', ''), kind: 'banner', subtitle: 'каждый день', badge: null, image_url: null },
     ],
     offers: [
       offer('o1', 'Покупайте выгодно', 'Скидка на хиты', { image_url: `${REF_IMG}offer-basket.png`, body: 'Скидки до 30% на популярные товары каждую неделю.' }),
       offer('o2', 'Товары по лучшим ценам', 'Акция недели', { image_url: `${REF_IMG}offer-discount-tag.png`, ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), body: 'Специальные цены на товары недели.' }),
       offer('o3', 'Больше бонусов', 'Выгодно с картой', { image_url: `${REF_IMG}offer-loyalty-coins.png`, body: 'Оплачивайте картой и получайте повышенный кешбэк.' }),
-      offer('o4', 'Свежие продукты', 'Суперцена', { image_url: `${REF_IMG}offer-fresh-produce.png` }),
+      offer('o4', 'Свежие продукты', 'Суперцена', { image_url: null, body: 'Ежедневные поставки свежих овощей и фруктов.' }),
     ],
     has_new: true,
   };
@@ -183,7 +183,11 @@ export function createDemoApi() {
     }
     if (path === '/me/promotions' && method === 'GET') {
       const mark = (list: Promotion[]) => list.map(p => ({ ...p, is_new: !promotionsSeen && p.is_new }));
-      return json({ banners: mark(promotions.banners), offers: mark(promotions.offers), has_new: !promotionsSeen } satisfies Promotions);
+      let offersList = promotions.offers;
+      if (typeof window !== 'undefined' && window.location?.search?.includes('single_offer=1')) {
+        offersList = offersList.slice(0, 1);
+      }
+      return json({ banners: mark(promotions.banners), offers: mark(offersList), has_new: !promotionsSeen } satisfies Promotions);
     }
     if (path === '/me/promotions/seen') { promotionsSeen = true; return new Response(null, { status: 204 }); }
     const promo = /^\/me\/promotions\/([^/]+)$/.exec(path);

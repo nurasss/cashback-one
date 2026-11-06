@@ -68,7 +68,7 @@ it('saves the canonical Russian city selected using a Kazakh label', async () =>
   mockRequest.mockResolvedValueOnce({ ...profile, city: ru.cityOption3, language: 'kz' });
   await act(async () => { fireEvent.press(screen.getByRole('radio', { name: kz.cityOption3 })); });
   // Picking the option is the save: only the city is sent, with the canonical Russian value, and no general Save is needed.
-  expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { city: ru.cityOption3 } });
+  await waitFor(() => expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { city: ru.cityOption3 } }));
   await waitFor(() => expect(screen.getByLabelText(`${kz.city}: ${kz.cityOption3}`)).toBeTruthy());
   screen.unmount();
 });
@@ -84,7 +84,7 @@ it('keeps a saved legacy city as a selected option and does not clear it on save
   fireEvent.changeText(screen.getByLabelText(ru.firstName), 'Тест');
   mockRequest.mockResolvedValueOnce({ ...profile, first_name: 'Тест', city: legacy });
   await act(async () => { fireEvent(screen.getByLabelText(ru.firstName), 'blur'); });
-  expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { first_name: 'Тест' } });
+  await waitFor(() => expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { first_name: 'Тест' } }));
   screen.unmount();
 });
 
@@ -163,7 +163,17 @@ it('notifications are marked read when the tab opens and badges refresh', async 
 });
 
 it('profile saves each sheet field on its own, the rest through the general button, and switches language', async () => {
-  serve({ '/me/profile': profile });
+  let profileState: Profile = { ...profile };
+  mockRequest.mockImplementation((path: string, options?: { method?: string; body?: Record<string, unknown> }) => {
+    if (path.startsWith('/me/profile')) {
+      if (options?.method === 'PATCH' && options.body) {
+        profileState = { ...profileState, ...options.body } as Profile;
+        return Promise.resolve(profileState);
+      }
+      return Promise.resolve(profileState);
+    }
+    return Promise.reject(new Error(`unexpected ${path}`));
+  });
   const { screen } = mountWith(<ProfileScreen />);
   await waitFor(() => expect(screen.getByLabelText(ru.firstName)).toBeTruthy());
   fireEvent.changeText(screen.getByLabelText(ru.firstName), 'Айгерим');
@@ -174,27 +184,24 @@ it('profile saves each sheet field on its own, the rest through the general butt
   expect(screen.getByText(ru.invalidDate)).toBeTruthy();
   expect(mockRequest.mock.calls.filter(call => call[1]?.method === 'PATCH')).toHaveLength(0);
   fireEvent.changeText(dateInput(), '01.02.1990');
-  mockRequest.mockResolvedValueOnce({ ...profile, birth_date: '1990-02-01' });
   await act(async () => { fireEvent.press(screen.getByRole('button', { name: ru.done })); });
   // The sheet saves only its own field; the unsaved first name is neither sent nor lost.
-  expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { birth_date: '1990-02-01' } });
+  await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { birth_date: '1990-02-01' } }));
   await waitFor(() => expect(screen.getByLabelText(`${ru.birthDate}: 01.02.1990`)).toBeTruthy());
   expect(screen.getByLabelText(ru.firstName).props.value).toBe('Айгерим');
 
   fireEvent.press(screen.getByLabelText(ru.gender));
-  mockRequest.mockResolvedValueOnce({ ...profile, birth_date: '1990-02-01', gender: 'female' });
+  await waitFor(() => expect(screen.getByRole('radio', { name: ru.female })).toBeTruthy());
   await act(async () => { fireEvent.press(screen.getByRole('radio', { name: ru.female })); });
-  expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { gender: 'female' } });
+  await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { gender: 'female' } }));
   expect(screen.getByLabelText(ru.firstName).props.value).toBe('Айгерим');
 
-  mockRequest.mockResolvedValueOnce({ ...profile, first_name: 'Айгерим', birth_date: '1990-02-01', gender: 'female' });
   await act(async () => { fireEvent(screen.getByLabelText(ru.firstName), 'blur'); });
-  expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { first_name: 'Айгерим' } });
+  await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { first_name: 'Айгерим' } }));
   await waitFor(() => expect(screen.getByText(ru.saved)).toBeTruthy());
 
-  mockRequest.mockResolvedValueOnce({ ...profile, language: 'kz' });
   await act(async () => { fireEvent.press(screen.getByRole('radio', { name: ru.langKz })); });
-  expect(mockRequest).toHaveBeenLastCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { language: 'kz' } });
+  await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/profile', { method: 'PATCH', auth: true, body: { language: 'kz' } }));
   await waitFor(() => expect(screen.getByText('Менің профилім')).toBeTruthy());
   screen.unmount();
 });

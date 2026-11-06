@@ -128,6 +128,48 @@ describe('Promotions screen and detail', () => {
     expect(screen.getByText(ru.promotionNotFound)).toBeTruthy();
   });
 
+  it('renders promotions in a 2-column grid layout', () => {
+    const serverOffer3: Promotion = {
+      id: 'server-offer-3', business_id: null, kind: 'offer', title: 'Серверная акция 3', subtitle: null,
+      badge: 'Новинка', body: null, image_url: null, starts_at: null, ends_at: null, is_new: true,
+    };
+    setPromotions({ data: { banners: [], offers: [serverOffer1, serverOffer2, serverOffer3], has_new: false } });
+    mount(<PromotionsScreen />);
+
+    const grid = screen.getByTestId('server-promotion-cards');
+    expect(grid).toBeTruthy();
+    expect(screen.getByText(serverOffer1.title)).toBeTruthy();
+    expect(screen.getByText(serverOffer2.title)).toBeTruthy();
+    expect(screen.getByText(serverOffer3.title)).toBeTruthy();
+  });
+
+  it('renders promotion detail image with dynamic aspect ratio, not fixed 1.7', () => {
+    mockParams.mockReturnValue({ id: serverOffer1.id });
+    mockUsePromotion.mockReturnValue({ data: serverOffer1, error: undefined, isError: false, isPending: false, refetch: jest.fn() });
+    mount(<PromotionDetail />);
+
+    const img = screen.getByTestId('expo-image');
+    expect(img).toBeTruthy();
+    const findAspect = (styleProp: unknown): number | undefined => {
+      const flat = [styleProp].flat();
+      return flat.reduce((acc: number | undefined, s: unknown) => {
+        if (typeof s === 'object' && s !== null && 'aspectRatio' in s) {
+          const val = (s as Record<string, unknown>).aspectRatio;
+          if (typeof val === 'number') return val;
+        }
+        return acc;
+      }, undefined);
+    };
+
+    const initialAspect = findAspect(img.props.style);
+    expect(initialAspect).toBeCloseTo(4 / 3, 2);
+    expect(initialAspect).not.toBeCloseTo(1.7, 2);
+
+    fireEvent(img, 'load', { source: { width: 1200, height: 500 } });
+    const updatedAspect = findAspect(img.props.style);
+    expect(updatedAspect).toBeCloseTo(1200 / 500, 2);
+  });
+
   it('keeps RU and KK translations in parity', () => {
     expect(Object.keys(ru).sort()).toEqual(Object.keys(kz).sort());
     expect(ru.storeNoteDefaultLead).toBe('Вы можете потратить баллы по адресу: ');

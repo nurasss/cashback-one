@@ -97,14 +97,23 @@ export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: 
       {loopSlides.map((banner, slot) => (
         <Pressable key={`${banner.id}-${slot}`} testID={`banner-slide-${slot}`} accessibilityRole="button" accessibilityLabel={[banner.title, banner.subtitle].filter(Boolean).join('. ')}
           onPress={() => open(banner.id)} style={[styles.banner, { width: cardWidth }]}>
-          {banner.image_url && <Image source={{ uri: banner.image_url }} style={styles.bannerImage} contentFit="contain" cachePolicy="memory-disk" accessibilityIgnoresInvertColors />}
-          <View style={styles.bannerText}>
-            <Text style={styles.bannerTitle} numberOfLines={2}>
-              <Text style={styles.bannerTitleAccent}>{banner.title.trim().split(/\s+/)[0]} </Text>
-              {banner.title.trim().split(/\s+/).slice(1).join(' ')}
-            </Text>
-            {banner.subtitle && <Text style={styles.bannerSubtitle} numberOfLines={3}>{banner.subtitle}</Text>}
-          </View>
+          {banner.image_url ? (
+            <Image
+              source={{ uri: banner.image_url }}
+              style={styles.bannerFullImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <View style={styles.bannerText}>
+              <Text style={styles.bannerTitle} numberOfLines={2}>
+                <Text style={styles.bannerTitleAccent}>{banner.title.trim().split(/\s+/)[0]} </Text>
+                {banner.title.trim().split(/\s+/).slice(1).join(' ')}
+              </Text>
+              {banner.subtitle && <Text style={styles.bannerSubtitle} numberOfLines={3}>{banner.subtitle}</Text>}
+            </View>
+          )}
         </Pressable>
       ))}
     </Animated.ScrollView>}
@@ -165,16 +174,34 @@ export function ServerOffersGrid({ offers, onOpen }: { offers: Promotion[]; onOp
 
 const offerIcons: IconName[] = ['percent', 'gift', 'card', 'cart'];
 
-// Offer card: badge + title on top, picture in a rounded frame at the bottom (works with any photo from the admin).
+// Offer card: full-width 4:3 image with top-left badge overlay, 2-line title below, placeholder icon if no image.
 export function OfferCard({ offer, index, onPress, wide = false, fill = false }: { offer: Promotion; index: number; onPress: () => void; wide?: boolean; fill?: boolean }) {
   return <PressScale accessibilityRole="button" accessibilityLabel={[offer.badge, offer.title].filter(Boolean).join('. ')} onPress={onPress}
-    style={[styles.offer, index === 0 || index === 3 ? styles.offerPink : styles.offerGray, wide && styles.offerWide, fill && styles.offerFill]}>
-    {offer.image_url ? <Image source={{ uri: offer.image_url }} style={wide ? styles.offerImageWide : styles.offerImage} contentFit="contain" cachePolicy="memory-disk" accessibilityIgnoresInvertColors /> : null}
-    {offer.badge ? <View style={styles.offerBadge}>
-      <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={12} color={t.colors.onPrimary} strokeWidth={2.4} />
-      <Text style={styles.offerBadgeText} numberOfLines={1}>{offer.badge}</Text>
-    </View> : null}
-    <Text style={[styles.offerTitle, wide && styles.offerTitleWide]} numberOfLines={3}>{offer.title}</Text>
+    style={[styles.offer, index === 0 || index === 3 ? styles.offerPink : styles.offerGray, (fill || wide) && styles.offerFill]}>
+    <View style={styles.offerMedia}>
+      {offer.image_url ? (
+        <Image
+          source={{ uri: offer.image_url }}
+          style={styles.offerImage}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <View testID={`offer-placeholder-${offer.id}`} style={styles.offerPlaceholder}>
+          <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={32} color={t.colors.primary} strokeWidth={2} />
+        </View>
+      )}
+      {offer.badge ? (
+        <View style={styles.offerBadge}>
+          <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={11} color={t.colors.onPrimary} strokeWidth={2.4} />
+          <Text style={styles.offerBadgeText} numberOfLines={1}>{offer.badge}</Text>
+        </View>
+      ) : null}
+    </View>
+    <View style={styles.offerContent}>
+      <Text style={styles.offerTitle} numberOfLines={2}>{offer.title}</Text>
+    </View>
   </PressScale>;
 }
 
@@ -239,8 +266,8 @@ const styles = StyleSheet.create({
   brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 13, color: t.colors.onPrimary, letterSpacing: 0.4 },
   carousel: { gap: 12, paddingBottom: 12 },
   banner: { aspectRatio: 2.4, borderRadius: 22, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
-  bannerImage: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '49%', height: '90%' },
-  bannerText: { width: '50%', paddingLeft: 18, gap: 6, zIndex: 1 },
+  bannerFullImage: { width: '100%', height: '100%' },
+  bannerText: { width: '100%', paddingHorizontal: 22, gap: 6, zIndex: 1 },
   bannerTitle: { fontFamily: fonts.extrabold, fontSize: 17, lineHeight: 20, color: t.colors.text, textTransform: 'uppercase' },
   bannerTitleAccent: { color: t.colors.primary },
   bannerSubtitle: { fontFamily: fonts.bold, fontSize: 11, lineHeight: 15, color: t.colors.muted, textTransform: 'uppercase', letterSpacing: 0.3 },
@@ -254,17 +281,71 @@ const styles = StyleSheet.create({
   statusValue: { fontFamily: fonts.extrabold, fontSize: 26, color: t.colors.text },
   permanentGrid: { gap: 12, paddingHorizontal: 20 },
   permanentGridRow: { flexDirection: 'row', gap: 12 },
-  offer: { flexBasis: '47%', flexGrow: 1, borderRadius: 20, padding: 14, backgroundColor: '#F3F3F5', overflow: 'hidden', gap: 10, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
+  offer: {
+    flex: 1,
+    borderRadius: 20,
+    backgroundColor: '#F3F3F5',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(17,17,17,0.05)',
+  },
   offerPink: { backgroundColor: '#FCE9EC' },
   offerGray: { backgroundColor: '#F1F1F4' },
-  offerWide: { flexBasis: 'auto', flexGrow: 0, minHeight: 112, justifyContent: 'center' },
-  offerBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: t.colors.primary, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, maxWidth: '100%', zIndex: 1 },
-  offerBadgeText: { fontFamily: fonts.bold, fontSize: 10, lineHeight: 13, color: t.colors.onPrimary, flexShrink: 1 },
-  offerTitle: { fontFamily: fonts.bold, fontSize: 14, lineHeight: 18, color: t.colors.text, width: '75%', zIndex: 1 },
-  offerImage: { position: 'absolute', right: -6, bottom: -4, width: '62%', height: '55%', zIndex: 0 },
-  offerImageWide: { position: 'absolute', right: 8, top: 8, bottom: 8, width: '34%', zIndex: 0 },
-  offerTitleWide: { width: '60%', fontSize: 15, lineHeight: 19 },
-  offerFill: { flexBasis: 0, minHeight: 0 },
+  offerFill: { flex: 1 },
+  offerMedia: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    borderTopLeftRadius: 19,
+    borderTopRightRadius: 19,
+    overflow: 'hidden',
+    backgroundColor: '#EBEBEF',
+    position: 'relative',
+  },
+  offerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  offerPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+  },
+  offerBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: t.colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    maxWidth: '85%',
+    zIndex: 1,
+  },
+  offerBadgeText: {
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    lineHeight: 13,
+    color: t.colors.onPrimary,
+    flexShrink: 1,
+  },
+  offerContent: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+    minHeight: 52,
+    justifyContent: 'flex-start',
+  },
+  offerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: t.colors.text,
+  },
   balanceNote: { backgroundColor: t.colors.softPrimary, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
   balanceNoteText: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: t.colors.text },
   storeAddress: { textDecorationLine: 'underline' },

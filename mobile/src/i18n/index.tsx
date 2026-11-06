@@ -15,10 +15,7 @@ interface I18n { language: Language; setLanguage: (language: Language) => void; 
 const Context = createContext<I18n | null>(null);
 
 export function I18nProvider({ children, initial = 'ru' }: { children: ReactNode; initial?: Language }) {
-  const [language, setLanguage] = useState<Language>(() => {
-    if (typeof window !== 'undefined' && window.location?.search?.includes('lang=kz')) return 'kz';
-    return initial;
-  });
+  const [language, setLanguage] = useState<Language>(initial);
   const t = useCallback((key: Key, params?: Record<string, string | number>) => translate(language, key, params), [language]);
   const value = useMemo(() => ({ language, setLanguage, t }), [language, t]);
   return <Context.Provider value={value}>{children}</Context.Provider>;

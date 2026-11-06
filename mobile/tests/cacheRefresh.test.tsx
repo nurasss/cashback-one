@@ -217,7 +217,7 @@ describe('App Cache Refresh & Background Invalidation', () => {
 
       // Fresh banner replaces the cached one
       await waitFor(() => {
-        expect(screen.getByText('Новый серверный баннер')).toBeTruthy();
+        expect(screen.getByLabelText(/Новый серверный баннер/)).toBeTruthy();
         expect(screen.queryByText('Старый кешированный баннер')).toBeNull();
       });
 

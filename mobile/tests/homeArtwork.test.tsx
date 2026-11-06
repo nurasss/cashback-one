@@ -5,6 +5,7 @@ import { Linking } from 'react-native';
 import Home from '../app/(app)/(tabs)/index';
 import { ActiveCardProvider } from '../src/features/activeCard';
 import { getCarouselAutoplaySlot, getCarouselLogicalIndex, getLoopSlides } from '../src/features/home';
+import { clearAppCache } from '../src/storage/appCache';
 import { I18nProvider } from '../src/i18n';
 import { ru } from '../src/i18n/ru';
 import type { AppContent, Card, Profile, Promotion } from '../src/types/api';
@@ -30,6 +31,7 @@ const card: Card = { id: 'card-1', barcode: '0123456789012', balance: '1250.0000
 const profile: Profile = { phone: '+77058344326', language: 'ru', first_name: 'Иван', last_name: 'Иванов', email: null, gender: null, city: 'Алматы', address: null, birth_date: null, iin: null, company: null };
 const serverBanner1: Promotion = { id: 'banner-server-1', business_id: null, kind: 'banner', title: 'Большой розыгрыш', subtitle: 'Участвуйте во всех супермаркетах сети', badge: null, body: 'Подробные условия акции', image_url: 'https://example.com/banner1.png', starts_at: null, ends_at: null, is_new: true };
 const serverBanner2: Promotion = { id: 'banner-server-2', business_id: null, kind: 'banner', title: 'Кешбэк 15%', subtitle: 'На свежие фрукты', badge: null, body: 'Условия кешбэка', image_url: 'https://example.com/banner2.png', starts_at: null, ends_at: null, is_new: false };
+const serverBannerNoImage: Promotion = { id: 'banner-server-no-img', business_id: null, kind: 'banner', title: 'Текстовый баннер', subtitle: 'Без картинки', badge: null, body: 'Текст', image_url: null, starts_at: null, ends_at: null, is_new: false };
 const serverOffer1: Promotion = { id: 'offer-server-1', business_id: null, kind: 'offer', title: 'Скидки на выпечку', subtitle: null, badge: 'Выпечка', body: 'Свежая выпечка со скидкой', image_url: 'https://example.com/offer1.png', starts_at: null, ends_at: null, is_new: true };
 const serverOffer2: Promotion = { id: 'offer-server-2', business_id: null, kind: 'offer', title: 'Молочные продукты', subtitle: null, badge: 'Молоко', body: 'Молоко со скидкой', image_url: 'https://example.com/offer2.png', starts_at: null, ends_at: null, is_new: false };
 
@@ -72,8 +74,9 @@ function serve(routes: Record<string, unknown>) {
 }
 
 describe('Home screen server content and artwork', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
+    await clearAppCache();
   });
 
   it('hides the banner carousel when there are no banners', async () => {
@@ -94,7 +97,7 @@ describe('Home screen server content and artwork', () => {
     serve({
       '/me/cards': [card],
       '/me/profile': profile,
-      '/me/promotions': { banners: [serverBanner1, serverBanner2], offers: [], has_new: false },
+      '/me/promotions': { banners: [serverBanner1, serverBanner2, serverBannerNoImage], offers: [], has_new: false },
       '/me/app-content': sampleAppContent,
     });
 
@@ -102,9 +105,30 @@ describe('Home screen server content and artwork', () => {
     await waitFor(() => expect(screen.getByTestId('banner-carousel')).toBeTruthy());
     fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 200 } } });
 
-    await waitFor(() => expect(screen.getAllByText('Большой', { exact: false }).length).toBeGreaterThan(0));
+    // Banner with image: accessibilityLabel has title, but text overlay is omitted
+    await waitFor(() => expect(screen.getAllByLabelText(new RegExp(serverBanner1.title, 'i')).length).toBeGreaterThan(0));
+    expect(screen.queryByText(serverBanner1.title)).toBeNull();
+
+    // Banner without image: renders text title
+    expect(screen.getAllByText(serverBannerNoImage.title).length).toBeGreaterThan(0);
+
     fireEvent.press(screen.getAllByLabelText(new RegExp(serverBanner1.title, 'i'))[0]!);
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: serverBanner1.id } });
+    screen.unmount();
+  });
+
+  it('renders single offer in grid with empty sibling without shrinking', async () => {
+    serve({
+      '/me/cards': [card],
+      '/me/profile': profile,
+      '/me/promotions': { banners: [], offers: [serverOffer1], has_new: false },
+      '/me/app-content': sampleAppContent,
+    });
+
+    const { screen } = mountWith(<Home />);
+    await waitFor(() => expect(screen.getByTestId('server-offers-grid')).toBeTruthy());
+    expect(screen.getByText(serverOffer1.title)).toBeTruthy();
+    expect(screen.getByText(serverOffer1.badge!)).toBeTruthy();
     screen.unmount();
   });
 
@@ -185,8 +209,10 @@ describe('Home screen server content and artwork', () => {
     });
 
     const { screen } = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByTestId('store-block')).toBeTruthy());
-    expect(screen.getByText(ru.storeNoteDefaultLead, { exact: false })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('store-block')).toBeTruthy();
+      expect(screen.getByText(ru.storeNoteDefaultLead, { exact: false })).toBeTruthy();
+    });
     screen.unmount();
   });
 
@@ -199,10 +225,12 @@ describe('Home screen server content and artwork', () => {
     });
 
     const { screen } = mountWith(<Home />, 'kz');
-    await waitFor(() => expect(screen.getByTestId('store-block')).toBeTruthy());
-    expect(screen.getByText(sampleAppContent.app_texts.home_store_note_lead!.kk!, { exact: false })).toBeTruthy();
-    expect(screen.getByText('Республика д-лы, 5')).toBeTruthy();
-    expect(screen.getByText('Абай к-сі, 20')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('store-block')).toBeTruthy();
+      expect(screen.getByText(sampleAppContent.app_texts.home_store_note_lead!.kk!, { exact: false })).toBeTruthy();
+      expect(screen.getByText('Республика д-лы, 5')).toBeTruthy();
+      expect(screen.getByText('Абай к-сі, 20')).toBeTruthy();
+    });
     screen.unmount();
   });
 

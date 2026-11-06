@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
@@ -20,13 +21,26 @@ export default function PromotionDetail() {
 function ServerPromotionDetail({ id }: { id: string }) {
   const { t, language } = useI18n();
   const promotion = usePromotion(id);
+  const [aspectRatio, setAspectRatio] = useState<number>(4 / 3);
   const item = promotion.data;
   const notFound = promotion.error instanceof ApiError && promotion.error.code === 'PROMOTION_NOT_FOUND';
   return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
     <ScreenHeader title={t('promotion')} back />
     <ScrollView contentContainerStyle={[styles.content, { paddingTop: 0 }]}>
       {promotion.isPending ? <Loading /> : promotion.isError && !notFound ? <ErrorNotice error={promotion.error} retry={() => { void promotion.refetch(); }} /> : !item ? <EmptyState icon="gift" title={t('promotionNotFound')} /> : <>
-        {item.image_url && <FadeIn><Image source={{ uri: item.image_url }} style={local.image} contentFit="contain" cachePolicy="memory-disk" accessibilityIgnoresInvertColors /></FadeIn>}
+        {item.image_url && <FadeIn><Image
+          source={{ uri: item.image_url }}
+          style={[local.image, { aspectRatio }]}
+          contentFit="contain"
+          cachePolicy="memory-disk"
+          accessibilityIgnoresInvertColors
+          onLoad={e => {
+            const { width, height } = e.source;
+            if (width > 0 && height > 0) {
+              setAspectRatio(width / height);
+            }
+          }}
+        /></FadeIn>}
         <FadeIn index={1} style={local.card}>
           {item.badge && <View style={local.badge}><Text style={local.badgeText}>{item.badge}</Text></View>}
           <Text style={local.title}>{item.title}</Text>
@@ -48,7 +62,7 @@ function UnavailablePromotion() {
 }
 
 const local = StyleSheet.create({
-  image: { width: '100%', aspectRatio: 1.7, borderRadius: 22, backgroundColor: theme.colors.surface },
+  image: { width: '100%', borderRadius: 22, backgroundColor: 'transparent' },
   card: { backgroundColor: theme.colors.surface, borderRadius: 22, padding: 20, gap: 10, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
   badge: { alignSelf: 'flex-start', backgroundColor: theme.colors.primary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { fontFamily: fonts.bold, fontSize: 11, color: theme.colors.onPrimary },

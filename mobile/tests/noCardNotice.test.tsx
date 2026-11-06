@@ -207,7 +207,7 @@ describe('No card bind removed — Home, QR, Cards, Status', () => {
         nativeEvent: { layout: { width: 390, height: 200 } },
       });
       await waitFor(() => {
-        expect(screen.getByText('Выиграй суперприз')).toBeTruthy();
+        expect(screen.getByLabelText(/Выиграй суперприз/)).toBeTruthy();
       });
       expect(screen.getByText('Свежие яблоки')).toBeTruthy();
 
@@ -357,7 +357,7 @@ describe('No card bind removed — Home, QR, Cards, Status', () => {
         nativeEvent: { layout: { width: 390, height: 200 } },
       });
       await waitFor(() => {
-        expect(screen.getByText('Выиграй суперприз')).toBeTruthy();
+        expect(screen.getByLabelText(/Выиграй суперприз/)).toBeTruthy();
       });
       expect(screen.getByText('Свежие яблоки')).toBeTruthy();
 
