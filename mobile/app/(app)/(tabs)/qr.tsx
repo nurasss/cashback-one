@@ -5,7 +5,7 @@ import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, Text, Vie
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { requestWalletLink, useWalletAvailability } from '../../../src/api/app';
 import { useSession } from '../../../src/auth/provider';
-import { Button, EmptyState, ErrorNotice, Loading, ScreenHeader, styles } from '../../../src/components/ui';
+import { ErrorNotice, Loading, NoCardNotice, ScreenHeader, styles } from '../../../src/components/ui';
 import { Icon } from '../../../src/components/icons';
 import { useActiveCard } from '../../../src/features/activeCard';
 import { DynamicQr } from '../../../src/features/DynamicQr';
@@ -48,9 +48,7 @@ export default function QrScreen() {
   return <SafeAreaView edges={['top']} style={styles.screen}>
     <ScreenHeader title={t('tabQr')} back onBack={() => router.navigate('/')} />
     <ScrollView contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16, paddingTop: 96 }]}>
-      {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
-        <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
-      </EmptyState> : <>
+      {cards.isPending ? <Loading /> : !card ? <NoCardNotice /> : <>
         <FadeIn><DynamicQr value={card.barcode} blocked={card.is_blocked} /></FadeIn>
         {isWalletAvailable && !card.is_blocked && (
           <FadeIn>

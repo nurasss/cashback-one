@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppContent, useBadges } from '../../src/api/app';
 import { getClientConfig } from '../../src/config/client';
 import { FadeIn, motionEnabled, PressScale } from '../../src/components/motion';
-import { EmptyState, Loading, ScreenHeader, styles } from '../../src/components/ui';
+import { Loading, NoCardNotice, ScreenHeader, styles } from '../../src/components/ui';
 import { TabBar } from '../../src/components/TabBar';
 import { useActiveCard } from '../../src/features/activeCard';
 import { LevelsSheet } from '../../src/features/LevelsSheet';
@@ -28,7 +28,7 @@ export default function StatusScreen() {
   return <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
     <ScreenHeader title={t('myStatus')} back />
     <ScrollView contentContainerStyle={[styles.content, { alignItems: 'stretch', paddingTop: 0, gap: 16 }]}>
-      {cards.isPending ? <Loading /> : !card ? <EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')} /> : <>
+      {cards.isPending ? <Loading /> : !card ? <NoCardNotice /> : <>
         <FadeIn style={{ alignItems: 'center', marginTop: 40, gap: 4 }}>
           <StatusCoin level={tier?.level ?? '—'} size={190} />
           <Text style={local.caption}>{t('pointsSum')}</Text>

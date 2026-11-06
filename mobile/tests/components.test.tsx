@@ -1,8 +1,8 @@
 import { fireEvent, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { ApiError } from '../src/api/errors';
-import { TabBar } from '../src/components/TabBar';
+import { TabBar, styles as tabBarStyles } from '../src/components/TabBar';
 import { ErrorNotice } from '../src/components/ui';
-import { BindForm } from '../src/features/BindForm';
 import { DynamicQr } from '../src/features/DynamicQr';
 import { OfferCard, StatusCard } from '../src/features/home';
 import { ru } from '../src/i18n/ru';
@@ -35,6 +35,35 @@ it('tab bar without news shows plain labels', () => {
   expect(screen.getByRole('tab', { selected: true }).props.accessibilityLabel).toBe(ru.tabProfile);
 });
 
+it('renders the QR tab flush with the others and navigates on press', () => {
+  const onSelect = jest.fn();
+  const screen = render(<TabBar active="index" onSelect={onSelect} badges={{ promotions: false, notifications: 0 }} />);
+  const button = screen.getByLabelText(ru.tabQr);
+  expect(button).toBeTruthy();
+  expect(screen.getByText(ru.tabQr)).toBeTruthy();
+  const flat = StyleSheet.flatten(button.props.style);
+  expect(flat.width).toBe(48);
+  expect(flat.height).toBe(48);
+  expect(flat.marginTop).toBeUndefined();
+  fireEvent.press(button);
+  expect(onSelect).toHaveBeenCalledWith('qr');
+});
+
+it('distinguishes the selected tab state', () => {
+  const screen = render(<TabBar active="qr" onSelect={jest.fn()} badges={{ promotions: false, notifications: 0 }} />);
+  const selected = screen.getByRole('tab', { selected: true });
+  expect(selected.props.accessibilityLabel).toBe(ru.tabQr);
+  expect(StyleSheet.flatten(selected.props.style).borderWidth).toBe(2);
+});
+
+it('has flat styling without elevation or shadow artifacts', () => {
+  expect(tabBarStyles.qrButton).not.toHaveProperty('elevation');
+  expect(tabBarStyles.qrButton).not.toHaveProperty('shadowColor');
+  expect(tabBarStyles.qrButton).not.toHaveProperty('shadowOpacity');
+  expect(tabBarStyles.qrButton).not.toHaveProperty('shadowRadius');
+  expect(tabBarStyles.qrButton).not.toHaveProperty('shadowOffset');
+});
+
 it('dynamic QR encodes the server token, never the barcode, and hides expired tokens', () => {
   const screen = render(<DynamicQr qr={qr(60_000)} loading={false} failed={false} blocked={false} />);
   expect(screen.getByTestId('qr-payload').props.children).toBe(token);
@@ -63,14 +92,6 @@ it('offer card shows badge and title', () => {
   const screen = render(<OfferCard offer={offer} index={0} onPress={onPress} />);
   fireEvent.press(screen.getByLabelText('Скидка на хиты. Покупайте выгодно'));
   expect(onPress).toHaveBeenCalled();
-});
-
-it('manual binding blocks invalid input and passes exact leading-zero string', () => {
-  const submit = jest.fn(); const screen = render(<BindForm submit={submit} pending={false} />);
-  fireEvent.changeText(screen.getByLabelText(ru.barcode), '123'); fireEvent.press(screen.getByRole('button', { name: ru.bind }));
-  expect(screen.getByText(ru.invalidBarcode)).toBeTruthy(); expect(submit).not.toHaveBeenCalled();
-  fireEvent.changeText(screen.getByLabelText(ru.barcode), '0123456789012'); fireEvent.press(screen.getByRole('button', { name: ru.bind }));
-  expect(submit).toHaveBeenCalledWith('0123456789012');
 });
 
 it('network errors offer accessible retry without raw server message', () => {

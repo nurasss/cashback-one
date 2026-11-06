@@ -1,12 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
 import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { walletKey } from '../../src/api/wallet';
 import { useSession } from '../../src/auth/provider';
 import { Icon } from '../../src/components/icons';
 import { FadeIn, PressScale } from '../../src/components/motion';
-import { Button, ErrorNotice, Loading, ScreenHeader, styles } from '../../src/components/ui';
+import { ErrorNotice, Loading, NoCardNotice, ScreenHeader, styles } from '../../src/components/ui';
 import { useActiveCard } from '../../src/features/activeCard';
 import { useI18n } from '../../src/i18n';
 import { fonts, theme } from '../../src/theme';
@@ -48,7 +47,7 @@ export default function CardsScreen() {
           </View>
         </FadeIn>;
       }}
-      ListFooterComponent={<Button label={t('bind')} onPress={() => router.push('/bind')} />} />
+      ListEmptyComponent={!cards.isPending && !cards.isError ? <NoCardNotice /> : null} />
   </SafeAreaView>;
 }
 

@@ -151,7 +151,7 @@ describe('QR screen', () => {
   it('no card: no code', async () => {
     serve({ '/me/cards': [] });
     const screen = mountWith(<QrScreen />);
-    await waitFor(() => expect(screen.getByText(ru.noCardTitle)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(ru.noCardNotice)).toBeTruthy());
     expect(screen.queryByTestId('qr-payload')).toBeNull();
     screen.unmount();
   });
@@ -251,7 +251,7 @@ describe('Home screen header and notes', () => {
   it('is hidden when there is no card', async () => {
     serve({ ...home, '/me/cards': [] });
     const screen = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByText(ru.noCardTitle)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(ru.noCardNotice)).toBeTruthy());
     expect(screen.queryByTestId('store-block')).toBeNull();
     screen.unmount();
   });
@@ -273,7 +273,7 @@ describe('Status screen', () => {
   it('hides balanceDelayNote on the status screen when no card', async () => {
     serve({ ...statusRoutes, '/me/cards': [] });
     const screen = mountWith(<StatusScreen />);
-    await waitFor(() => expect(screen.getByText(ru.noCardTitle)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(ru.noCardNotice)).toBeTruthy());
     expect(screen.queryByText(ru.balanceDelayNote)).toBeNull();
     screen.unmount();
   });

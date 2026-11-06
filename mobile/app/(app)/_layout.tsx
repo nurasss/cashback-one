@@ -21,7 +21,6 @@ export default function AppLayout() {
       <Stack.Screen name="status" />
       <Stack.Screen name="history" />
       <Stack.Screen name="cards" />
-      <Stack.Screen name="bind" />
       <Stack.Screen name="promotion/[id]" />
     </Stack>
   </ActiveCardProvider>;

@@ -143,8 +143,10 @@ export function createDemoApi() {
         headers: { 'Content-Type': 'application/json', ETag: demoEtag },
       });
     }
-    if (path === '/me/cards' && method === 'GET') return json([card]);
-    if (path === '/me/cards/bind') return json(card);
+    if (path === '/me/cards' && method === 'GET') {
+      if (typeof window !== 'undefined' && window.location?.search?.includes('no_card=1')) return json([]);
+      return json([card]);
+    }
     if (path === `/me/cards/${card.id}` && method === 'GET') return json(card);
     if (path === `/me/cards/${card.id}` && method === 'DELETE') return new Response(null, { status: 204 });
     if (path === `/me/cards/${card.id}/qr`) return json(qr());

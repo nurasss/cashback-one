@@ -6,7 +6,7 @@ import { useAppContent, useProfile, usePromotions } from '../../../src/api/app';
 import { getClientConfig } from '../../../src/config/client';
 import { Icon } from '../../../src/components/icons';
 import { FadeIn } from '../../../src/components/motion';
-import { Button, EmptyState, ErrorNotice, Loading, styles } from '../../../src/components/ui';
+import { ErrorNotice, Loading, NoCardNotice, styles } from '../../../src/components/ui';
 import { useActiveCard } from '../../../src/features/activeCard';
 import { BalanceHeader, BannerCarousel, ServerOffersGrid, StatusCard, StoreBlock } from '../../../src/features/home';
 import { PushPermissionNotice } from '../../../src/features/push';
@@ -62,18 +62,17 @@ export default function Home() {
       </FadeIn>
 
       <FadeIn index={1} style={local.section}>
-        {cards.isPending ? <Loading /> : cards.isError && !cards.data ? <ErrorNotice error={cards.error} retry={() => { void cards.refetch(); }} /> :
-          card ? <>
+        {cards.isPending ? <Loading /> : cards.isError && !cards.data ? <ErrorNotice error={cards.error} retry={() => { void cards.refetch(); }} /> : <>
+          {card ? <>
             <StatusCard tier={card.tier} balance={card.balance} onPress={() => router.push('/status')} />
             {card.tier && Number(card.tier.max_percent) > 0 && <View style={local.promoLine}>
               <Icon name="crown" size={18} color={theme.colors.primary} />
               <Text style={local.promoLineText}>{t('dontMiss', { percent: percentText(card.tier.max_percent) })}</Text>
             </View>}
-            <StoreBlock appContent={appContent.data} language={language} onOpenMap={openStoreMap} />
-            <PushPermissionNotice />
-          </> : <View style={styles.sheet}><EmptyState icon="card" title={t('noCardTitle')} body={t('noCardBody')}>
-            <Button label={t('bind')} onPress={() => router.push('/bind')} style={{ alignSelf: 'stretch' }} />
-          </EmptyState></View>}
+          </> : <NoCardNotice />}
+          <StoreBlock appContent={appContent.data} language={language} onOpenMap={openStoreMap} />
+          <PushPermissionNotice />
+        </>}
       </FadeIn>
 
       {offers.length > 0 && <FadeIn index={2} style={local.offersSheet}>

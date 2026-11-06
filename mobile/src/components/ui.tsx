@@ -73,6 +73,8 @@ export function NewDot({ style }: { style?: ViewStyle }) {
   return <View accessibilityElementsHidden importantForAccessibility="no" style={[styles.dot, style]} />;
 }
 
+export { NoCardNotice } from './NoCardNotice';
+
 export const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: t.colors.background },
   content: { padding: 20, gap: 20, paddingBottom: 140 },
