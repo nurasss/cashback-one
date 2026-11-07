@@ -53,3 +53,7 @@ RU/KK в `admin/src/i18n/admin.ts`.
 ## Отчёт
 
 `reports/BACKEND_AGENT_COMMANDS_2026-11-06.md`: протокол (маршруты, тела, статусы), миграция, сырой вывод проверок до и после.
+
+## Дополнение 1 (2026-11-07)
+
+Миграция `0017` уже занята (`0017_scheduled_notifications`, выкладывается). Для команд агента бери **`0018`** с `down_revision = "0017_scheduled_notifications"`; начинать от main не старше `ebb28fc`.
