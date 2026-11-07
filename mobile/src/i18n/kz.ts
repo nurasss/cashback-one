@@ -65,7 +65,7 @@ export const kz: Dictionary = {
   enableNotificationsPrompt: 'Хабарламаларды қосыңыз. Онсыз кассир ұпайларды есептен шығара алмайды: растау коды хабарлама арқылы келеді.',
   enableNotificationsAction: 'Қосу',
   notificationChannelName: 'Кодтар мен хабарламалар',
-  myProfile: 'Менің профилім', profileOptionalNote: 'Профиль өрістері міндетті емес. Тек бөліскіңіз келетін деректерді толтырыңыз.',
+  myProfile: 'Менің профилім', appVersion: 'Нұсқа {version}', profileOptionalNote: 'Профиль өрістері міндетті емес. Тек бөліскіңіз келетін деректерді толтырыңыз.',
   langKz: 'Қаз', langRu: 'Рус', firstName: 'Аты', lastName: 'Тегі', firstNamePh: 'Атыңызды енгізіңіз', lastNamePh: 'Тегіңізді енгізіңіз',
   email: 'E-mail', emailPh: 'E-mail енгізіңіз', gender: 'Жынысы', male: 'Ер', female: 'Әйел', city: 'Қала', address: 'Мекенжай',
   birthDate: 'Туған күні', birthDatePh: 'КК.АА.ЖЖЖЖ', saved: 'Профиль сақталды',

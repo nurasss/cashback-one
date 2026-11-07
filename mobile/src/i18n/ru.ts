@@ -72,7 +72,7 @@ export const ru = {
   enableNotificationsAction: 'Включить',
   notificationChannelName: 'Коды и уведомления',
   // Profile
-  myProfile: 'Мой профиль', profileOptionalNote: 'Поля профиля необязательны. Заполняйте только то, чем хотите поделиться.',
+  myProfile: 'Мой профиль', appVersion: 'Версия {version}', profileOptionalNote: 'Поля профиля необязательны. Заполняйте только то, чем хотите поделиться.',
   langKz: 'Қаз', langRu: 'Рус', firstName: 'Имя', lastName: 'Фамилия', firstNamePh: 'Введите имя', lastNamePh: 'Введите фамилию',
   email: 'E-mail', emailPh: 'Введите e-mail', gender: 'Пол', male: 'Мужской', female: 'Женский', city: 'Город', address: 'Адрес',
   birthDate: 'Дата рождения', birthDatePh: 'ДД.ММ.ГГГГ', saved: 'Профиль сохранён',

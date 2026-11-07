@@ -11,6 +11,27 @@ import type { Profile } from '../src/types/api';
 const mockRequest = jest.fn();
 let mockFocusEffectCleanup: (() => void) | undefined;
 
+interface MockExpoConfig {
+  version?: string;
+  android?: { versionCode?: number };
+}
+interface MockExpoGlobal {
+  __mockProfileExpoConfig?: MockExpoConfig | null;
+}
+const mockExpoGlobal = globalThis as unknown as MockExpoGlobal;
+
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: {
+    get expoConfig() {
+      const g = globalThis as unknown as MockExpoGlobal;
+      return g.__mockProfileExpoConfig !== undefined
+        ? g.__mockProfileExpoConfig
+        : { version: '1.0.16', android: { versionCode: 17 } };
+    },
+  },
+}));
+
 jest.mock('../src/auth/provider', () => ({
   useSession: () => ({ api: { request: mockRequest }, session: { accept: jest.fn(), logout: jest.fn() } }),
 }));
@@ -76,6 +97,26 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockRequest.mockReset();
   mockFocusEffectCleanup = undefined;
+  mockExpoGlobal.__mockProfileExpoConfig = { version: '1.0.16', android: { versionCode: 17 } };
+});
+
+it('shows the application version in Russian and Kazakh, and renders when Expo config has no version', async () => {
+  const russian = await open();
+  expect(russian.getByText('Версия 1.0.16 (17)')).toBeTruthy();
+  russian.unmount();
+
+  const kazakh = await open();
+  await act(async () => {
+    fireEvent.press(kazakh.getByRole('radio', { name: ru.langKz }));
+  });
+  expect(kazakh.getByText('Нұсқа 1.0.16 (17)')).toBeTruthy();
+  kazakh.unmount();
+
+  mockExpoGlobal.__mockProfileExpoConfig = null;
+  const unavailable = await open();
+  expect(unavailable.getByLabelText(ru.firstName)).toBeTruthy();
+  expect(unavailable.queryByText(/Версия|Нұсқа/)).toBeNull();
+  unavailable.unmount();
 });
 
 it('profile has no save button, no IIN and no company', async () => {

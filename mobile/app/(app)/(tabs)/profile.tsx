@@ -1,6 +1,7 @@
 import { useKeyboardLift } from '../../../src/components/useKeyboardLift';
 import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { useQueryClient } from '@tanstack/react-query';
+import Constants from 'expo-constants';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -29,6 +30,11 @@ export default function ProfileScreen() {
   const lift = useKeyboardLift();
   const insets = useSafeAreaInsets();
   const { t, language, setLanguage } = useI18n();
+  const version = Constants.expoConfig?.version?.trim();
+  const versionCode = Constants.expoConfig?.android?.versionCode;
+  const versionLabel = version
+    ? `${t('appVersion', { version })}${typeof versionCode === 'number' && Number.isInteger(versionCode) && versionCode > 0 ? ` (${versionCode})` : ''}`
+    : null;
   const { api } = useSession();
   const query = useQueryClient();
   const profile = useProfile();
@@ -306,6 +312,7 @@ export default function ProfileScreen() {
             <ProfileRow icon="history" label={t('accrualHistory')} onPress={() => router.push('/history')} />
           </View>
         </>}
+        {versionLabel && <Text style={local.appVersion}>{versionLabel}</Text>}
       </ScrollView>
     </Animated.View>
     {sheet && form && <FieldSheet {...sheets[sheet]} initial={form[sheet]} onClose={() => setSheet(null)}
@@ -329,4 +336,5 @@ const local = StyleSheet.create({
   divider: { height: 1, backgroundColor: theme.colors.border },
   saved: { fontFamily: fonts.medium, fontSize: 14, color: theme.colors.success, textAlign: 'center' },
   links: { backgroundColor: theme.colors.background, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 4, marginTop: 8 },
+  appVersion: { fontFamily: fonts.regular, fontSize: 12, color: theme.colors.muted, textAlign: 'center', marginTop: 12, marginBottom: 8 },
 });
