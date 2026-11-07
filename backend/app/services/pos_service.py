@@ -1,5 +1,6 @@
 """Service handling POS direct cloud redemptions with 4-digit push codes."""
 import hmac
+import re
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -9,10 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import AppError
+from app.core.phone import normalize_phone
 from app.core.security import generate_sms_otp
 from app.core.time import as_utc, utcnow
 from app.models.entities import Business, Card, Notification, PosKey, RedemptionCode, User, UserCard
-from app.schemas.pos import PosRedemptionRequest, PosRedemptionResponse, RedemptionVerifyResponse
+from app.schemas.pos import (
+    PosCodePushRequest,
+    PosCodePushResponse,
+    PosRedemptionRequest,
+    PosRedemptionResponse,
+    RedemptionVerifyResponse,
+)
 from app.services.content_service import (
     _amount_text,
     redemption_confirmed_text,
@@ -22,6 +30,9 @@ from app.services.push_sender import PushSender
 from app.services.push_service import has_active_device, send_to_user
 from app.services.rate_limiter import RateLimiter
 from app.services.redemption_service import _hash_code
+
+CODE_REGEX = re.compile(r"^\d{4}$")
+
 
 
 async def request_pos_redemption(
@@ -154,6 +165,156 @@ async def request_pos_redemption(
         redemption_id=record.id,
         expires_at=record.expires_at,
     )
+
+
+async def send_pos_code_push(
+    session: AsyncSession,
+    pos_key: PosKey,
+    body: PosCodePushRequest,
+    limiter: RateLimiter,
+    sender: PushSender,
+) -> PosCodePushResponse:
+    """Send customer redemption code directly to their mobile app via push notification."""
+    if sender.disabled:
+        raise AppError(
+            code="PUSH_NOT_CONFIGURED",
+            message="Push delivery is not configured on this server.",
+            status_code=503,
+        )
+
+    if not isinstance(body.code, str) or not CODE_REGEX.match(body.code):
+        raise AppError("VALIDATION_ERROR", "Code must be exactly 4 digits", status_code=400)
+
+    try:
+        normalized_phone = normalize_phone(body.phone)
+    except ValueError:
+        raise AppError("VALIDATION_ERROR", "Invalid phone number format", status_code=400)
+
+    if not normalized_phone:
+        raise AppError("VALIDATION_ERROR", "Phone number is required", status_code=400)
+
+    owner = await session.scalar(
+        select(User).where(User.phone == normalized_phone, User.deleted_at.is_(None))
+    )
+    if owner is None:
+        raise AppError("CARD_NOT_FOUND", "Card not found in this business", 404)
+
+    cards = (
+        await session.execute(
+            select(Card)
+            .join(UserCard, UserCard.card_id == Card.id)
+            .where(
+                UserCard.user_id == owner.id,
+                Card.business_id == pos_key.business_id,
+            )
+            .order_by(Card.updated_at.desc(), Card.id.desc())
+        )
+    ).scalars().all()
+
+    if not cards:
+        raise AppError("CARD_NOT_FOUND", "Card not found in this business", 404)
+
+    unblocked_cards = [c for c in cards if not c.is_blocked]
+    if not unblocked_cards:
+        raise AppError("CARD_BLOCKED", "Card is blocked", 409)
+
+    card = unblocked_cards[0]
+
+    active = await has_active_device(session, owner.id, business_id=pos_key.business_id)
+    if not active:
+        raise AppError(
+            "CUSTOMER_NO_APP",
+            "Customer has no active devices with notifications enabled",
+            409,
+        )
+
+    if await limiter.is_rate_limited(
+        f"redeem:card:{card.id}",
+        settings.redemption_card_request_limit,
+        settings.redemption_card_rate_window_seconds,
+    ):
+        raise AppError("RATE_LIMIT_EXCEEDED", "Too many code requests for this card", 429)
+
+    business_name = (
+        await session.scalar(select(Business.name).where(Business.id == pos_key.business_id))
+    ) or ""
+
+    record_id = uuid.uuid4()
+    now = utcnow()
+
+    title = "Код для списания бонусов"
+    text = (
+        f"Ваш код для списания бонусов: {body.code} в «{business_name}». "
+        "Назовите его кассиру, только если сейчас оплачиваете покупку."
+    )
+    data = {"type": "redemption_code", "redemption_id": str(record_id)}
+
+    try:
+        delivered = await send_to_user(
+            session=session,
+            sender=sender,
+            user_id=owner.id,
+            title=title,
+            body=text,
+            data=data,
+            business_id=pos_key.business_id,
+        )
+    except AppError:
+        raise
+    except Exception:  # noqa: BLE001 - any send error results in 503
+        raise AppError("PUSH_DELIVERY_FAILED", "Failed to deliver push notification", 503)
+
+    if delivered == 0:
+        raise AppError("PUSH_DELIVERY_FAILED", "Failed to deliver push notification", 503)
+
+    prev_pendings = (
+        await session.execute(
+            select(RedemptionCode)
+            .where(RedemptionCode.card_id == card.id, RedemptionCode.status == "pending")
+        )
+    ).scalars().all()
+    for prev in prev_pendings:
+        prev.status = "superseded"
+        await session.execute(
+            update(Notification)
+            .where(Notification.redemption_id == prev.id)
+            .values(body=redemption_inactive_text(prev.amount, business_name))
+        )
+
+    record = RedemptionCode(
+        id=record_id,
+        business_id=pos_key.business_id,
+        card_id=card.id,
+        amount=Decimal(0),
+        code_hash=_hash_code(record_id, body.code),
+        expires_at=now + timedelta(seconds=settings.redemption_code_ttl_seconds),
+        created_at=now,
+    )
+    session.add(record)
+    await session.flush()
+
+    notification = Notification(
+        id=uuid.uuid4(),
+        business_id=pos_key.business_id,
+        user_id=owner.id,
+        redemption_id=record_id,
+        kind="info",
+        title=title,
+        body=text,
+        created_at=now,
+    )
+    session.add(notification)
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+    return PosCodePushResponse(
+        status="sent",
+        expires_at=record.expires_at,
+    )
+
 
 
 async def verify_pos_redemption(

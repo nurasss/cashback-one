@@ -304,13 +304,25 @@ def _amount_text(amount: Decimal) -> str:
 
 
 def redemption_confirmed_text(amount: Decimal, business_name: str) -> str:
+    if not amount or amount == 0:
+        if business_name:
+            return f"Списание в «{business_name}» подтверждено на кассе."
+        return "Списание подтверждено на кассе."
     amount_str = _amount_text(amount)
-    return f"Списание {amount_str} баллов в «{business_name}» подтверждено на кассе."
+    if business_name:
+        return f"Списание {amount_str} баллов в «{business_name}» подтверждено на кассе."
+    return f"Списание {amount_str} баллов подтверждено на кассе."
 
 
 def redemption_inactive_text(amount: Decimal, business_name: str) -> str:
+    if not amount or amount == 0:
+        if business_name:
+            return f"Код для списания в «{business_name}» больше не действует."
+        return "Код больше не действует."
     amount_str = _amount_text(amount)
-    return f"Код для списания {amount_str} баллов в «{business_name}» больше не действует."
+    if business_name:
+        return f"Код для списания {amount_str} баллов в «{business_name}» больше не действует."
+    return f"Код для списания {amount_str} баллов больше не действует."
 
 
 def transaction_notification(

@@ -71,3 +71,15 @@ class PosRedemptionVerifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     code: str = Field(..., pattern=r"^\d{4}$")
+
+
+class PosCodePushRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phone: str
+    code: str
+
+
+class PosCodePushResponse(BaseModel):
+    status: str = "sent"
+    expires_at: datetime
