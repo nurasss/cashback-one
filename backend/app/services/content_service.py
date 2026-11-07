@@ -176,24 +176,34 @@ async def get_promotion(
     return item
 
 
+def _notification_effective_time() -> ColumnElement[datetime]:
+    return func.coalesce(Notification.scheduled_at, Notification.created_at)
+
+
 async def list_notifications(
     session: AsyncSession, user: User, business_id: uuid.UUID | None = None
 ) -> NotificationsResponse:
+    now = utcnow()
+    eff_time = _notification_effective_time()
+    time_filter = or_(Notification.scheduled_at.is_(None), Notification.scheduled_at <= now)
+
     if business_id is not None:
         if not await _is_active_business(session, business_id):
             return NotificationsResponse(items=[], unread_count=0)
         visible = and_(
             Notification.business_id == business_id,
+            time_filter,
             or_(
                 Notification.user_id == user.id,
-                and_(Notification.user_id.is_(None), Notification.created_at >= user.created_at),
+                and_(Notification.user_id.is_(None), eff_time >= user.created_at),
             ),
         )
     else:
         business_ids = await customer_business_ids(session, user.id)
         visible = and_(
             _visible_notifications(user.id, business_ids),
-            or_(Notification.user_id == user.id, Notification.created_at >= user.created_at),
+            time_filter,
+            or_(Notification.user_id == user.id, eff_time >= user.created_at),
         )
 
     rows = (
@@ -202,15 +212,15 @@ async def list_notifications(
             .outerjoin(RedemptionCode, RedemptionCode.id == Notification.redemption_id)
             .outerjoin(Business, Business.id == Notification.business_id)
             .where(visible)
-            .order_by(Notification.created_at.desc(), Notification.id.desc())
+            .order_by(eff_time.desc(), Notification.id.desc())
             .limit(NOTIFICATIONS_PAGE_LIMIT)
         )
     ).all()
-    now = utcnow()
     items = []
     for notif, redemption, business in rows:
         item = NotificationItem.model_validate(notif)
-        item.is_unread = _is_new(notif.created_at, user.notifications_seen_at)
+        effective_at = notif.scheduled_at if notif.scheduled_at is not None else notif.created_at
+        item.is_unread = _is_new(effective_at, user.notifications_seen_at)
         if notif.redemption_id is not None and redemption is not None:
             is_pending_and_valid = (
                 redemption.status == "pending"
@@ -233,22 +243,28 @@ async def _unread_notifications(
     business_ids: list[uuid.UUID] | None = None,
     business_id: uuid.UUID | None = None,
 ) -> int:
+    now = utcnow()
+    eff_time = _notification_effective_time()
+    time_filter = or_(Notification.scheduled_at.is_(None), Notification.scheduled_at <= now)
+
     if business_id is not None:
         if not await _is_active_business(session, business_id):
             return 0
         conditions = [
             Notification.business_id == business_id,
-            or_(Notification.user_id == user.id, Notification.created_at >= user.created_at),
+            time_filter,
+            or_(Notification.user_id == user.id, eff_time >= user.created_at),
         ]
     else:
         if business_ids is None:
             business_ids = await customer_business_ids(session, user.id)
         conditions = [
             _visible_notifications(user.id, business_ids),
-            or_(Notification.user_id == user.id, Notification.created_at >= user.created_at),
+            time_filter,
+            or_(Notification.user_id == user.id, eff_time >= user.created_at),
         ]
     if user.notifications_seen_at is not None:
-        conditions.append(Notification.created_at > user.notifications_seen_at)
+        conditions.append(eff_time > user.notifications_seen_at)
     count = await session.scalar(select(func.count(Notification.id)).where(*conditions))
     return int(count or 0)
 

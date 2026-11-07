@@ -50,7 +50,8 @@ async def test_resolve_allowed_app_ids(db_session: AsyncSession) -> None:
     await db_session.commit()
 
     allowed_keremet = await resolve_allowed_app_ids(db_session, biz_keremet.id)
-    assert allowed_keremet == {"kz.cashbackone.keremet", settings.push_shared_app_id}
+    # Owner rule (2026-11-07): if business has android_app_id, ONLY that app receives push
+    assert allowed_keremet == {"kz.cashbackone.keremet"}
 
     allowed_general = await resolve_allowed_app_ids(db_session, biz_general.id)
     assert allowed_general == {settings.push_shared_app_id}
@@ -103,7 +104,7 @@ async def test_push_targeting_three_devices(db_session: AsyncSession) -> None:
     assert await has_active_device(db_session, user.id, business_id=biz_keremet.id) is True
     assert await has_active_device(db_session, user.id, business_id=biz_no_app.id) is True
 
-    # Send for Keremet
+    # Send for Keremet (Owner rule: ONLY keremet app receives, shared does not)
     sender = RecordingPushSender()
     delivered = await send_to_user(
         session=db_session,
@@ -113,9 +114,10 @@ async def test_push_targeting_three_devices(db_session: AsyncSession) -> None:
         body="Body",
         business_id=biz_keremet.id,
     )
-    assert delivered == 2
+    assert delivered == 1
     sent_tokens = {msg["token"] for msg in sender.sent}
-    assert sent_tokens == {"tok_shared_111", "tok_keremet_222"}
+    assert sent_tokens == {"tok_keremet_222"}
+    assert "tok_shared_111" not in sent_tokens
     assert "tok_other_333" not in sent_tokens
 
     # Send for Plain Store (no android_app_id)
@@ -178,3 +180,18 @@ async def test_push_targeting_customer_no_app(db_session: AsyncSession) -> None:
     db_session.add(biz_plain)
     await db_session.commit()
     assert await has_active_device(db_session, user.id, business_id=biz_plain.id) is False
+
+    # Customer has ONLY shared app, but business has own app (android_app_id set)
+    user_shared_only = User(phone="+77008887766", language="ru")
+    db_session.add(user_shared_only)
+    await db_session.flush()
+    dev_shared_only = Device(
+        user_id=user_shared_only.id,
+        push_token="tok_shared_only_888",
+        app_id="kz.cashbackone.mobile",
+        platform="android",
+    )
+    db_session.add(dev_shared_only)
+    await db_session.commit()
+    # Must be False for Keremet because user lacks kz.cashbackone.keremet app
+    assert await has_active_device(db_session, user_shared_only.id, business_id=biz_keremet.id) is False

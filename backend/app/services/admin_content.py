@@ -5,6 +5,7 @@ manage only their own business. Every mutation is audited.
 """
 import logging
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.admin_deps import AdminScope, scope_for_admin
 from app.core.config import Settings
 from app.core.errors import AppError
+from app.core.time import utcnow
 from app.models.admin import AdminUser
 from app.models.entities import Business, BusinessStore, Notification, Promotion
 from app.schemas.admin import Page
@@ -196,6 +198,8 @@ def _notification_state(
         "business_id": str(note.business_id) if note.business_id else None,
         "kind": note.kind,
         "targeted_user": note.user_id is not None,
+        "scheduled_at": note.scheduled_at.isoformat() if note.scheduled_at else None,
+        "push_sent_at": note.push_sent_at.isoformat() if note.push_sent_at else None,
     }
     if push_devices is not None:
         state["push_devices"] = push_devices
@@ -213,28 +217,46 @@ async def create_notification(
     scope = scope_for_admin(admin)
     business_id = _owner_business(scope, body.business_id)
     await _require_business(db, business_id)
-    note = Notification(business_id=business_id, kind="info", title=body.title, body=body.body)
+
+    is_scheduled = body.scheduled_at is not None
+    push_sent_at: datetime | None = None
+    if not is_scheduled and body.send_push:
+        push_sent_at = utcnow()
+    elif is_scheduled and not body.send_push:
+        # If user explicitly turned off push for a scheduled notice, mark push as skipped
+        push_sent_at = body.scheduled_at
+
+    note = Notification(
+        business_id=business_id,
+        kind="info",
+        title=body.title,
+        body=body.body,
+        scheduled_at=body.scheduled_at,
+        push_sent_at=push_sent_at,
+    )
     db.add(note)
     await db.flush()
     await db.commit()
     await db.refresh(note)
 
-    if sender is None:
-        sender = get_push_sender()
+    push_res: BroadcastPushResult | None = None
+    if not is_scheduled:
+        if sender is None:
+            sender = get_push_sender()
 
-    try:
-        push_res = await send_broadcast_push(
-            session=db,
-            sender=sender,
-            notification_id=note.id,
-            title=note.title,
-            body=note.body,
-            business_id=business_id,
-            send_push=body.send_push,
-        )
-    except Exception:
-        logger.exception("Broadcast push unhandled failure")
-        push_res = BroadcastPushResult(status="failed", devices=0, delivered=0)
+        try:
+            push_res = await send_broadcast_push(
+                session=db,
+                sender=sender,
+                notification_id=note.id,
+                title=note.title,
+                body=note.body,
+                business_id=business_id,
+                send_push=body.send_push,
+            )
+        except Exception:
+            logger.exception("Broadcast push unhandled failure")
+            push_res = BroadcastPushResult(status="failed", devices=0, delivered=0)
 
     try:
         _audit(
@@ -246,8 +268,8 @@ async def create_notification(
             None,
             _notification_state(
                 note,
-                push_devices=push_res.devices,
-                push_delivered=push_res.delivered,
+                push_devices=push_res.devices if push_res else None,
+                push_delivered=push_res.delivered if push_res else None,
             ),
         )
         await db.commit()
@@ -262,6 +284,8 @@ async def create_notification(
         title=note.title,
         body=note.body,
         created_at=note.created_at,
+        scheduled_at=note.scheduled_at,
+        push_sent_at=note.push_sent_at,
         push=push_res,
     )
 

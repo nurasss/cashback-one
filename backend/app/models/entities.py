@@ -453,6 +453,7 @@ class Notification(Base, UUIDPrimaryKey):
         Index("ix_notifications_user_created", "user_id", "created_at"),
         Index("ix_notifications_business_created", "business_id", "created_at"),
         Index("ix_notifications_redemption_id", "redemption_id"),
+        Index("ix_notifications_scheduled_pending", "scheduled_at", "push_sent_at"),
     )
 
     business_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -467,6 +468,12 @@ class Notification(Base, UUIDPrimaryKey):
     kind: Mapped[str] = mapped_column(String(16), default="info", nullable=False)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    scheduled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    push_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )

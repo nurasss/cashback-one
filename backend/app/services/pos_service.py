@@ -66,7 +66,7 @@ async def request_pos_redemption(
     if owner is None:
         raise AppError(
             "CUSTOMER_NO_APP",
-            "Customer does not have Cashback One app",
+            "Customer does not have required app",
             409,
         )
 
@@ -74,7 +74,7 @@ async def request_pos_redemption(
     if not active:
         raise AppError(
             "CUSTOMER_NO_APP",
-            "Customer has no active devices with notifications enabled",
+            "Customer has no active devices with notifications enabled for this business app",
             409,
         )
 
@@ -224,7 +224,7 @@ async def send_pos_code_push(
     if not active:
         raise AppError(
             "CUSTOMER_NO_APP",
-            "Customer has no active devices with notifications enabled",
+            "Customer has no active devices with notifications enabled for this business app",
             409,
         )
 

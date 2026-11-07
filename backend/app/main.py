@@ -1,5 +1,6 @@
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,12 +27,24 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    from app.services.notification_scheduler import run_scheduled_notifications_loop
     from app.services.wallet_passes import check_wallet_files_at_startup
 
     check_wallet_files_at_startup()
     if settings.app_env.lower() != "test" and settings.redis_url:
         app.state.redis = get_redis_client()
+
+    scheduler_task: asyncio.Task[None] | None = None
+    if settings.app_env.lower() != "test":
+        scheduler_task = asyncio.create_task(run_scheduled_notifications_loop())
+
     yield
+
+    if scheduler_task is not None:
+        scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await scheduler_task
+
     await close_redis_client()
 
 

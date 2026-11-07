@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Literal
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -21,11 +21,12 @@ async def resolve_allowed_app_ids(
 ) -> set[str] | None:
     """Resolve allowed device app_ids for an event of the given business.
 
+    Owner decision (2026-11-07):
     - If business_id is None: returns None (no app_id filter, sends to all active devices).
-    - If business_id is provided and business has android_app_id:
-        {business.android_app_id, settings.push_shared_app_id}.
-    - If business_id is provided and business has no android_app_id (or not found):
-        {settings.push_shared_app_id}.
+    - If business has its own application (android_app_id is set):
+        {business.android_app_id} ONLY (general Cashback One app does NOT receive push).
+    - If business has no android_app_id (or not found):
+        {settings.push_shared_app_id} (shared Cashback One app).
     """
     if business_id is None:
         return None
@@ -34,7 +35,7 @@ async def resolve_allowed_app_ids(
         select(Business.android_app_id).where(Business.id == business_id)
     )
     if business_app_id:
-        return {business_app_id, shared_id}
+        return {business_app_id}
     return {shared_id}
 
 
@@ -136,11 +137,14 @@ async def get_broadcast_target_devices(
 ) -> list[Device]:
     """Resolve active target devices for a broadcast notification.
 
+    Owner decision (2026-11-07):
     - business_id is None ('Все бизнесы'): all active devices (disabled_at IS NULL).
     - business_id is set (Business B):
         - if B is inactive or not found: returns empty list.
-        - devices with app_id == B.android_app_id (if set), with or without a card;
-        - devices with app_id == push_shared_app_id whose user has a visible card of B (hidden_at IS NULL).
+        - if B has android_app_id: devices with app_id == B.android_app_id ONLY
+          (devices of shared app do NOT receive push).
+        - if B does NOT have android_app_id: devices with app_id == push_shared_app_id
+          whose user has a visible card of B (hidden_at IS NULL).
     Deduplicates devices by push_token so each device receives at most 1 message.
     """
     if business_id is None:
@@ -150,29 +154,26 @@ async def get_broadcast_target_devices(
         if biz is None or biz.status != "active":
             return []
 
-        shared_app_id = settings.push_shared_app_id
-        user_has_visible_card = (
-            select(UserCard.user_id)
-            .join(Card, Card.id == UserCard.card_id)
-            .where(
-                Card.business_id == business_id,
-                UserCard.hidden_at.is_(None),
+        if biz.android_app_id:
+            stmt = select(Device).where(
+                Device.disabled_at.is_(None),
+                Device.app_id == biz.android_app_id,
             )
-        )
-
-        conditions = [
-            and_(
+        else:
+            shared_app_id = settings.push_shared_app_id
+            user_has_visible_card = (
+                select(UserCard.user_id)
+                .join(Card, Card.id == UserCard.card_id)
+                .where(
+                    Card.business_id == business_id,
+                    UserCard.hidden_at.is_(None),
+                )
+            )
+            stmt = select(Device).where(
+                Device.disabled_at.is_(None),
                 Device.app_id == shared_app_id,
                 Device.user_id.in_(user_has_visible_card),
             )
-        ]
-        if biz.android_app_id:
-            conditions.append(Device.app_id == biz.android_app_id)
-
-        stmt = select(Device).where(
-            Device.disabled_at.is_(None),
-            or_(*conditions),
-        )
 
     raw_devices = (await session.scalars(stmt)).all()
     seen_tokens: set[str] = set()

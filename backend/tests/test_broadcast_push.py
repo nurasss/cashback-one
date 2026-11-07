@@ -125,11 +125,12 @@ async def test_broadcast_push_business_b_targeting(
     res = await admin_content.create_notification(db_session, superadmin, req, sender=fake_push_sender)
     assert res.push is not None
     assert res.push.status == "sent"
-    assert res.push.devices == 2
-    assert res.push.delivered == 2
+    # Owner rule (2026-11-07): business with own android_app_id targets ONLY devices of that app (tok_d1)
+    assert res.push.devices == 1
+    assert res.push.delivered == 1
 
     tokens = {msg.token for msg in fake_push_sender.sent_messages}
-    assert tokens == {"tok_d1", "tok_d2"}
+    assert tokens == {"tok_d1"}
     for msg in fake_push_sender.sent_messages:
         assert msg.title == "B Promo"
         assert msg.body == "B Body text"

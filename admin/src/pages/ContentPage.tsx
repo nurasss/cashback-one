@@ -10,7 +10,7 @@ import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components
 import { ImageUploadField } from '../components/ImageUploadField';
 import { DialogFrame } from '../features/AdminMutations';
 import { BusinessAppContent } from '../features/BusinessAppContent';
-import { formatDate } from '../utils/format';
+import { astanaLocalToUtcIso, formatAstanaSchedule, formatDate, getAstanaNowLocal } from '../utils/format';
 import { usePage } from '../utils/usePage';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
@@ -292,7 +292,25 @@ function NotificationsTable({ businessId }: { businessId?: string }) {
           {
             key: 'created',
             title: t.content.colSent,
-            render: item => <time dateTime={item.created_at}>{formatDate(item.created_at, locale)}</time>,
+            render: item => {
+              const isFuture = Boolean(
+                item.scheduled_at && new Date(item.scheduled_at).getTime() > Date.now()
+              );
+              if (isFuture && item.scheduled_at) {
+                return (
+                  <span className="table-name">
+                    {t.content.noticeStatusScheduled(formatAstanaSchedule(item.scheduled_at))}
+                  </span>
+                );
+              }
+              const displayDate = item.scheduled_at || item.created_at;
+              return (
+                <span className="table-name">
+                  {t.content.noticeStatusSent}
+                  <time dateTime={displayDate}>{formatDate(displayDate, locale)}</time>
+                </span>
+              );
+            },
           },
           {
             key: 'actions',
@@ -500,6 +518,8 @@ function NotificationDialog({
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [sendPush, setSendPush] = useState(true);
+  const [whenToSend, setWhenToSend] = useState<'now' | 'scheduled'>('now');
+  const [scheduledLocal, setScheduledLocal] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -509,6 +529,27 @@ function NotificationDialog({
       setError(t.content.noticeErrFields);
       return;
     }
+
+    let scheduledAtUtc: string | undefined = undefined;
+    if (whenToSend === 'scheduled') {
+      if (!scheduledLocal.trim()) {
+        setError(t.content.noticeErrScheduledRequired);
+        return;
+      }
+      const utcIso = astanaLocalToUtcIso(scheduledLocal.trim());
+      const targetTime = new Date(utcIso).getTime();
+      const nowTime = Date.now();
+      if (isNaN(targetTime) || targetTime <= nowTime) {
+        setError(t.content.noticeErrPast);
+        return;
+      }
+      if (targetTime > nowTime + 30 * 24 * 60 * 60 * 1000) {
+        setError(t.content.noticeErrTooFar);
+        return;
+      }
+      scheduledAtUtc = utcIso;
+    }
+
     setSaving(true);
     setError('');
     try {
@@ -518,6 +559,7 @@ function NotificationDialog({
           title: title.trim(),
           body: body.trim(),
           send_push: sendPush,
+          ...(scheduledAtUtc ? { scheduled_at: scheduledAtUtc } : {}),
           ...(superadmin && businessId ? { business_id: businessId } : {}),
         },
       });
@@ -533,7 +575,7 @@ function NotificationDialog({
 
   return (
     <DialogFrame title={t.content.noticeDialogTitle} onClose={onClose}>
-      <form className="mutation-form" onSubmit={event => { void submit(event); }}>
+      <form className="mutation-form" noValidate onSubmit={event => { void submit(event); }}>
         {superadmin && (
           <>
             <label htmlFor="note-business">{t.content.noticeFieldTo}</label>
@@ -544,12 +586,51 @@ function NotificationDialog({
         <input id="note-title" value={title} maxLength={120} onChange={event => setTitle(event.target.value)} required autoFocus />
         <label htmlFor="note-body">{t.content.noticeFieldBody}</label>
         <textarea id="note-body" rows={4} value={body} maxLength={2000} onChange={event => setBody(event.target.value)} required />
-        <label htmlFor="note-push">
+
+        <fieldset className="mutation-fieldset">
+          <legend>{t.content.noticeWhenToSend}</legend>
+          <div className="mutation-radio-group">
+            <label className="mutation-radio-label">
+              <input
+                type="radio"
+                name="whenToSend"
+                value="now"
+                checked={whenToSend === 'now'}
+                onChange={() => setWhenToSend('now')}
+              />
+              {t.content.noticeSendNow}
+            </label>
+            <label className="mutation-radio-label">
+              <input
+                type="radio"
+                name="whenToSend"
+                value="scheduled"
+                checked={whenToSend === 'scheduled'}
+                onChange={() => setWhenToSend('scheduled')}
+              />
+              {t.content.noticeSendScheduled}
+            </label>
+          </div>
+        </fieldset>
+
+        {whenToSend === 'scheduled' && (
+          <>
+            <label htmlFor="note-scheduled">{t.content.noticeFieldScheduledTime}</label>
+            <input
+              id="note-scheduled"
+              type="datetime-local"
+              value={scheduledLocal}
+              min={getAstanaNowLocal()}
+              onChange={event => setScheduledLocal(event.target.value)}
+            />
+          </>
+        )}
+
+        <label htmlFor="note-push" className="mutation-checkbox-label">
           <input
             id="note-push"
             type="checkbox"
             checked={sendPush}
-            style={{ width: 'auto', minHeight: 0, marginRight: 8 }}
             onChange={event => setSendPush(event.target.checked)}
           />
           {t.content.noticeSendPush}
@@ -561,7 +642,11 @@ function NotificationDialog({
             {t.content.cancelBtn}
           </button>
           <button className="button button-primary" type="submit" disabled={saving}>
-            {saving ? t.content.sendingBtn : t.content.sendBtn}
+            {saving
+              ? t.content.sendingBtn
+              : whenToSend === 'scheduled'
+                ? t.content.noticeScheduleBtn
+                : t.content.sendBtn}
           </button>
         </footer>
       </form>

@@ -1,11 +1,12 @@
 """Admin schemas for customer app content: promotions, notifications, stores, and app texts."""
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.time import utcnow
 from app.schemas.admin import _validate_logo_url
 
 PromotionKind = Literal["banner", "offer"]
@@ -113,6 +114,8 @@ class NotificationAdminItem(BaseModel):
     title: str
     body: str
     created_at: datetime
+    scheduled_at: datetime | None = None
+    push_sent_at: datetime | None = None
     push: BroadcastPushResult | None = None
 
 
@@ -123,8 +126,26 @@ class NotificationCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     body: str = Field(min_length=1, max_length=2000)
     send_push: bool = True
+    scheduled_at: datetime | None = None
 
     _text = field_validator("title", "body", mode="before")(_strip_required)
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def validate_scheduled_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        now = utcnow()
+        val_utc = (
+            value.astimezone(UTC)
+            if value.tzinfo is not None
+            else value.replace(tzinfo=UTC)
+        )
+        if val_utc <= now:
+            raise ValueError("Время отправки не может быть в прошлом")
+        if val_utc > now + timedelta(days=30):
+            raise ValueError("Время отправки не может быть позже, чем через 30 дней")
+        return val_utc
 
 
 ImagePurpose = Literal["promotion", "logo"]

@@ -1410,6 +1410,58 @@ tbody tr:hover {
   box-shadow: 0 0 0 3px rgba(255, 58, 77, 0.15);
 }
 
+.mutation-fieldset {
+  border: none;
+  padding: 0;
+  margin: 6px 0 0;
+}
+
+.mutation-fieldset legend {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.mutation-radio-group {
+  display: flex;
+  gap: 16px;
+}
+
+.mutation-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.mutation-radio-label input[type="radio"] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.mutation-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.mutation-checkbox-label input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
 .mutation-form textarea {
   resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

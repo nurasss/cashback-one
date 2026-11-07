@@ -30,6 +30,8 @@ export interface AppNotification {
   title: string;
   body: string;
   created_at: string;
+  scheduled_at?: string | null;
+  push_sent_at?: string | null;
   push?: BroadcastPushResult | null;
 }
 export interface BusinessDetail extends Business {
