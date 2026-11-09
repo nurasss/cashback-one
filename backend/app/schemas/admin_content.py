@@ -84,9 +84,18 @@ class PromotionCreateRequest(_PromotionFields):
             return None
         now = utcnow()
         val_utc = as_utc(value)
-        if val_utc < now - timedelta(minutes=5):
+        # Tight tolerance for network latency only (15 seconds, no arbitrary 5-minute past allowance)
+        if val_utc < now - timedelta(seconds=15):
             raise ValueError("starts_at cannot be in the past")
         return value
+
+    @model_validator(mode="after")
+    def validate_create_window(self) -> "PromotionCreateRequest":
+        now = utcnow()
+        effective_start = as_utc(self.starts_at) if self.starts_at is not None else now
+        if self.ends_at is not None and as_utc(self.ends_at) <= effective_start:
+            raise ValueError("ends_at must be after starts_at")
+        return self
 
 
 class PromotionUpdateRequest(_PromotionFields):
@@ -325,25 +334,20 @@ class BusinessSplashConfigResponse(BaseModel):
     version: str | None = None
 
 class BusinessSplashConfigUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     enabled: bool
-    media_type: Literal["image", "video"] | None = None
     media_url: str | None = Field(default=None, max_length=1024)
-    width: int | None = Field(default=None, ge=1, le=8192)
-    height: int | None = Field(default=None, ge=1, le=8192)
-    duration_seconds: float | None = Field(default=None, ge=0.1, le=5.0)
-    file_size: int | None = Field(default=None, ge=1, le=15_728_640)
+    media_type: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_seconds: float | None = None
+    file_size: int | None = None
 
     @model_validator(mode="after")
     def validate_splash_config(self) -> "BusinessSplashConfigUpdateRequest":
-        if self.enabled:
-            if not self.media_type:
-                raise ValueError("media_type is required when enabled is true")
-            if not self.media_url:
-                raise ValueError("media_url is required when enabled is true")
-            if self.media_type == "video" and (self.duration_seconds is None or self.duration_seconds > 5.0):
-                raise ValueError("duration_seconds must be between 0.1 and 5.0 for video splash")
+        if self.enabled and not self.media_url:
+            raise ValueError("media_url is required when enabled is true")
         return self
 
 

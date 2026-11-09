@@ -4,9 +4,8 @@ Superadmins manage global content (business_id NULL) and any business; business 
 manage only their own business. Every mutation is audited.
 """
 import logging
-import re
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -17,7 +16,13 @@ from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.time import as_utc, utcnow
 from app.models.admin import AdminUser
-from app.models.entities import Business, BusinessStore, Notification, Promotion
+from app.models.entities import (
+    Business,
+    BusinessSplashAsset,
+    BusinessStore,
+    Notification,
+    Promotion,
+)
 from app.schemas.admin import Page
 from app.schemas.admin_content import (
     AppTextsResponse,
@@ -134,6 +139,14 @@ async def _load_promotion(db: AsyncSession, scope: AdminScope, promotion_id: uui
     return promo
 
 
+def _dates_differ(old_dt: datetime | None, new_dt: datetime | None) -> bool:
+    if old_dt is None and new_dt is None:
+        return False
+    if old_dt is None or new_dt is None:
+        return True
+    return as_utc(old_dt) != as_utc(new_dt)
+
+
 async def update_promotion(
     db: AsyncSession,
     admin: AdminUser,
@@ -146,15 +159,41 @@ async def update_promotion(
     promo = await _load_promotion(db, scope_for_admin(admin), promotion_id)
     before = _promotion_state(promo)
     old_image_url = promo.image_url
-    if "starts_at" in body.model_fields_set and body.starts_at is not None:
-        if promo.starts_at is None or as_utc(promo.starts_at) != as_utc(body.starts_at):
-            val_utc = as_utc(body.starts_at)
-            if val_utc < utcnow() - timedelta(minutes=5):
-                raise AppError("VALIDATION_ERROR", "starts_at cannot be in the past", 422)
+
+    starts_at_changed = (
+        "starts_at" in body.model_fields_set
+        and _dates_differ(promo.starts_at, body.starts_at)
+    )
+    ends_at_changed = (
+        "ends_at" in body.model_fields_set
+        and _dates_differ(promo.ends_at, body.ends_at)
+    )
+
+    now = utcnow()
+
+    # If starts_at changed to a new non-null date, it cannot be in the past (15s tolerance)
+    if (
+        starts_at_changed
+        and body.starts_at is not None
+        and as_utc(body.starts_at) < now - timedelta(seconds=15)
+    ):
+        raise AppError("VALIDATION_ERROR", "starts_at cannot be in the past", 422)
+
+    # Compute merged window
+    merged_starts_at = body.starts_at if "starts_at" in body.model_fields_set else promo.starts_at
+    merged_ends_at = body.ends_at if "ends_at" in body.model_fields_set else promo.ends_at
+
+    # If dates changed, validate merged window
+    if (starts_at_changed or ends_at_changed) and merged_ends_at is not None:
+        if merged_starts_at is not None:
+            if as_utc(merged_ends_at) <= as_utc(merged_starts_at):
+                raise AppError("VALIDATION_ERROR", "ends_at must be after starts_at", 422)
+        elif as_utc(merged_ends_at) <= now:
+            raise AppError("VALIDATION_ERROR", "ends_at must be after starts_at", 422)
+
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(promo, field, value)
-    if promo.starts_at and promo.ends_at and as_utc(promo.ends_at) <= as_utc(promo.starts_at):
-        raise AppError("VALIDATION_ERROR", "ends_at must be after starts_at", 422)
+
     await db.flush()
     _audit(db, admin, promo.business_id, "promotion_updated", "promotion", before, _promotion_state(promo))
     await db.commit()
@@ -527,28 +566,54 @@ async def update_splash_config(
     before = biz.splash_config
     old_url = (before or {}).get("media_url") if isinstance(before, dict) else None
 
-    # Validate media URL if enabled
-    if body.enabled:
-        if not body.media_url:
-            raise AppError("VALIDATION_ERROR", "media_url is required when enabled is true", 422)
+    # Validate media URL if enabled OR if media_url is provided
+    if body.enabled and not body.media_url:
+        raise AppError("VALIDATION_ERROR", "media_url is required when enabled is true", 422)
+
+    asset: BusinessSplashAsset | None = None
+    if body.media_url:
         base = settings.media_public_base_url.rstrip("/") + "/"
         if not body.media_url.startswith(base):
             raise AppError("VALIDATION_ERROR", "media_url must point to the media storage host", 422)
-        rel_path = body.media_url[len(base):]
-        if not re.match(r"^splashes/[0-9a-f]{32}\.(webp|mp4)$", rel_path):
-            raise AppError("VALIDATION_ERROR", "media_url must be a valid stored splash asset", 422)
+
+        # Server-side asset lookup
+        asset = await db.scalar(
+            select(BusinessSplashAsset).where(BusinessSplashAsset.media_url == body.media_url)
+        )
+        if asset is None:
+            raise AppError("NOT_FOUND", "Указанный медиафайл заставки не найден на сервере.", 404)
+
+        # Ownership verification
+        if asset.business_id is not None and asset.business_id != business_id:
+            raise AppError("FORBIDDEN", "Указанный медиафайл принадлежит другому бизнесу.", 403)
+
+        # If asset was uploaded by superadmin without business_id, bind it to this business now
+        if asset.business_id is None:
+            asset.business_id = business_id
 
     version_token = uuid.uuid4().hex[:16]
-    new_config = {
-        "enabled": body.enabled,
-        "media_type": body.media_type,
-        "media_url": body.media_url,
-        "width": body.width,
-        "height": body.height,
-        "duration_seconds": body.duration_seconds,
-        "file_size": body.file_size,
-        "version": version_token,
-    }
+    if asset is not None:
+        new_config = {
+            "enabled": body.enabled,
+            "media_type": asset.media_type,
+            "media_url": asset.media_url,
+            "width": asset.width,
+            "height": asset.height,
+            "duration_seconds": asset.duration_seconds,
+            "file_size": asset.file_size,
+            "version": version_token,
+        }
+    else:
+        new_config = {
+            "enabled": False,
+            "media_type": None,
+            "media_url": None,
+            "width": None,
+            "height": None,
+            "duration_seconds": None,
+            "file_size": None,
+            "version": version_token,
+        }
 
     biz.splash_config = new_config
     biz.updated_at = utcnow()
@@ -567,7 +632,7 @@ async def update_splash_config(
     await db.refresh(biz)
 
     # If media changed and old_url is distinct, cleanup old file safely
-    if old_url and old_url != body.media_url:
+    if old_url and old_url != new_config.get("media_url"):
         await maybe_cleanup_old_media_file(
             db=db,
             storage=storage,

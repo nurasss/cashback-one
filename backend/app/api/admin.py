@@ -10,7 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.admin import AdminUser
-from app.models.entities import AuditLog
+from app.models.entities import AuditLog, BusinessSplashAsset
 from app.schemas.admin import (
     AdminIdentity,
     AdminMeResponse,
@@ -639,6 +639,17 @@ async def admin_upload_splash_media(
         height = img_res.height
         duration_seconds = None
 
+    asset = BusinessSplashAsset(
+        business_id=target_business_id,
+        media_type=media_type,
+        media_url=public_url,
+        width=width,
+        height=height,
+        duration_seconds=duration_seconds,
+        file_size=len(raw_bytes),
+    )
+    db.add(asset)
+
     if target_business_id is not None:
         db.add(
             AuditLog(
@@ -664,7 +675,7 @@ async def admin_upload_splash_media(
                 ),
             )
         )
-        await db.commit()
+    await db.commit()
 
     return SplashMediaUploadResponse(
         url=public_url,

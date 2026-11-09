@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -525,3 +526,22 @@ class PosKey(Base, UUIDPrimaryKey):
     @property
     def status(self) -> str:
         return "revoked" if self.revoked_at is not None else "active"
+
+
+class BusinessSplashAsset(Base, UUIDPrimaryKey):
+    """Uploaded splash screen media asset with verified metadata and business ownership."""
+
+    __tablename__ = "business_splash_assets"
+
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    media_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    media_url: Mapped[str] = mapped_column(String(512), unique=True, index=True, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )

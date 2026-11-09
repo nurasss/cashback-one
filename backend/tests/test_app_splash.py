@@ -1,5 +1,6 @@
 """Integration tests for app splash management, upload, storage scoping, public endpoint, and app-content."""
 import io
+import pathlib
 
 import pytest
 from httpx import AsyncClient
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.main import app
-from app.models.entities import AuditLog
+from app.models.entities import AuditLog, BusinessSplashAsset
 from app.services.media_storage import (
     InMemoryMediaStorage,
     get_media_storage,
@@ -21,6 +22,8 @@ from tests.test_admin_mutations import (
     mutation_client,  # noqa: F401
 )
 from tests.test_video_service import make_mp4
+
+FIXTURE_PATH = pathlib.Path(__file__).parent / "fixtures" / "sample_splash.mp4"
 
 
 def _make_png(w: int = 100, h: int = 100) -> bytes:
@@ -44,6 +47,7 @@ async def test_admin_upload_splash_image(
     mutation_client: AsyncClient,  # noqa: F811
     fake_storage: InMemoryMediaStorage,
 ):
+    biz = await make_business(db_session, "Biz Splash Img")
     admin = await make_admin(db_session, "superadmin", None, "super_splash")
     png_bytes = _make_png(200, 400)
     files = {"file": ("splash.png", png_bytes, "image/png")}
@@ -52,6 +56,7 @@ async def test_admin_upload_splash_image(
         "/admin/media/splash",
         headers=headers,
         files=files,
+        data={"business_id": str(biz.id)},
     )
     assert res.status_code == 200, res.text
     data = res.json()
@@ -68,35 +73,57 @@ async def test_admin_upload_splash_image(
     rel = data["url"][len(base):]
     assert rel in fake_storage.files
 
+    # Check asset was saved to database
+    asset = await db_session.scalar(
+        select(BusinessSplashAsset).where(BusinessSplashAsset.media_url == data["url"])
+    )
+    assert asset is not None
+    assert asset.business_id == biz.id
+    assert asset.media_type == "image"
+    assert asset.width == 200
+    assert asset.height == 400
+
 
 @pytest.mark.asyncio
-async def test_admin_upload_splash_video(
+async def test_admin_upload_splash_video_real_fixture(
     db_session: AsyncSession,
     mutation_client: AsyncClient,  # noqa: F811
     fake_storage: InMemoryMediaStorage,
 ):
+    biz = await make_business(db_session, "Biz Splash Vid")
     admin = await make_admin(db_session, "superadmin", None, "super_vid")
-    video_bytes = make_mp4(duration_sec=3.0, width=1080, height=1920)
+    assert FIXTURE_PATH.is_file(), f"Fixture {FIXTURE_PATH} must exist"
+    video_bytes = FIXTURE_PATH.read_bytes()
     files = {"file": ("splash.mp4", video_bytes, "video/mp4")}
     headers = await auth_headers(db_session, admin)
     res = await mutation_client.post(
         "/admin/media/splash",
         headers=headers,
         files=files,
+        data={"business_id": str(biz.id)},
     )
     assert res.status_code == 200, res.text
     data = res.json()
     assert data["media_type"] == "video"
     assert "splashes/" in data["url"]
     assert data["url"].endswith(".mp4")
-    assert data["width"] == 1080
-    assert data["height"] == 1920
-    assert data["duration_seconds"] == 3.0
+    assert data["width"] == 320
+    assert data["height"] == 240
+    assert data["duration_seconds"] == 1.0
 
     settings = get_settings()
     base = settings.media_public_base_url.rstrip("/") + "/"
     rel = data["url"][len(base):]
     assert rel in fake_storage.files
+
+    # Check asset saved in DB
+    asset = await db_session.scalar(
+        select(BusinessSplashAsset).where(BusinessSplashAsset.media_url == data["url"])
+    )
+    assert asset is not None
+    assert asset.business_id == biz.id
+    assert asset.media_type == "video"
+    assert asset.duration_seconds == 1.0
 
 
 @pytest.mark.asyncio
@@ -119,7 +146,7 @@ async def test_admin_upload_splash_video_rejects_audio_and_over_duration(
     assert "звук запрещён" in res.json()["error"]["message"]
 
     # Duration > 5.0 seconds
-    long_video = make_mp4(duration_sec=5.5)
+    long_video = make_mp4(duration_sec=5.05)
     res = await mutation_client.post(
         "/admin/media/splash",
         headers=headers,
@@ -142,7 +169,7 @@ async def test_admin_upload_splash_manager_scoping(
 
     png_bytes = _make_png(100, 100)
 
-    # Manager attempting to upload for another business
+    # 1. Manager tries to upload explicitly for another business -> 403
     res = await mutation_client.post(
         "/admin/media/splash",
         headers=headers,
@@ -151,68 +178,102 @@ async def test_admin_upload_splash_manager_scoping(
     )
     assert res.status_code == 403
 
-    # Manager uploading for own business
+    # 2. Manager uploads without specifying business_id -> automatically scoped to own business
     res = await mutation_client.post(
         "/admin/media/splash",
         headers=headers,
         files={"file": ("splash.png", png_bytes, "image/png")},
-        data={"business_id": str(biz1.id)},
     )
     assert res.status_code == 200
+    url = res.json()["url"]
+
+    asset = await db_session.scalar(
+        select(BusinessSplashAsset).where(BusinessSplashAsset.media_url == url)
+    )
+    assert asset is not None
+    assert asset.business_id == biz1.id
 
 
 @pytest.mark.asyncio
-async def test_business_splash_config_crud_and_scoping(
+async def test_business_splash_asset_ownership_and_server_metadata(
     db_session: AsyncSession,
     mutation_client: AsyncClient,  # noqa: F811
     fake_storage: InMemoryMediaStorage,
 ):
-    biz1 = await make_business(db_session, "Keremet Store")
-    biz2 = await make_business(db_session, "Other Store")
-    manager1 = await make_admin(db_session, "business_manager", biz1.id, "mgr_crud")
-    headers = await auth_headers(db_session, manager1)
+    biz1 = await make_business(db_session, "Owner Biz 1")
+    biz2 = await make_business(db_session, "Owner Biz 2")
 
-    # 1. Default config: enabled=False
-    res = await mutation_client.get(
-        f"/admin/businesses/{biz1.id}/splash",
-        headers=headers,
+    manager1 = await make_admin(db_session, "business_manager", biz1.id, "mgr_own_1")
+    manager2 = await make_admin(db_session, "business_manager", biz2.id, "mgr_own_2")
+    headers1 = await auth_headers(db_session, manager1)
+    headers2 = await auth_headers(db_session, manager2)
+
+    # 1. Manager 1 uploads asset
+    png_bytes = _make_png(300, 600)
+    upload_res = await mutation_client.post(
+        "/admin/media/splash",
+        headers=headers1,
+        files={"file": ("splash.png", png_bytes, "image/png")},
     )
-    assert res.status_code == 200
-    assert res.json()["enabled"] is False
+    assert upload_res.status_code == 200
+    asset_url1 = upload_res.json()["url"]
+    real_w1 = upload_res.json()["width"]
+    real_h1 = upload_res.json()["height"]
+    real_bytes1 = upload_res.json()["bytes"]
 
-    # 2. Manager cannot access biz2 splash (returns 404 to avoid enumeration)
-    res = await mutation_client.get(
+    # 2. Manager 2 attempts to assign Manager 1's asset URL to Biz 2 -> 403 FORBIDDEN
+    res_stolen = await mutation_client.put(
         f"/admin/businesses/{biz2.id}/splash",
-        headers=headers,
+        headers=headers2,
+        json={"enabled": True, "media_url": asset_url1},
     )
-    assert res.status_code == 404
+    assert res_stolen.status_code == 403
+    assert "принадлежит другому бизнесу" in res_stolen.json()["error"]["message"]
 
-    # 3. Enable splash with valid media URL
+    # 3. Manager 2 attempts to use non-existent / fake UUID asset URL -> 404 NOT_FOUND
     settings = get_settings()
     base = settings.media_public_base_url.rstrip("/") + "/"
-    media_url = f"{base}splashes/11111111111111111111111111111111.webp"
-    fake_storage.files["splashes/11111111111111111111111111111111.webp"] = b"fake"
-
-    update_payload = {
-        "enabled": True,
-        "media_type": "image",
-        "media_url": media_url,
-        "width": 1080,
-        "height": 1920,
-        "duration_seconds": None,
-        "file_size": 250000,
-    }
-    res = await mutation_client.put(
-        f"/admin/businesses/{biz1.id}/splash",
-        headers=headers,
-        json=update_payload,
+    fake_url = f"{base}splashes/00000000000000000000000000000000.webp"
+    res_fake = await mutation_client.put(
+        f"/admin/businesses/{biz2.id}/splash",
+        headers=headers2,
+        json={"enabled": True, "media_url": fake_url},
     )
-    assert res.status_code == 200, res.text
-    data = res.json()
-    assert data["enabled"] is True
-    assert data["media_type"] == "image"
-    assert data["media_url"] == media_url
-    assert data["version"] is not None
+    assert res_fake.status_code == 404
+    assert "не найден на сервере" in res_fake.json()["error"]["message"]
+
+    # 4. Manager 2 attempts disabled config with Manager 1's URL -> also 403 (cannot bypass check)
+    res_disabled_bypass = await mutation_client.put(
+        f"/admin/businesses/{biz2.id}/splash",
+        headers=headers2,
+        json={"enabled": False, "media_url": asset_url1},
+    )
+    assert res_disabled_bypass.status_code == 403
+
+    # 5. Manager 1 saves with spoofed client fields (e.g. width=99999, height=88888, file_size=1)
+    spoofed_payload = {
+        "enabled": True,
+        "media_type": "video",  # spoofed
+        "media_url": asset_url1,
+        "width": 99999,  # spoofed
+        "height": 88888,  # spoofed
+        "duration_seconds": 12.3,  # spoofed
+        "file_size": 1,  # spoofed
+    }
+    res_save1 = await mutation_client.put(
+        f"/admin/businesses/{biz1.id}/splash",
+        headers=headers1,
+        json=spoofed_payload,
+    )
+    assert res_save1.status_code == 200
+    saved_data = res_save1.json()
+    assert saved_data["enabled"] is True
+    # Verified server metadata must override all client spoofing
+    assert saved_data["media_type"] == "image"
+    assert saved_data["width"] == real_w1
+    assert saved_data["height"] == real_h1
+    assert saved_data["file_size"] == real_bytes1
+    assert saved_data["duration_seconds"] is None
 
     # Check audit log
     audit_entry = await db_session.scalar(
@@ -222,19 +283,6 @@ async def test_business_splash_config_crud_and_scoping(
         )
     )
     assert audit_entry is not None
-
-    # 4. SSRF protection: reject external arbitrary URLs
-    bad_payload = {
-        "enabled": True,
-        "media_type": "image",
-        "media_url": "https://evil.attacker.com/exploit.png",
-    }
-    res = await mutation_client.put(
-        f"/admin/businesses/{biz1.id}/splash",
-        headers=headers,
-        json=bad_payload,
-    )
-    assert res.status_code == 422
 
 
 @pytest.mark.asyncio

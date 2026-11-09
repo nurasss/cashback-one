@@ -2,11 +2,12 @@
 
 Enforces:
 - File size <= 15 MiB (15_728_640 bytes)
-- MP4 container format
-- H.264 video codec (avc1)
-- Video duration <= 5.0 seconds
+- MP4 container format with ftyp, moov, and mdat atoms
+- H.264 video codec (avc1, avc3)
+- Video duration <= 5.0 seconds (strictly <= 5.0s, no tolerance)
 - Strictly NO audio tracks ("Видео без воспроизведения звука")
-- Safe bounded ISO BMFF box parser (pure Python) + optional ffprobe secondary check.
+- Safe bounded ISO BMFF box parser (pure Python) with bounds checking and struct.error handling
+- Server-side ffprobe verification ensuring actual playable media without fail-open
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ from app.core.errors import AppError
 logger = logging.getLogger(__name__)
 
 MAX_SPLASH_VIDEO_BYTES = 15 * 1024 * 1024  # 15 MiB
-MAX_SPLASH_VIDEO_DURATION_SECONDS = 5.05  # 5 seconds with frame rounding tolerance
+MAX_SPLASH_VIDEO_DURATION_SECONDS = 5.0  # strictly 5.0 seconds
 
 
 @dataclass(frozen=True)
@@ -48,14 +49,17 @@ def _parse_iso_boxes(stream: io.BytesIO, end_pos: int, max_depth: int = 10) -> l
         header = stream.read(8)
         if len(header) < 8:
             break
-        box_size, box_type = struct.unpack(">I4s", header)
-        if box_size == 1:
-            large_header = stream.read(8)
-            if len(large_header) < 8:
-                break
-            box_size = struct.unpack(">Q", large_header)[0]
-        elif box_size == 0:
-            box_size = end_pos - start
+        try:
+            box_size, box_type = struct.unpack(">I4s", header)
+            if box_size == 1:
+                large_header = stream.read(8)
+                if len(large_header) < 8:
+                    break
+                box_size = struct.unpack(">Q", large_header)[0]
+            elif box_size == 0:
+                box_size = end_pos - start
+        except struct.error:
+            break
 
         if box_size < 8 or start + box_size > end_pos:
             break
@@ -67,7 +71,7 @@ def _parse_iso_boxes(stream: io.BytesIO, end_pos: int, max_depth: int = 10) -> l
 
 
 def validate_mp4_video_pure_python(data: bytes) -> VideoMetadata:
-    """Pure Python ISO BMFF / MP4 parser validating codec, duration, dimensions, and audio tracks."""
+    """Pure Python ISO BMFF / MP4 parser validating codec, duration, dimensions, mdat atom, and audio tracks."""
     if len(data) > MAX_SPLASH_VIDEO_BYTES:
         raise AppError(
             "FILE_TOO_LARGE",
@@ -102,6 +106,15 @@ def validate_mp4_video_pure_python(data: bytes) -> VideoMetadata:
             status_code=415,
         )
 
+    # Validate mdat atom presence and non-empty payload
+    mdat_info = next((b for b in top_boxes if b[0] == b"mdat"), None)
+    if not mdat_info or mdat_info[2] <= 8:
+        raise AppError(
+            "UNSUPPORTED_MEDIA_TYPE",
+            "Некорректная структура MP4: отсутствует секция видеоданных (mdat atom).",
+            status_code=415,
+        )
+
     _, moov_start, moov_size = moov_info
     moov_end = moov_start + moov_size
     stream.seek(moov_start + 8)
@@ -127,16 +140,35 @@ def validate_mp4_video_pure_python(data: bytes) -> VideoMetadata:
         )
 
     version = mvhd_data[0]
-    if version == 0:
-        timescale, duration = struct.unpack(">II", mvhd_data[12:20])
-    elif version == 1:
-        timescale, duration = struct.unpack(">IQ", mvhd_data[20:32])
-    else:
+    try:
+        if version == 0:
+            if len(mvhd_data) < 20:
+                raise AppError(
+                    "UNSUPPORTED_MEDIA_TYPE",
+                    "Повреждён заголовок фильма (mvhd v0).",
+                    status_code=415,
+                )
+            timescale, duration = struct.unpack(">II", mvhd_data[12:20])
+        elif version == 1:
+            if len(mvhd_data) < 32:
+                raise AppError(
+                    "UNSUPPORTED_MEDIA_TYPE",
+                    "Повреждён заголовок фильма (mvhd v1: недостаточная длина).",
+                    status_code=415,
+                )
+            timescale, duration = struct.unpack(">IQ", mvhd_data[20:32])
+        else:
+            raise AppError(
+                "UNSUPPORTED_MEDIA_TYPE",
+                f"Неподдерживаемая версия заголовка фильма ({version}).",
+                status_code=415,
+            )
+    except struct.error as exc:
         raise AppError(
             "UNSUPPORTED_MEDIA_TYPE",
-            f"Неподдерживаемая версия заголовка фильма ({version}).",
+            "Повреждены поля заголовка фильма (mvhd).",
             status_code=415,
-        )
+        ) from exc
 
     if timescale == 0:
         raise AppError(
@@ -190,9 +222,12 @@ def validate_mp4_video_pure_python(data: bytes) -> VideoMetadata:
             tkhd_ver = tkhd_data[0] if tkhd_data else 0
             offset = 84 if tkhd_ver == 1 else 76
             if len(tkhd_data) >= offset + 8:
-                raw_w, raw_h = struct.unpack(">II", tkhd_data[offset : offset + 8])
-                trak_w = raw_w >> 16
-                trak_h = raw_h >> 16
+                try:
+                    raw_w, raw_h = struct.unpack(">II", tkhd_data[offset : offset + 8])
+                    trak_w = raw_w >> 16
+                    trak_h = raw_h >> 16
+                except struct.error:
+                    pass
 
         # Parse mdia -> hdlr and minf -> stbl -> stsd
         mdia_info = next((b for b in trak_children if b[0] == b"mdia"), None)
@@ -269,11 +304,19 @@ def validate_mp4_video_pure_python(data: bytes) -> VideoMetadata:
     )
 
 
-def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata | None:
-    """Secondary probe using ffprobe binary if available in system PATH."""
+def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
+    """Rigorous server-side verification using ffprobe binary.
+
+    Fails explicitly if ffprobe is missing, times out, or detects invalid streams.
+    No fail-open.
+    """
     ffprobe_path = shutil.which("ffprobe")
     if not ffprobe_path:
-        return None
+        raise AppError(
+            "VIDEO_VALIDATION_UNAVAILABLE",
+            "Серверная проверка видео недоступна: утилита ffprobe не найдена на сервере.",
+            status_code=503,
+        )
 
     # Write to a secure temporary file
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
@@ -291,12 +334,24 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata | None:
             "-show_format",
             tmp_path,
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=3.0, check=False)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0, check=False)
         if res.returncode != 0:
-            logger.warning("ffprobe check returned %d: %s", res.returncode, res.stderr)
-            return None
+            err_msg = res.stderr.strip()[:200] or f"код ошибки {res.returncode}"
+            raise AppError(
+                "VALIDATION_ERROR",
+                f"Видео повреждено или не может быть декодировано: {err_msg}",
+                status_code=422,
+            )
 
-        probe_info = json.loads(res.stdout)
+        try:
+            probe_info = json.loads(res.stdout)
+        except json.JSONDecodeError as exc:
+            raise AppError(
+                "VALIDATION_ERROR",
+                "Не удалось разобрать метаданные видеофайла.",
+                status_code=422,
+            ) from exc
+
         streams = probe_info.get("streams", [])
         # Check audio
         for s in streams:
@@ -325,11 +380,31 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata | None:
 
         width = int(video_stream.get("width", 0))
         height = int(video_stream.get("height", 0))
+        if width <= 0 or height <= 0:
+            raise AppError(
+                "VALIDATION_ERROR",
+                "Не удалось определить разрешение видеодорожки.",
+                status_code=422,
+            )
 
         # Duration
         format_info = probe_info.get("format", {})
         dur_str = format_info.get("duration") or video_stream.get("duration") or "0"
-        duration_seconds = round(float(dur_str), 2)
+        try:
+            duration_seconds = round(float(dur_str), 2)
+        except ValueError as exc:
+            raise AppError(
+                "VALIDATION_ERROR",
+                "Не удалось определить длительность видео.",
+                status_code=422,
+            ) from exc
+
+        if duration_seconds <= 0:
+            raise AppError(
+                "VALIDATION_ERROR",
+                "Длительность видео должна быть больше 0 секунд.",
+                status_code=422,
+            )
 
         if duration_seconds > MAX_SPLASH_VIDEO_DURATION_SECONDS:
             raise AppError(
@@ -345,11 +420,12 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata | None:
             codec="h264",
             file_size=len(data),
         )
-    except subprocess.TimeoutExpired:
-        logger.warning("ffprobe probe timed out")
-        return None
-    except json.JSONDecodeError:
-        return None
+    except subprocess.TimeoutExpired as exc:
+        raise AppError(
+            "VALIDATION_ERROR",
+            "Время проверки видео истекло (файл слишком сложен для обработки).",
+            status_code=422,
+        ) from exc
     finally:
         try:
             os.remove(tmp_path)
@@ -358,18 +434,25 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata | None:
 
 
 def validate_mp4_video(data: bytes) -> VideoMetadata:
-    """Validate MP4 video with pure Python parser and optional ffprobe confirmation."""
-    # Always run the pure Python parser first (strict bounds, no external execution)
-    meta = validate_mp4_video_pure_python(data)
+    """Validate MP4 video with pure Python box parser AND strict ffprobe verification.
 
-    # If ffprobe is present, verify consistency
-    try:
-        ffprobe_meta = validate_mp4_video_ffprobe(data)
-        if ffprobe_meta and ffprobe_meta.width > 0 and meta.width == 0:
-            return ffprobe_meta
-    except AppError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Optional ffprobe check skipped: %s", exc)
+    Never fails open.
+    """
+    # 1. Strict pure Python ISO box checks (ftyp, moov, mdat, track headers, duration)
+    meta_pure = validate_mp4_video_pure_python(data)
 
-    return meta
+    # 2. Strict ffprobe verification of decodability, duration, and track structure
+    meta_probe = validate_mp4_video_ffprobe(data)
+
+    # Use the verified stream properties
+    effective_w = meta_probe.width or meta_pure.width
+    effective_h = meta_probe.height or meta_pure.height
+    effective_dur = meta_probe.duration_seconds or meta_pure.duration_seconds
+
+    return VideoMetadata(
+        width=effective_w,
+        height=effective_h,
+        duration_seconds=effective_dur,
+        codec="h264",
+        file_size=len(data),
+    )

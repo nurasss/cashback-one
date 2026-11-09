@@ -127,7 +127,8 @@ async def test_business_loyalty_tiers_update_and_validation(
 async def test_promotions_kind_filter_and_window_validation(
     db_session: AsyncSession, mutation_client: AsyncClient  # noqa: F811
 ) -> None:
-    from datetime import UTC, datetime, timedelta
+    from datetime import timedelta
+
     from app.core.time import utcnow
 
     admin = await make_admin(db_session, "superadmin", None, "promo-filter-super")
@@ -219,3 +220,99 @@ async def test_promotions_kind_filter_and_window_validation(
         "starts_at": (utcnow() - timedelta(days=5)).isoformat(),
     })
     assert change_to_past_res.status_code == 422
+
+    # 8. starts_at=None + ends_at in the past on create -> 422
+    res_past_end = await mutation_client.post("/admin/promotions", headers=headers, json={
+        "business_id": str(biz.id),
+        "kind": "offer",
+        "title": "Expired on create",
+        "starts_at": None,
+        "ends_at": (utcnow() - timedelta(days=1)).isoformat(),
+    })
+    assert res_past_end.status_code == 422
+
+    # 9. starts_at=None + ends_at in future on create -> 201
+    res_immediate = await mutation_client.post("/admin/promotions", headers=headers, json={
+        "business_id": str(biz.id),
+        "kind": "offer",
+        "title": "Starts immediately",
+        "starts_at": None,
+        "ends_at": (utcnow() + timedelta(days=3)).isoformat(),
+    })
+    assert res_immediate.status_code == 201
+    immediate_id = res_immediate.json()["id"]
+
+    # 10. starts_at 30 seconds in the past is rejected (beyond 15s network latency allowance)
+    res_slight_past = await mutation_client.post("/admin/promotions", headers=headers, json={
+        "business_id": str(biz.id),
+        "kind": "offer",
+        "title": "30s in the past",
+        "starts_at": (utcnow() - timedelta(seconds=30)).isoformat(),
+        "ends_at": (utcnow() + timedelta(days=1)).isoformat(),
+    })
+    assert res_slight_past.status_code == 422
+
+    # 11. Expired promotion (both starts_at and ends_at in past): editing title does NOT require changing dates
+    expired_promo = Promotion(
+        business_id=biz.id,
+        kind="banner",
+        title="Expired Banner",
+        starts_at=utcnow() - timedelta(days=10),
+        ends_at=utcnow() - timedelta(days=1),
+    )
+    db_session.add(expired_promo)
+    await db_session.commit()
+    await db_session.refresh(expired_promo)
+
+    edit_expired_res = await mutation_client.patch(f"/admin/promotions/{expired_promo.id}", headers=headers, json={
+        "title": "Archived Banner Title",
+    })
+    assert edit_expired_res.status_code == 200
+    assert edit_expired_res.json()["title"] == "Archived Banner Title"
+
+    # 12. Patch setting ends_at in the past for promotion where starts_at is null -> 422
+    patch_past_end = await mutation_client.patch(f"/admin/promotions/{immediate_id}", headers=headers, json={
+        "ends_at": (utcnow() - timedelta(hours=1)).isoformat(),
+    })
+    assert patch_past_end.status_code == 422
+
+    # 13. existing ends_at set -> PATCH ends_at: null successfully clears ends_at (perpetual)
+    promo_with_end = Promotion(
+        business_id=biz.id,
+        kind="offer",
+        title="Promo with end",
+        starts_at=utcnow() + timedelta(hours=1),
+        ends_at=utcnow() + timedelta(days=5),
+    )
+    db_session.add(promo_with_end)
+    await db_session.commit()
+    await db_session.refresh(promo_with_end)
+
+    patch_clear_end = await mutation_client.patch(f"/admin/promotions/{promo_with_end.id}", headers=headers, json={
+        "ends_at": None,
+    })
+    assert patch_clear_end.status_code == 200
+    assert patch_clear_end.json()["ends_at"] is None
+
+    # 14. starts_at set -> PATCH starts_at: null with future ends_at successfully switches to start now
+    patch_clear_start = await mutation_client.patch(f"/admin/promotions/{future_id}", headers=headers, json={
+        "starts_at": None,
+    })
+    assert patch_clear_start.status_code == 200
+    assert patch_clear_start.json()["starts_at"] is None
+
+    # 15. PATCH starts_at: null on promotion with old ends_at in past -> 422, not 500
+    patch_null_start_past_end = await mutation_client.patch(f"/admin/promotions/{expired_promo.id}", headers=headers, json={
+        "starts_at": None,
+    })
+    assert patch_null_start_past_end.status_code == 422
+    assert "ends_at must be after starts_at" in patch_null_start_past_end.json()["error"]["message"]
+
+    # 16. dates omitted in PATCH -> existing dates remain untouched, title update on expired record succeeds
+    patch_no_dates = await mutation_client.patch(f"/admin/promotions/{expired_promo.id}", headers=headers, json={
+        "title": "Still Archived Title",
+    })
+    assert patch_no_dates.status_code == 200
+    assert patch_no_dates.json()["title"] == "Still Archived Title"
+    assert patch_no_dates.json()["starts_at"] is not None
+    assert patch_no_dates.json()["ends_at"] is not None
