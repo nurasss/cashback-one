@@ -14,6 +14,7 @@ from app.api.customer_app import router as customer_app_router
 from app.api.customer_wallet import router as customer_wallet_router
 from app.api.health import router as health_router
 from app.api.pos import router as pos_router
+from app.api.public_app import router as public_app_router
 from app.api.wallet_public import router as wallet_public_router
 from app.api.webhooks import router as webhooks_router
 from app.core.config import settings
@@ -79,5 +80,6 @@ app.include_router(customer_wallet_router)
 app.include_router(customer_app_router)
 app.include_router(webhooks_router)
 app.include_router(wallet_public_router)
+app.include_router(public_app_router)
 app.include_router(admin_auth_router, prefix="/admin")
 app.include_router(admin_router, prefix="/admin")

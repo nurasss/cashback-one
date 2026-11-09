@@ -24,9 +24,10 @@ describe('role-aware admin navigation', () => {
     view.unmount();
     const manager = render(<MemoryRouter><Navigation role="business_manager" /></MemoryRouter>);
     expect(manager.queryByRole('link', { name: /Бизнесы/ })).not.toBeInTheDocument();
-    expect(manager.getByRole('link', { name: /Журнал событий/ })).toBeInTheDocument();
-    expect(manager.getByRole('link', { name: /Агенты/ })).toBeInTheDocument();
-    expect(manager.getByRole('link', { name: /Карты и клиенты/ })).toBeInTheDocument();
+    expect(manager.getByRole('link', { name: /Настройки/ })).toHaveAttribute('href', '/admin/settings');
+    expect(manager.getByRole('link', { name: /Клиенты/ })).toHaveAttribute('href', '/admin/operations');
+    expect(manager.getByRole('link', { name: /Приложение/ })).toHaveAttribute('href', '/admin/content');
+    expect(manager.getByRole('link', { name: /Рассылки/ })).toHaveAttribute('href', '/admin/notifications');
   });
 });
 

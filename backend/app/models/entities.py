@@ -44,6 +44,8 @@ class Business(Base, UUIDPrimaryKey, Timestamps):
     android_app_id: Mapped[str | None] = mapped_column(
         String(255), nullable=True, unique=True
     )
+    # Controlled app splash screen configuration (enabled, media_type, media_url, etc.)
+    splash_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class Agent(Base, UUIDPrimaryKey):

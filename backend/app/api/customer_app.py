@@ -20,6 +20,7 @@ from app.schemas.customer_app import (
     BadgesResponse,
     CardQrResponse,
     CustomerAppContentResponse,
+    CustomerAppSplashConfig,
     CustomerAppTexts,
     CustomerLocalizedText,
     NotificationsResponse,
@@ -411,6 +412,7 @@ async def get_app_content(
 
     raw_texts = business.app_texts or {}
     app_texts = CustomerAppTexts(
+        home_text=CustomerLocalizedText.model_validate(raw_texts.get("home_text") or {}),
         home_store_note_lead=CustomerLocalizedText.model_validate(
             raw_texts.get("home_store_note_lead") or {}
         ),
@@ -419,10 +421,22 @@ async def get_app_content(
         ),
     )
     stores_payload = [AppStoreItem.model_validate(s) for s in stores]
+    raw_splash = business.splash_config or {}
+    splash = CustomerAppSplashConfig(
+        enabled=bool(raw_splash.get("enabled", False)),
+        media_type=raw_splash.get("media_type"),
+        media_url=raw_splash.get("media_url"),
+        width=raw_splash.get("width"),
+        height=raw_splash.get("height"),
+        duration_seconds=raw_splash.get("duration_seconds"),
+        file_size=raw_splash.get("file_size"),
+        version=raw_splash.get("version"),
+    )
     content_obj = CustomerAppContentResponse(
         business_id=business_id,
         stores=stores_payload,
         app_texts=app_texts,
+        splash=splash,
         updated_at=latest_updated_at,
     )
 

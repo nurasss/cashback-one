@@ -1,4 +1,4 @@
-import { Link, Navigate, Route, Routes } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AdminProvider, useAdminSession } from '../auth/provider';
 import {
   RequireAdmin,
@@ -12,10 +12,13 @@ import { AgentsPage, AgentDetailPage } from '../pages/AgentsPage';
 import { OperationsPage, CardDetailPage, UserDetailPage } from '../pages/OperationsPage';
 import { AuditPage } from '../pages/AuditPage';
 import { ContentPage } from '../pages/ContentPage';
+import { NotificationsPage } from '../pages/NotificationsPage';
+import { SettingsPage } from '../pages/SettingsPage';
 import { ErrorNotice, LoadingPage } from '../components/Feedback';
 import { AdminErrorBoundary } from './AdminErrorBoundary';
 import { LanguageSwitcher } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
+import { useAdminDocumentTitle } from '../utils/documentTitle';
 
 export { AdminErrorBoundary };
 
@@ -47,6 +50,13 @@ function ProtectedLayout() {
 function AdminRouterState() {
   const { session, view } = useAdminSession();
   const t = useAdminTranslation();
+  const location = useLocation();
+
+  useAdminDocumentTitle({
+    pathname: location.pathname,
+    view,
+    t,
+  });
 
   if (view.status === 'loading') return <LoadingPage label={t.routes.loadingSession} />;
 
@@ -118,6 +128,8 @@ function AdminRouterState() {
         <Route path="users/:userId" element={<UserDetailPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="content" element={<ContentPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<AdminNotFoundPage />} />
       </Route>
     </Routes>

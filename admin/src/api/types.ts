@@ -111,6 +111,7 @@ export interface BusinessStore {
   updated_at: string;
 }
 export interface AppTexts {
+  home_text?: LocalizedText;
   home_store_note_lead: LocalizedText;
   balance_delay_note: LocalizedText;
 }
@@ -122,4 +123,32 @@ export interface BusinessStoreInput {
   map_url?: string | null;
   sort_order?: number;
   is_active?: boolean;
+}
+export interface BusinessSplashConfig {
+  business_id: string;
+  enabled: boolean;
+  media_type: 'image' | 'video' | null;
+  media_url: string | null;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
+  file_size: number | null;
+  version: string | null;
+}
+export interface BusinessSplashUpdateRequest {
+  enabled: boolean;
+  media_type?: 'image' | 'video' | null;
+  media_url?: string | null;
+  width?: number | null;
+  height?: number | null;
+  duration_seconds?: number | null;
+  file_size?: number | null;
+}
+export interface SplashMediaUploadResponse {
+  media_type: 'image' | 'video';
+  url: string;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
+  bytes: number;
 }

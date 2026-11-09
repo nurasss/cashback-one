@@ -222,12 +222,27 @@ class CustomerLocalizedText(BaseModel):
 class CustomerAppTexts(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    home_text: CustomerLocalizedText = Field(default_factory=CustomerLocalizedText)
     home_store_note_lead: CustomerLocalizedText = Field(default_factory=CustomerLocalizedText)
     balance_delay_note: CustomerLocalizedText = Field(default_factory=CustomerLocalizedText)
+
+
+class CustomerAppSplashConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    media_type: str | None = None
+    media_url: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_seconds: float | None = None
+    file_size: int | None = None
+    version: str | None = None
 
 
 class CustomerAppContentResponse(BaseModel):
     business_id: uuid.UUID
     stores: list[AppStoreItem]
     app_texts: CustomerAppTexts
+    splash: CustomerAppSplashConfig = Field(default_factory=CustomerAppSplashConfig)
     updated_at: datetime

@@ -78,3 +78,31 @@ export function getAstanaNowLocal(): string {
   const min = String(d.getUTCMinutes()).padStart(2, '0');
   return `${year}-${month}-${day}T${hour}:${min}`;
 }
+
+export function utcIsoToAstanaLocal(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return '';
+  const astanaMs = date.getTime() + 5 * 3600 * 1000;
+  const d = new Date(astanaMs);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const hour = String(d.getUTCHours()).padStart(2, '0');
+  const min = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hour}:${min}`;
+}
+
+export function formatAstanaDateTime(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return '';
+  const astanaMs = date.getTime() + 5 * 3600 * 1000;
+  const d = new Date(astanaMs);
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const year = d.getUTCFullYear();
+  const hour = String(d.getUTCHours()).padStart(2, '0');
+  const minute = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${day}.${month}.${year} ${hour}:${minute}`;
+}

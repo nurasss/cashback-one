@@ -17,7 +17,9 @@ from app.models.entities import Business, Promotion, User
 
 logger = logging.getLogger(__name__)
 
-SAFE_MEDIA_PATH_REGEX = re.compile(r"^(promotions|logos|avatars)/[0-9a-f]{32}\.webp$")
+SAFE_MEDIA_PATH_REGEX = re.compile(
+    r"^(promotions|logos|avatars|splashes)/[0-9a-f]{32}\.(webp|mp4)$"
+)
 FTPS_OPERATION_ERRORS = (*all_errors, ssl.SSLError, ValueError)
 CLEANUP_ERRORS = (*all_errors, ssl.SSLError, AppError, ValueError)
 
@@ -255,6 +257,18 @@ async def maybe_cleanup_old_media_file(
             select(func.count()).select_from(User).where(User.avatar_url == old_url)
         )
         if (promo_count or 0) > 0 or (biz_count or 0) > 0 or (user_count or 0) > 0:
+            return
+
+        biz_splashes = (
+            await db.scalars(
+                select(Business).where(Business.splash_config.is_not(None))
+            )
+        ).all()
+        if any(
+            isinstance(b.splash_config, dict)
+            and b.splash_config.get("media_url") == old_url
+            for b in biz_splashes
+        ):
             return
 
         await storage.delete(rel_path)

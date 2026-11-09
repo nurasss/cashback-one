@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.core.time import utcnow
+from app.core.time import as_utc, utcnow
 from app.schemas.admin import _validate_logo_url
 
 PromotionKind = Literal["banner", "offer"]
@@ -65,7 +65,7 @@ class _PromotionFields(BaseModel):
 
     @model_validator(mode="after")
     def validate_window(self) -> "_PromotionFields":
-        if self.starts_at and self.ends_at and self.ends_at <= self.starts_at:
+        if self.starts_at and self.ends_at and as_utc(self.ends_at) <= as_utc(self.starts_at):
             raise ValueError("ends_at must be after starts_at")
         return self
 
@@ -76,6 +76,17 @@ class PromotionCreateRequest(_PromotionFields):
     title: str = Field(min_length=1, max_length=120)
 
     _title = field_validator("title", mode="before")(_strip_required)
+
+    @field_validator("starts_at")
+    @classmethod
+    def validate_starts_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        now = utcnow()
+        val_utc = as_utc(value)
+        if val_utc < now - timedelta(minutes=5):
+            raise ValueError("starts_at cannot be in the past")
+        return value
 
 
 class PromotionUpdateRequest(_PromotionFields):
@@ -257,8 +268,8 @@ def _clean_localized_text(value: object) -> str | None:
         stripped = value.strip()
         if not stripped:
             return None
-        if len(stripped) > 500:
-            raise ValueError("text cannot exceed 500 characters")
+        if len(stripped) > 2000:
+            raise ValueError("text cannot exceed 2000 characters")
         return stripped
     return str(value)
 
@@ -266,8 +277,8 @@ def _clean_localized_text(value: object) -> str | None:
 class LocalizedAppText(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ru: str | None = Field(default=None, max_length=500)
-    kk: str | None = Field(default=None, max_length=500)
+    ru: str | None = Field(default=None, max_length=2000)
+    kk: str | None = Field(default=None, max_length=2000)
 
     _clean_ru = field_validator("ru", mode="before")(_clean_localized_text)
     _clean_kk = field_validator("kk", mode="before")(_clean_localized_text)
@@ -276,6 +287,7 @@ class LocalizedAppText(BaseModel):
 class AppTextsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    home_text: LocalizedAppText = Field(default_factory=LocalizedAppText)
     home_store_note_lead: LocalizedAppText = Field(default_factory=LocalizedAppText)
     balance_delay_note: LocalizedAppText = Field(default_factory=LocalizedAppText)
 
@@ -283,6 +295,68 @@ class AppTextsResponse(BaseModel):
 class AppTextsUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    home_text: LocalizedAppText | None = None
     home_store_note_lead: LocalizedAppText | None = None
     balance_delay_note: LocalizedAppText | None = None
+
+
+class SplashMediaUploadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    media_type: Literal["image", "video"]
+    width: int
+    height: int
+    duration_seconds: float | None = None
+    bytes: int
+
+
+class BusinessSplashConfigResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    business_id: uuid.UUID
+    enabled: bool = False
+    media_type: Literal["image", "video"] | None = None
+    media_url: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_seconds: float | None = None
+    file_size: int | None = None
+    version: str | None = None
+
+class BusinessSplashConfigUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    media_type: Literal["image", "video"] | None = None
+    media_url: str | None = Field(default=None, max_length=1024)
+    width: int | None = Field(default=None, ge=1, le=8192)
+    height: int | None = Field(default=None, ge=1, le=8192)
+    duration_seconds: float | None = Field(default=None, ge=0.1, le=5.0)
+    file_size: int | None = Field(default=None, ge=1, le=15_728_640)
+
+    @model_validator(mode="after")
+    def validate_splash_config(self) -> "BusinessSplashConfigUpdateRequest":
+        if self.enabled:
+            if not self.media_type:
+                raise ValueError("media_type is required when enabled is true")
+            if not self.media_url:
+                raise ValueError("media_url is required when enabled is true")
+            if self.media_type == "video" and (self.duration_seconds is None or self.duration_seconds > 5.0):
+                raise ValueError("duration_seconds must be between 0.1 and 5.0 for video splash")
+        return self
+
+
+class PublicSplashResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    business_id: uuid.UUID | None = None
+    enabled: bool = False
+    media_type: Literal["image", "video"] | None = None
+    media_url: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_seconds: float | None = None
+    file_size: int | None = None
+    version: str | None = None
 

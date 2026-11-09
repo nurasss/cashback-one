@@ -121,3 +121,101 @@ async def test_business_loyalty_tiers_update_and_validation(
     ):
         res = await mutation_client.patch(f"/admin/businesses/{biz.id}", headers=headers, json={"loyalty_tiers": bad})
         assert res.status_code == 422, bad
+
+
+@pytest.mark.asyncio
+async def test_promotions_kind_filter_and_window_validation(
+    db_session: AsyncSession, mutation_client: AsyncClient  # noqa: F811
+) -> None:
+    from datetime import UTC, datetime, timedelta
+    from app.core.time import utcnow
+
+    admin = await make_admin(db_session, "superadmin", None, "promo-filter-super")
+    biz = await make_business(db_session, "PromoFilterBiz")
+    headers = await auth_headers(db_session, admin)
+    await db_session.commit()
+
+    # 1. Create banner and offer
+    res_b = await mutation_client.post("/admin/promotions", headers=headers, json={
+        "business_id": str(biz.id),
+        "kind": "banner",
+        "title": "Main Banner",
+    })
+    assert res_b.status_code == 201
+    banner_id = res_b.json()["id"]
+
+    res_o = await mutation_client.post("/admin/promotions", headers=headers, json={
+        "business_id": str(biz.id),
+        "kind": "offer",
+        "title": "Special Offer",
+    })
+    assert res_o.status_code == 201
+    offer_id = res_o.json()["id"]
+
+    # 2. Filter by kind
+    banners_res = await mutation_client.get(f"/admin/promotions?business_id={biz.id}&kind=banner", headers=headers)
+    assert banners_res.status_code == 200
+    banner_items = banners_res.json()["items"]
+    assert len(banner_items) == 1
+    assert banner_items[0]["id"] == banner_id
+
+    offers_res = await mutation_client.get(f"/admin/promotions?business_id={biz.id}&kind=offer", headers=headers)
+    assert offers_res.status_code == 200
+    offer_items = offers_res.json()["items"]
+    assert len(offer_items) == 1
+    assert offer_items[0]["id"] == offer_id
+
+    # 3. Create with starts_at in the past is rejected
+    past_time = (utcnow() - timedelta(hours=2)).isoformat()
+    future_time = (utcnow() + timedelta(days=5)).isoformat()
+    bad_past_res = await mutation_client.post("/admin/promotions", headers=headers, json={
+        "business_id": str(biz.id),
+        "kind": "offer",
+        "title": "Past Offer",
+        "starts_at": past_time,
+        "ends_at": future_time,
+    })
+    assert bad_past_res.status_code == 422
+
+    # 4. Valid future window
+    start_future = (utcnow() + timedelta(hours=1)).isoformat()
+    end_future = (utcnow() + timedelta(days=2)).isoformat()
+    good_res = await mutation_client.post("/admin/promotions", headers=headers, json={
+        "business_id": str(biz.id),
+        "kind": "offer",
+        "title": "Future Offer",
+        "starts_at": start_future,
+        "ends_at": end_future,
+    })
+    assert good_res.status_code == 201
+    future_id = good_res.json()["id"]
+
+    # 5. Update with ends_at <= starts_at is rejected
+    invalid_window = await mutation_client.patch(f"/admin/promotions/{future_id}", headers=headers, json={
+        "ends_at": (utcnow() + timedelta(minutes=30)).isoformat(),
+    })
+    assert invalid_window.status_code == 422
+
+    # 6. Promotion already started in past: editing title does NOT require changing starts_at
+    past_promo = Promotion(
+        business_id=biz.id,
+        kind="offer",
+        title="Active Past Promo",
+        starts_at=utcnow() - timedelta(days=2),
+        ends_at=utcnow() + timedelta(days=2),
+    )
+    db_session.add(past_promo)
+    await db_session.commit()
+    await db_session.refresh(past_promo)
+
+    edit_active_res = await mutation_client.patch(f"/admin/promotions/{past_promo.id}", headers=headers, json={
+        "title": "Active Past Promo Updated",
+    })
+    assert edit_active_res.status_code == 200
+    assert edit_active_res.json()["title"] == "Active Past Promo Updated"
+
+    # 7. Changing starts_at to a new past time is rejected
+    change_to_past_res = await mutation_client.patch(f"/admin/promotions/{past_promo.id}", headers=headers, json={
+        "starts_at": (utcnow() - timedelta(days=5)).isoformat(),
+    })
+    assert change_to_past_res.status_code == 422

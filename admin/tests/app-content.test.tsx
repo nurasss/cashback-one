@@ -23,6 +23,10 @@ const store: BusinessStore = {
 };
 
 const appTexts: AppTexts = {
+  home_text: {
+    ru: 'Добро пожаловать в супермаркет «КеремЕт»!',
+    kk: '«КеремЕт» супермаркетіне қош келдіңіз!',
+  },
   home_store_note_lead: {
     ru: 'Вы можете потратить эти баллы в супермаркете «КеремЕт»:',
     kk: 'Сіз бұл ұпайларды «КеремЕт» супермаркетінде жұмсай аласыз:',
@@ -135,9 +139,9 @@ it('manager accesses App tab without business picker and sees stores and texts',
   renderAppContent('business_manager');
 
   // Verify tab is present and click it
-  const appTab = await screen.findByRole('tab', { name: 'Магазины и инфо' });
-  expect(appTab).toBeInTheDocument();
-  await user.click(appTab);
+  const storesTab = await screen.findByRole('tab', { name: 'Магазины' });
+  expect(storesTab).toBeInTheDocument();
+  await user.click(storesTab);
 
   // Business selector must NOT be visible for a manager
   expect(screen.queryByLabelText('Бизнес')).not.toBeInTheDocument();
@@ -150,18 +154,20 @@ it('manager accesses App tab without business picker and sees stores and texts',
     'https://2gis.kz/astana/firm/70000001103172202'
   );
 
-  // App texts are populated
-  const leadInput = screen.getByDisplayValue(
-    'Вы можете потратить эти баллы в супермаркете «КеремЕт»:'
+  // App texts are populated on texts tab
+  const textsTab = screen.getByRole('tab', { name: 'Тексты' });
+  await user.click(textsTab);
+  const homeInput = screen.getByDisplayValue(
+    'Добро пожаловать в супермаркет «КеремЕт»!'
   );
-  expect(leadInput).toBeInTheDocument();
+  expect(homeInput).toBeInTheDocument();
 });
 
 it('validates store form and creates a store through the typed API', async () => {
   const user = userEvent.setup();
   const fetchMock = renderAppContent('business_manager');
 
-  await user.click(await screen.findByRole('tab', { name: 'Магазины и инфо' }));
+  await user.click(await screen.findByRole('tab', { name: 'Магазины' }));
   await user.click(await screen.findByRole('button', { name: 'Добавить магазин' }));
 
   const dialog = await screen.findByRole('dialog');
@@ -216,7 +222,7 @@ it('deletes store with user confirmation', async () => {
   vi.stubGlobal('confirm', confirmMock);
 
   const fetchMock = renderAppContent('business_manager');
-  await user.click(await screen.findByRole('tab', { name: 'Магазины и инфо' }));
+  await user.click(await screen.findByRole('tab', { name: 'Магазины' }));
   await screen.findByText('Супермаркет «КеремЕт»');
 
   await user.click(screen.getByRole('button', { name: 'Удалить' }));
@@ -238,13 +244,13 @@ it('updates app texts in RU and KK', async () => {
   const user = userEvent.setup();
   const fetchMock = renderAppContent('business_manager');
 
-  await user.click(await screen.findByRole('tab', { name: 'Магазины и инфо' }));
-  const leadRuInput = await screen.findByDisplayValue(
-    'Вы можете потратить эти баллы в супермаркете «КеремЕт»:'
+  await user.click(await screen.findByRole('tab', { name: 'Тексты' }));
+  const homeRuInput = await screen.findByDisplayValue(
+    'Добро пожаловать в супермаркет «КеремЕт»!'
   );
 
-  await user.clear(leadRuInput);
-  await user.type(leadRuInput, 'Новый текст на главной (RU)');
+  await user.clear(homeRuInput);
+  await user.type(homeRuInput, 'Новый текст на главной (RU)');
 
   await user.click(screen.getByRole('button', { name: 'Сохранить тексты' }));
 
@@ -258,9 +264,9 @@ it('updates app texts in RU and KK', async () => {
       );
     expect(putCall).toBeDefined();
     expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
-      home_store_note_lead: {
+      home_text: {
         ru: 'Новый текст на главной (RU)',
-        kk: 'Сіз бұл ұпайларды «КеремЕт» супермаркетінде жұмсай аласыз:',
+        kk: '«КеремЕт» супермаркетіне қош келдіңіз!',
       },
     });
   });
@@ -286,6 +292,8 @@ it('superadmin sees business picker on app tab and prompt when unselected', asyn
 it('renders in Kazakh locale with proper translations', async () => {
   renderAppContent('business_manager', 'kk');
 
-  const appTab = await screen.findByRole('tab', { name: 'Дүкендер мен мәтіндер' });
-  expect(appTab).toBeInTheDocument();
+  const storesTab = await screen.findByRole('tab', { name: 'Дүкендер' });
+  expect(storesTab).toBeInTheDocument();
+  const textsTab = await screen.findByRole('tab', { name: 'Мәтіндер' });
+  expect(textsTab).toBeInTheDocument();
 });

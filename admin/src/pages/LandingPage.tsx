@@ -43,7 +43,7 @@ export function LandingPage() {
         <div className="landing-container landing-header-inner">
           <a href="#top" className="landing-brand" aria-label={t.header.brandAria}>
             <img
-              src="/brand-mark.png"
+              src="/cashback-one-app-icon.png"
               alt=""
               width="36"
               height="36"
@@ -400,7 +400,7 @@ export function PublicNotFoundPage() {
       <header className="landing-header">
         <div className="landing-container landing-header-inner">
           <a href="/" className="landing-brand" aria-label={t.header.brandAria}>
-            <img src="/brand-mark.png" alt="" width="36" height="36" className="landing-brand-logo" />
+            <img src="/cashback-one-app-icon.png" alt="" width="36" height="36" className="landing-brand-logo" />
             <span className="landing-brand-name">Cashback One</span>
           </a>
           <div className="landing-header-actions" aria-label={t.header.navAria}>

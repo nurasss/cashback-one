@@ -1,10 +1,11 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AdminProvider } from '../src/auth/provider';
 import { LocaleProvider } from '../src/i18n/LocaleContext';
 import { ContentPage } from '../src/pages/ContentPage';
+import { NotificationsPage } from '../src/pages/NotificationsPage';
 import type { Promotion } from '../src/api/types';
 
 const businessId = 'fixture-business-id';
@@ -20,6 +21,7 @@ function renderContent(
   options?: {
     locale?: 'ru' | 'kk';
     createNotificationResponse?: unknown;
+    page?: 'content' | 'notifications';
   },
 ) {
   if (options?.locale) {
@@ -58,7 +60,7 @@ function renderContent(
       <AdminProvider>
         <MemoryRouter>
           <Routes>
-            <Route path="/" element={<ContentPage />} />
+            <Route path="/" element={options?.page === 'notifications' ? <NotificationsPage /> : <ContentPage />} />
           </Routes>
         </MemoryRouter>
       </AdminProvider>
@@ -96,17 +98,13 @@ it('lets a superadmin create a business offer and delete a banner', async () => 
   await waitFor(() => expect(vi.mocked(fetchMock).mock.calls.some(([url, init]) => String(url).endsWith(`/admin/promotions/${promotion.id}`) && init?.method === 'DELETE')).toBe(true));
 }, 15_000);
 
-it('pins a manager to their own business when sending a notification with default send_push=true', async () => {
+it('pins a manager to their own business when sending a notification with default send_push=true and no push checkbox', async () => {
   const user = userEvent.setup();
-  const fetchMock = renderContent('business_manager');
-  await screen.findByText('Выиграй авто');
-  expect(screen.queryByLabelText('Бизнес')).not.toBeInTheDocument();
-  await user.click(screen.getByRole('tab', { name: 'Уведомления' }));
-  await user.click(await screen.findByRole('button', { name: 'Отправить уведомление' }));
+  const fetchMock = renderContent('business_manager', { page: 'notifications' });
+  await user.click(await screen.findByRole('button', { name: 'Создать рассылку' }));
   const dialog = await screen.findByRole('dialog');
   expect(within(dialog).queryByLabelText('Кому')).not.toBeInTheDocument();
-  const pushCheckbox = within(dialog).getByLabelText('Отправить push на телефоны');
-  expect(pushCheckbox).toBeChecked();
+  expect(within(dialog).queryByLabelText('Отправить push на телефоны')).not.toBeInTheDocument();
   await user.type(within(dialog).getByLabelText('Заголовок'), 'Новая акция');
   await user.type(within(dialog).getByLabelText('Текст'), 'Скидки до 30%');
   await user.click(within(dialog).getByRole('button', { name: 'Отправить' }));
@@ -115,23 +113,34 @@ it('pins a manager to their own business when sending a notification with defaul
   expect(JSON.parse(String(sent?.[1]?.body))).toEqual({ title: 'Новая акция', body: 'Скидки до 30%', send_push: true });
 }, 15_000);
 
-it('sends notification with send_push=false when unchecked', async () => {
+it('sends scheduled notification with send_push=true when scheduling for future', async () => {
   const user = userEvent.setup();
   const fetchMock = renderContent('superadmin');
   await screen.findByText('Выиграй авто');
   await user.click(screen.getByRole('tab', { name: 'Уведомления' }));
   await user.click(await screen.findByRole('button', { name: 'Отправить уведомление' }));
   const dialog = await screen.findByRole('dialog');
-  const pushCheckbox = within(dialog).getByLabelText('Отправить push на телефоны');
-  expect(pushCheckbox).toBeChecked();
-  await user.click(pushCheckbox);
-  expect(pushCheckbox).not.toBeChecked();
-  await user.type(within(dialog).getByLabelText('Заголовок'), 'Без пуша');
-  await user.type(within(dialog).getByLabelText('Текст'), 'Только колокольчик');
-  await user.click(within(dialog).getByRole('button', { name: 'Отправить' }));
+  expect(within(dialog).queryByLabelText('Отправить push на телефоны')).not.toBeInTheDocument();
+
+  await user.type(within(dialog).getByLabelText('Заголовок'), 'Запланированная');
+  await user.type(within(dialog).getByLabelText('Текст'), 'Текст напоминания');
+
+  // Switch to scheduled
+  await user.click(within(dialog).getByLabelText('В указанное время'));
+  expect(within(dialog).getByRole('button', { name: 'Запланировать' })).toBeInTheDocument();
+
+  // Pick future date
+  const timeInput = within(dialog).getByLabelText('Дата и время (время Астаны)');
+  fireEvent.change(timeInput, { target: { value: '2026-11-20T15:30' } });
+
+  await user.click(within(dialog).getByRole('button', { name: 'Запланировать' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   const sent = vi.mocked(fetchMock).mock.calls.find(([url, init]) => String(url).endsWith('/admin/notifications') && init?.method === 'POST');
-  expect(JSON.parse(String(sent?.[1]?.body))).toEqual({ title: 'Без пуша', body: 'Только колокольчик', send_push: false });
+  const body = JSON.parse(String(sent?.[1]?.body));
+  expect(body.title).toBe('Запланированная');
+  expect(body.body).toBe('Текст напоминания');
+  expect(body.send_push).toBe(true);
+  expect(body.scheduled_at).toBeDefined();
 }, 15_000);
 
 it.each([

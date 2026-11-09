@@ -2,20 +2,21 @@ import { useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, useAppNotifications, useBusinesses, usePromotions } from '../api/queries';
-import type { AppNotification, BroadcastPushResult, Promotion, PromotionKind } from '../api/types';
+import type { AppNotification, BroadcastPushResult, BusinessStore, Promotion, PromotionKind } from '../api/types';
 import { useAdminSession } from '../auth/provider';
 import { DataTable } from '../components/DataTable';
 import { useTableExpansion } from '../components/CompactTable';
 import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { ImageUploadField } from '../components/ImageUploadField';
 import { DialogFrame } from '../features/AdminMutations';
-import { BusinessAppContent } from '../features/BusinessAppContent';
-import { astanaLocalToUtcIso, formatAstanaSchedule, formatDate, getAstanaNowLocal } from '../utils/format';
+import { BusinessAppContent, BusinessSplashSection, BusinessStoresSection, BusinessTextsSection } from '../features/BusinessAppContent';
+import { astanaLocalToUtcIso, formatAstanaDateTime, formatAstanaSchedule, formatDate, getAstanaNowLocal, utcIsoToAstanaLocal } from '../utils/format';
 import { usePage } from '../utils/usePage';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
-type Tab = 'promotions' | 'notifications' | 'app';
+type SuperadminTab = 'promotions' | 'notifications' | 'app';
+type ClientTab = 'banners' | 'offers' | 'stores' | 'texts' | 'splash';
 const GLOBAL = '';
 
 function useIsSuperadmin() {
@@ -37,13 +38,19 @@ export function ContentPage() {
   const superadmin = useIsSuperadmin();
   const { view } = useAdminSession();
   const t = useAdminTranslation();
-  const [tab, setTab] = useState<Tab>('promotions');
+  const [adminTab, setAdminTab] = useState<SuperadminTab>('promotions');
+  const [clientTab, setClientTab] = useState<ClientTab>('banners');
   const [businessFilter, setBusinessFilter] = useState(GLOBAL);
-  const [editing, setEditing] = useState<Promotion | 'new' | null>(null);
+  const [editing, setEditing] = useState<Promotion | 'new' | 'new-banner' | 'new-offer' | null>(null);
+  const [editingStore, setEditingStore] = useState<BusinessStore | 'new' | null>(null);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [noticeFeedback, setNoticeFeedback] = useState<string | null>(null);
 
-  const handleNoticeCreated = (push?: BroadcastPushResult | null) => {
+  const handleNoticeCreated = (push?: BroadcastPushResult | null, scheduledAt?: string | null) => {
+    if (scheduledAt) {
+      setNoticeFeedback(t.content.noticeScheduleSuccess(formatAstanaSchedule(scheduledAt)));
+      return;
+    }
     if (!push) return;
     if (push.status === 'sent') {
       setNoticeFeedback(t.content.noticePushSent(push.delivered, push.devices));
@@ -64,52 +71,139 @@ export function ContentPage() {
       : undefined;
   const activeAppBusinessId = superadmin ? businessFilter : managerBusinessId;
 
+  const renderHeadingActions = () => {
+    if (superadmin) {
+      if (adminTab === 'promotions') {
+        return (
+          <button className="button button-primary" type="button" onClick={() => setEditing('new')}>
+            {t.content.addPromoBtn}
+          </button>
+        );
+      }
+      if (adminTab === 'notifications') {
+        return (
+          <button className="button button-primary" type="button" onClick={() => setNoticeOpen(true)}>
+            {t.content.sendNoticeBtn}
+          </button>
+        );
+      }
+      return null;
+    }
+
+    // business_manager
+    if (clientTab === 'banners') {
+      return (
+        <button className="button button-primary" type="button" onClick={() => setEditing('new-banner')}>
+          {t.content.addBannerBtn}
+        </button>
+      );
+    }
+    if (clientTab === 'offers') {
+      return (
+        <button className="button button-primary" type="button" onClick={() => setEditing('new-offer')}>
+          {t.content.addOfferBtn}
+        </button>
+      );
+    }
+    if (clientTab === 'stores') {
+      return (
+        <button className="button button-primary" type="button" onClick={() => setEditingStore('new')}>
+          {t.appContent.addStoreBtn}
+        </button>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="page-stack">
       <PageHeading
         title={t.content.title}
         subtitle={t.content.subtitle}
-        actions={
-          tab === 'promotions' ? (
-            <button className="button button-primary" type="button" onClick={() => setEditing('new')}>
-              {t.content.addPromoBtn}
-            </button>
-          ) : tab === 'notifications' ? (
-            <button className="button button-primary" type="button" onClick={() => setNoticeOpen(true)}>
-              {t.content.sendNoticeBtn}
-            </button>
-          ) : null
-        }
+        actions={renderHeadingActions()}
       />
       <section className="filter-panel">
         <div className="search-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'promotions'}
-            className={tab === 'promotions' ? 'search-tab selected' : 'search-tab'}
-            onClick={() => setTab('promotions')}
-          >
-            {t.content.tabPromotions}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'notifications'}
-            className={tab === 'notifications' ? 'search-tab selected' : 'search-tab'}
-            onClick={() => setTab('notifications')}
-          >
-            {t.content.tabNotifications}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'app'}
-            className={tab === 'app' ? 'search-tab selected' : 'search-tab'}
-            onClick={() => setTab('app')}
-          >
-            {t.content.tabApp}
-          </button>
+          {superadmin ? (
+            <>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={adminTab === 'promotions'}
+                className={adminTab === 'promotions' ? 'search-tab selected' : 'search-tab'}
+                onClick={() => setAdminTab('promotions')}
+              >
+                {t.content.tabPromotions}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={adminTab === 'notifications'}
+                className={adminTab === 'notifications' ? 'search-tab selected' : 'search-tab'}
+                onClick={() => setAdminTab('notifications')}
+              >
+                {t.content.tabNotifications}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={adminTab === 'app'}
+                className={adminTab === 'app' ? 'search-tab selected' : 'search-tab'}
+                onClick={() => setAdminTab('app')}
+              >
+                {t.content.tabApp}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={clientTab === 'banners'}
+                className={clientTab === 'banners' ? 'search-tab selected' : 'search-tab'}
+                onClick={() => setClientTab('banners')}
+              >
+                {t.content.clientTabBanners}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={clientTab === 'offers'}
+                className={clientTab === 'offers' ? 'search-tab selected' : 'search-tab'}
+                onClick={() => setClientTab('offers')}
+              >
+                {t.content.clientTabOffers}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={clientTab === 'stores'}
+                className={clientTab === 'stores' ? 'search-tab selected' : 'search-tab'}
+                onClick={() => setClientTab('stores')}
+              >
+                {t.content.clientTabStores}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={clientTab === 'texts'}
+                className={clientTab === 'texts' ? 'search-tab selected' : 'search-tab'}
+                onClick={() => setClientTab('texts')}
+              >
+                {t.content.clientTabTexts}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={clientTab === 'splash'}
+                className={clientTab === 'splash' ? 'search-tab selected' : 'search-tab'}
+                onClick={() => setClientTab('splash')}
+                data-testid="client-tab-splash"
+              >
+                {t.content.clientTabSplash}
+              </button>
+            </>
+          )}
         </div>
         {superadmin && (
           <div className="filter-controls">
@@ -120,42 +214,82 @@ export function ContentPage() {
           </div>
         )}
       </section>
-      {tab === 'promotions' ? (
-        <PromotionsTable businessId={businessFilter || undefined} onEdit={setEditing} />
-      ) : tab === 'notifications' ? (
-        <>
-          {noticeFeedback && (
-            <section
-              className="notice"
-              role="status"
-              style={{
-                marginBottom: '1rem',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <p>{noticeFeedback}</p>
-              <button
-                className="link-button"
-                type="button"
-                onClick={() => setNoticeFeedback(null)}
-                aria-label="Закрыть"
+
+      {superadmin ? (
+        adminTab === 'promotions' ? (
+          <PromotionsTable businessId={businessFilter || undefined} onEdit={setEditing} />
+        ) : adminTab === 'notifications' ? (
+          <>
+            {noticeFeedback && (
+              <section
+                className="notice"
+                role="status"
+                style={{
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
               >
-                ×
-              </button>
-            </section>
-          )}
-          <NotificationsTable businessId={businessFilter || undefined} />
-        </>
-      ) : activeAppBusinessId ? (
-        <BusinessAppContent businessId={activeAppBusinessId} />
+                <p>{noticeFeedback}</p>
+                <button
+                  className="link-button"
+                  type="button"
+                  onClick={() => setNoticeFeedback(null)}
+                  aria-label={t.mutations.close}
+                >
+                  ×
+                </button>
+              </section>
+            )}
+            <NotificationsTable businessId={businessFilter || undefined} />
+          </>
+        ) : activeAppBusinessId ? (
+          <BusinessAppContent businessId={activeAppBusinessId} />
+        ) : (
+          <section className="surface-card">
+            <p className="table-empty">{t.content.selectBusinessHint}</p>
+          </section>
+        )
       ) : (
-        <section className="surface-card">
-          <p className="table-empty">{t.content.selectBusinessHint}</p>
-        </section>
+        // Client view (business_manager)
+        clientTab === 'banners' ? (
+          <PromotionsTable businessId={managerBusinessId} kind="banner" onEdit={setEditing} />
+        ) : clientTab === 'offers' ? (
+          <PromotionsTable businessId={managerBusinessId} kind="offer" onEdit={setEditing} />
+        ) : clientTab === 'stores' ? (
+          activeAppBusinessId ? (
+            <BusinessStoresSection
+              businessId={activeAppBusinessId}
+              hideHeadingAction
+              editingStore={editingStore}
+              onEditingStoreChange={setEditingStore}
+            />
+          ) : null
+        ) : clientTab === 'texts' ? (
+          activeAppBusinessId ? (
+            <BusinessTextsSection businessId={activeAppBusinessId} />
+          ) : null
+        ) : (
+          activeAppBusinessId ? (
+            <BusinessSplashSection businessId={activeAppBusinessId} />
+          ) : null
+        )
       )}
-      {editing && <PromotionDialog promotion={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
+
+      {editing && (
+        <PromotionDialog
+          promotion={typeof editing === 'object' ? editing : undefined}
+          defaultKind={
+            editing === 'new-banner'
+              ? 'banner'
+              : editing === 'new-offer'
+                ? 'offer'
+                : 'offer'
+          }
+          onClose={() => setEditing(null)}
+        />
+      )}
       {noticeOpen && (
         <NotificationDialog
           onClose={() => setNoticeOpen(false)}
@@ -166,94 +300,124 @@ export function ContentPage() {
   );
 }
 
-function PromotionsTable({ businessId, onEdit }: { businessId?: string; onEdit: (promotion: Promotion) => void }) {
+export function PromotionsTable({
+  businessId,
+  kind,
+  onEdit,
+}: {
+  businessId?: string;
+  kind?: PromotionKind;
+  onEdit: (promotion: Promotion) => void;
+}) {
   const expansion = useTableExpansion();
-  const { locale } = useLocale();
   const t = useAdminTranslation();
   const [page, setPage] = usePage();
-  const query = usePromotions(businessId, page);
+  const query = usePromotions(businessId, page, kind);
   const remove = useRemove('promotions');
 
   if (query.isPending) return <LoadingPage label={t.content.loadingPromos} />;
   if (query.isError) return <ErrorNotice error={query.error} retry={() => { void query.refetch(); }} />;
 
-  return (
-    <>
-      {remove.error && <ErrorNotice error={remove.error} />}
-      <DataTable<Promotion>
-        expansion={expansion}
-        page={{ ...page, has_more: query.data.has_more }}
-        onPage={setPage}
-        rows={query.data.items}
-        rowKey={item => item.id}
-        columns={[
-          {
-            key: 'title',
-            title: t.content.colPromo,
-            render: item => (
-              <span className="table-name">
-                {item.title}
-                <span>{item.badge ?? item.subtitle ?? ''}</span>
-              </span>
-            ),
-          },
+  const columns = [
+    {
+      key: 'title',
+      title: t.content.colPromo,
+      render: (item: Promotion) => (
+        <span className="table-name">
+          {item.title}
+          <span>{item.badge ?? item.subtitle ?? ''}</span>
+        </span>
+      ),
+    },
+    ...(kind === undefined
+      ? [
           {
             key: 'kind',
             title: t.content.colKind,
-            render: item => (item.kind === 'banner' ? t.content.kindBanner : t.content.kindOffer),
+            render: (item: Promotion) =>
+              item.kind === 'banner' ? t.content.kindBanner : t.content.kindOffer,
           },
-          {
-            key: 'audience',
-            title: t.content.colAudience,
-            render: item => (item.business_id ? t.content.audienceBiz : t.content.audienceAll),
-          },
-          {
-            key: 'status',
-            title: t.content.colPromoStatus,
-            render: item => (
-              <StatusPill tone={item.is_active ? 'positive' : 'neutral'}>
-                {item.is_active ? t.content.statusShown : t.content.statusHidden}
-              </StatusPill>
-            ),
-          },
-          {
-            key: 'period',
-            title: t.content.colPeriod,
-            render: item => (
-              <span className="mono-value">
-                {item.starts_at ? formatDate(item.starts_at, locale) : '—'} — {item.ends_at ? formatDate(item.ends_at, locale) : '∞'}
-              </span>
-            ),
-          },
-          {
-            key: 'actions',
-            title: '',
-            align: 'right',
-            render: item => (
-              <span className="pagination-actions">
-                <button className="link-button" type="button" onClick={() => onEdit(item)}>
-                  {t.content.editBtn}
-                </button>
-                <button
-                  className="link-button"
-                  type="button"
-                  disabled={remove.pending}
-                  onClick={() => {
-                    if (window.confirm(t.content.confirmDeletePromo(item.title))) void remove.run(item.id);
-                  }}
-                >
-                  {t.content.deleteBtn}
-                </button>
-              </span>
-            ),
-          },
-        ]}
-      />
+        ]
+      : []),
+    {
+      key: 'audience',
+      title: t.content.colAudience,
+      render: (item: Promotion) =>
+        item.business_id ? t.content.audienceBiz : t.content.audienceAll,
+    },
+    {
+      key: 'status',
+      title: t.content.colPromoStatus,
+      render: (item: Promotion) => (
+        <StatusPill tone={item.is_active ? 'positive' : 'neutral'}>
+          {item.is_active ? t.content.statusShown : t.content.statusHidden}
+        </StatusPill>
+      ),
+    },
+    {
+      key: 'period',
+      title: t.content.colPeriod,
+      render: (item: Promotion) => (
+        <span className="mono-value">
+          {item.starts_at ? formatAstanaDateTime(item.starts_at) : '—'} —{' '}
+          {item.ends_at ? formatAstanaDateTime(item.ends_at) : '∞'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      title: '',
+      align: 'right' as const,
+      render: (item: Promotion) => (
+        <span className="pagination-actions">
+          <button className="link-button" type="button" onClick={() => onEdit(item)}>
+            {t.content.editBtn}
+          </button>
+          <button
+            className="link-button"
+            type="button"
+            disabled={remove.pending}
+            onClick={() => {
+              if (window.confirm(t.content.confirmDeletePromo(item.title)))
+                void remove.run(item.id);
+            }}
+          >
+            {t.content.deleteBtn}
+          </button>
+        </span>
+      ),
+    },
+  ];
+
+  const emptyMessage =
+    kind === 'banner'
+      ? t.content.emptyBanners
+      : kind === 'offer'
+        ? t.content.emptyOffers
+        : undefined;
+
+  return (
+    <>
+      {remove.error && <ErrorNotice error={remove.error} />}
+      {query.data.items.length === 0 && emptyMessage ? (
+        <section className="surface-card">
+          <p className="table-empty">{emptyMessage}</p>
+        </section>
+      ) : (
+        <DataTable<Promotion>
+          expansion={expansion}
+          page={{ ...page, has_more: query.data.has_more }}
+          onPage={setPage}
+          rows={query.data.items}
+          rowKey={item => item.id}
+          columns={columns}
+        />
+      )}
     </>
   );
 }
 
-function NotificationsTable({ businessId }: { businessId?: string }) {
+export function NotificationsTable({ businessId }: { businessId?: string }) {
   const expansion = useTableExpansion();
   const { locale } = useLocale();
   const t = useAdminTranslation();
@@ -357,11 +521,15 @@ function useRemove(resource: 'promotions' | 'notifications') {
   return { run, pending, error };
 }
 
-const toLocalInput = (value: string | null) =>
-  value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60_000).toISOString().slice(0, 16) : '';
-const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : null);
-
-export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion; onClose: () => void }) {
+export function PromotionDialog({
+  promotion,
+  defaultKind = 'offer',
+  onClose,
+}: {
+  promotion?: Promotion;
+  defaultKind?: PromotionKind;
+  onClose: () => void;
+}) {
   const { session } = useAdminSession();
   const { locale } = useLocale();
   const t = useAdminTranslation();
@@ -369,14 +537,14 @@ export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion;
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     business_id: promotion?.business_id ?? GLOBAL,
-    kind: promotion?.kind ?? ('offer' as PromotionKind),
+    kind: promotion?.kind ?? defaultKind,
     title: promotion?.title ?? '',
     subtitle: promotion?.subtitle ?? '',
     badge: promotion?.badge ?? '',
     body: promotion?.body ?? '',
     image_url: promotion?.image_url ?? '',
-    starts_at: toLocalInput(promotion?.starts_at ?? null),
-    ends_at: toLocalInput(promotion?.ends_at ?? null),
+    starts_at: utcIsoToAstanaLocal(promotion?.starts_at ?? null),
+    ends_at: utcIsoToAstanaLocal(promotion?.ends_at ?? null),
     sort_order: String(promotion?.sort_order ?? 0),
     is_active: promotion?.is_active ?? true,
   });
@@ -402,6 +570,24 @@ export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion;
       setError(t.content.promoErrSort);
       return;
     }
+
+    // Date validations in Astana time
+    if (!promotion && form.starts_at.trim()) {
+      const startUtc = astanaLocalToUtcIso(form.starts_at.trim());
+      if (startUtc && new Date(startUtc).getTime() < Date.now() - 5 * 60 * 1000) {
+        setError(t.content.promoErrStartPast);
+        return;
+      }
+    }
+    if (form.starts_at.trim() && form.ends_at.trim()) {
+      const startUtc = astanaLocalToUtcIso(form.starts_at.trim());
+      const endUtc = astanaLocalToUtcIso(form.ends_at.trim());
+      if (startUtc && endUtc && new Date(endUtc).getTime() <= new Date(startUtc).getTime()) {
+        setError(t.content.promoErrEndAfterStart);
+        return;
+      }
+    }
+
     const payload = {
       kind: form.kind,
       title: form.title.trim(),
@@ -409,8 +595,8 @@ export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion;
       badge: form.badge.trim() || null,
       body: form.body.trim() || null,
       image_url: form.image_url.trim() || null,
-      starts_at: fromLocalInput(form.starts_at),
-      ends_at: fromLocalInput(form.ends_at),
+      starts_at: form.starts_at.trim() ? astanaLocalToUtcIso(form.starts_at.trim()) : null,
+      ends_at: form.ends_at.trim() ? astanaLocalToUtcIso(form.ends_at.trim()) : null,
       sort_order: sort,
       is_active: form.is_active,
     };
@@ -436,8 +622,17 @@ export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion;
     }
   };
 
+  const dialogTitle =
+    form.kind === 'banner'
+      ? promotion
+        ? t.content.bannerDialogTitleEdit
+        : t.content.bannerDialogTitleNew
+      : promotion
+        ? t.content.offerDialogTitleEdit
+        : t.content.offerDialogTitleNew;
+
   return (
-    <DialogFrame title={promotion ? t.content.promoDialogTitleEdit : t.content.promoDialogTitleNew} onClose={onClose}>
+    <DialogFrame title={dialogTitle} onClose={onClose}>
       <form className="mutation-form" onSubmit={event => { void submit(event); }}>
         {superadmin && !promotion && (
           <>
@@ -450,11 +645,15 @@ export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion;
             />
           </>
         )}
-        <label htmlFor="promo-kind">{t.content.promoFieldKind}</label>
-        <select id="promo-kind" value={form.kind} onChange={set('kind')}>
-          <option value="offer">{t.content.promoKindOfferOption}</option>
-          <option value="banner">{t.content.promoKindBannerOption}</option>
-        </select>
+        {superadmin && (
+          <>
+            <label htmlFor="promo-kind">{t.content.promoFieldKind}</label>
+            <select id="promo-kind" value={form.kind} onChange={set('kind')}>
+              <option value="offer">{t.content.promoKindOfferOption}</option>
+              <option value="banner">{t.content.promoKindBannerOption}</option>
+            </select>
+          </>
+        )}
         <label htmlFor="promo-title">{t.content.promoFieldTitle}</label>
         <input id="promo-title" value={form.title} maxLength={120} onChange={set('title')} required autoFocus />
         <label htmlFor="promo-badge">{t.content.promoFieldBadge}</label>
@@ -472,10 +671,49 @@ export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion;
           onUploadingChange={setUploadingImage}
           disabled={saving}
         />
-        <label htmlFor="promo-start">{t.content.promoFieldStart}</label>
-        <input id="promo-start" type="datetime-local" value={form.starts_at} onChange={set('starts_at')} />
-        <label htmlFor="promo-end">{t.content.promoFieldEnd}</label>
-        <input id="promo-end" type="datetime-local" value={form.ends_at} onChange={set('ends_at')} />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label htmlFor="promo-start" style={{ margin: 0 }}>{t.content.promoFieldStart}</label>
+            <button
+              type="button"
+              className="link-button"
+              style={{ fontSize: '0.8125rem' }}
+              onClick={() => setForm(c => ({ ...c, starts_at: getAstanaNowLocal() }))}
+            >
+              {t.content.startNowBtn}
+            </button>
+          </div>
+          <input
+            id="promo-start"
+            type="datetime-local"
+            value={form.starts_at}
+            min={promotion ? undefined : getAstanaNowLocal()}
+            onChange={set('starts_at')}
+          />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label htmlFor="promo-end" style={{ margin: 0 }}>{t.content.promoFieldEnd}</label>
+            <button
+              type="button"
+              className="link-button"
+              style={{ fontSize: '0.8125rem' }}
+              onClick={() => setForm(c => ({ ...c, ends_at: '' }))}
+            >
+              {t.content.noEndDateBtn}
+            </button>
+          </div>
+          <input
+            id="promo-end"
+            type="datetime-local"
+            value={form.ends_at}
+            min={form.starts_at || getAstanaNowLocal()}
+            onChange={set('ends_at')}
+          />
+        </div>
+
         <label htmlFor="promo-sort">{t.content.promoFieldSort}</label>
         <input id="promo-sort" type="number" value={form.sort_order} onChange={set('sort_order')} />
         <label htmlFor="promo-active">
@@ -502,12 +740,12 @@ export function PromotionDialog({ promotion, onClose }: { promotion?: Promotion;
   );
 }
 
-function NotificationDialog({
+export function NotificationDialog({
   onClose,
   onCreated,
 }: {
   onClose: () => void;
-  onCreated?: (push?: BroadcastPushResult | null) => void;
+  onCreated?: (push?: BroadcastPushResult | null, scheduledAt?: string | null) => void;
 }) {
   const { session } = useAdminSession();
   const { locale } = useLocale();
@@ -517,7 +755,6 @@ function NotificationDialog({
   const [businessId, setBusinessId] = useState(GLOBAL);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [sendPush, setSendPush] = useState(true);
   const [whenToSend, setWhenToSend] = useState<'now' | 'scheduled'>('now');
   const [scheduledLocal, setScheduledLocal] = useState('');
   const [error, setError] = useState('');
@@ -537,6 +774,10 @@ function NotificationDialog({
         return;
       }
       const utcIso = astanaLocalToUtcIso(scheduledLocal.trim());
+      if (!utcIso) {
+        setError(t.content.noticeErrScheduledRequired);
+        return;
+      }
       const targetTime = new Date(utcIso).getTime();
       const nowTime = Date.now();
       if (isNaN(targetTime) || targetTime <= nowTime) {
@@ -558,14 +799,14 @@ function NotificationDialog({
         body: {
           title: title.trim(),
           body: body.trim(),
-          send_push: sendPush,
+          send_push: true,
           ...(scheduledAtUtc ? { scheduled_at: scheduledAtUtc } : {}),
           ...(superadmin && businessId ? { business_id: businessId } : {}),
         },
       });
       await queryClient.invalidateQueries({ queryKey: [...privateKey, 'app-notifications'] });
       onClose();
-      onCreated?.(res.push);
+      onCreated?.(res.push, res.scheduled_at);
     } catch (saveError) {
       setError(messageForError(saveError, locale));
     } finally {
@@ -626,15 +867,6 @@ function NotificationDialog({
           </>
         )}
 
-        <label htmlFor="note-push" className="mutation-checkbox-label">
-          <input
-            id="note-push"
-            type="checkbox"
-            checked={sendPush}
-            onChange={event => setSendPush(event.target.checked)}
-          />
-          {t.content.noticeSendPush}
-        </label>
         <p className="muted-copy">{t.content.noticeHint}</p>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="mutation-actions">

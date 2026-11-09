@@ -4,8 +4,9 @@ Superadmins manage global content (business_id NULL) and any business; business 
 manage only their own business. Every mutation is audited.
 """
 import logging
+import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.admin_deps import AdminScope, scope_for_admin
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.time import utcnow
+from app.core.time import as_utc, utcnow
 from app.models.admin import AdminUser
 from app.models.entities import Business, BusinessStore, Notification, Promotion
 from app.schemas.admin import Page
@@ -22,6 +23,8 @@ from app.schemas.admin_content import (
     AppTextsResponse,
     AppTextsUpdateRequest,
     BroadcastPushResult,
+    BusinessSplashConfigResponse,
+    BusinessSplashConfigUpdateRequest,
     BusinessStoreAdminItem,
     BusinessStoreCreateRequest,
     BusinessStoreUpdateRequest,
@@ -75,13 +78,21 @@ def _page(rows: list[Any], limit: int, offset: int, item: Any) -> Page[Any]:
 
 
 async def list_promotions(
-    db: AsyncSession, scope: AdminScope, business_id: uuid.UUID | None, limit: int, offset: int
+    db: AsyncSession,
+    scope: AdminScope,
+    business_id: uuid.UUID | None,
+    limit: int,
+    offset: int,
+    *,
+    kind: str | None = None,
 ) -> Page[PromotionAdminItem]:
     stmt = select(Promotion)
     if scope.business_id is not None:
         stmt = stmt.where(Promotion.business_id == scope.business_id_for(business_id))
     elif business_id is not None:
         stmt = stmt.where(Promotion.business_id == business_id)
+    if kind is not None:
+        stmt = stmt.where(Promotion.kind == kind)
     rows = (
         await db.scalars(
             stmt.order_by(Promotion.sort_order.asc(), Promotion.created_at.desc(), Promotion.id)
@@ -135,9 +146,14 @@ async def update_promotion(
     promo = await _load_promotion(db, scope_for_admin(admin), promotion_id)
     before = _promotion_state(promo)
     old_image_url = promo.image_url
+    if "starts_at" in body.model_fields_set and body.starts_at is not None:
+        if promo.starts_at is None or as_utc(promo.starts_at) != as_utc(body.starts_at):
+            val_utc = as_utc(body.starts_at)
+            if val_utc < utcnow() - timedelta(minutes=5):
+                raise AppError("VALIDATION_ERROR", "starts_at cannot be in the past", 422)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(promo, field, value)
-    if promo.starts_at and promo.ends_at and promo.ends_at <= promo.starts_at:
+    if promo.starts_at and promo.ends_at and as_utc(promo.ends_at) <= as_utc(promo.starts_at):
         raise AppError("VALIDATION_ERROR", "ends_at must be after starts_at", 422)
     await db.flush()
     _audit(db, admin, promo.business_id, "promotion_updated", "promotion", before, _promotion_state(promo))
@@ -417,6 +433,7 @@ async def get_app_texts(
         raise _not_found()
     raw = biz.app_texts or {}
     return AppTextsResponse(
+        home_text=LocalizedAppText.model_validate(raw.get("home_text") or {}),
         home_store_note_lead=LocalizedAppText.model_validate(
             raw.get("home_store_note_lead") or {}
         ),
@@ -424,6 +441,7 @@ async def get_app_texts(
             raw.get("balance_delay_note") or {}
         ),
     )
+
 
 async def update_app_texts(
     db: AsyncSession,
@@ -457,10 +475,114 @@ async def update_app_texts(
     await db.refresh(biz)
     raw = biz.app_texts or {}
     return AppTextsResponse(
+        home_text=LocalizedAppText.model_validate(raw.get("home_text") or {}),
         home_store_note_lead=LocalizedAppText.model_validate(
             raw.get("home_store_note_lead") or {}
         ),
         balance_delay_note=LocalizedAppText.model_validate(
             raw.get("balance_delay_note") or {}
         ),
+    )
+
+
+async def get_splash_config(
+    db: AsyncSession, admin: AdminUser, business_id: uuid.UUID
+) -> BusinessSplashConfigResponse:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    biz = await db.scalar(select(Business).where(Business.id == business_id))
+    if biz is None:
+        raise _not_found()
+    raw = biz.splash_config or {}
+    return BusinessSplashConfigResponse(
+        business_id=biz.id,
+        enabled=bool(raw.get("enabled", False)),
+        media_type=raw.get("media_type"),
+        media_url=raw.get("media_url"),
+        width=raw.get("width"),
+        height=raw.get("height"),
+        duration_seconds=raw.get("duration_seconds"),
+        file_size=raw.get("file_size"),
+        version=raw.get("version"),
+    )
+
+
+async def update_splash_config(
+    db: AsyncSession,
+    admin: AdminUser,
+    business_id: uuid.UUID,
+    body: BusinessSplashConfigUpdateRequest,
+    *,
+    storage: MediaStorage,
+    settings: Settings,
+) -> BusinessSplashConfigResponse:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    biz = await db.scalar(
+        select(Business).where(Business.id == business_id).with_for_update()
+    )
+    if biz is None:
+        raise _not_found()
+
+    before = biz.splash_config
+    old_url = (before or {}).get("media_url") if isinstance(before, dict) else None
+
+    # Validate media URL if enabled
+    if body.enabled:
+        if not body.media_url:
+            raise AppError("VALIDATION_ERROR", "media_url is required when enabled is true", 422)
+        base = settings.media_public_base_url.rstrip("/") + "/"
+        if not body.media_url.startswith(base):
+            raise AppError("VALIDATION_ERROR", "media_url must point to the media storage host", 422)
+        rel_path = body.media_url[len(base):]
+        if not re.match(r"^splashes/[0-9a-f]{32}\.(webp|mp4)$", rel_path):
+            raise AppError("VALIDATION_ERROR", "media_url must be a valid stored splash asset", 422)
+
+    version_token = uuid.uuid4().hex[:16]
+    new_config = {
+        "enabled": body.enabled,
+        "media_type": body.media_type,
+        "media_url": body.media_url,
+        "width": body.width,
+        "height": body.height,
+        "duration_seconds": body.duration_seconds,
+        "file_size": body.file_size,
+        "version": version_token,
+    }
+
+    biz.splash_config = new_config
+    biz.updated_at = utcnow()
+    await db.flush()
+
+    _audit(
+        db,
+        admin,
+        business_id,
+        "business_splash_updated",
+        "business_splash",
+        before,
+        new_config,
+    )
+    await db.commit()
+    await db.refresh(biz)
+
+    # If media changed and old_url is distinct, cleanup old file safely
+    if old_url and old_url != body.media_url:
+        await maybe_cleanup_old_media_file(
+            db=db,
+            storage=storage,
+            old_url=old_url,
+            settings=settings,
+        )
+
+    return BusinessSplashConfigResponse(
+        business_id=biz.id,
+        enabled=bool(new_config["enabled"]),
+        media_type=new_config["media_type"],
+        media_url=new_config["media_url"],
+        width=new_config["width"],
+        height=new_config["height"],
+        duration_seconds=new_config["duration_seconds"],
+        file_size=new_config["file_size"],
+        version=new_config["version"],
     )

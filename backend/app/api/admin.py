@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.db.session import get_session
 from app.models.admin import AdminUser
+from app.models.entities import AuditLog
 from app.schemas.admin import (
     AdminIdentity,
     AdminMeResponse,
@@ -45,6 +46,8 @@ from app.schemas.admin import (
 from app.schemas.admin_content import (
     AppTextsResponse,
     AppTextsUpdateRequest,
+    BusinessSplashConfigResponse,
+    BusinessSplashConfigUpdateRequest,
     BusinessStoreAdminItem,
     BusinessStoreCreateRequest,
     BusinessStoreUpdateRequest,
@@ -53,7 +56,9 @@ from app.schemas.admin_content import (
     NotificationCreateRequest,
     PromotionAdminItem,
     PromotionCreateRequest,
+    PromotionKind,
     PromotionUpdateRequest,
+    SplashMediaUploadResponse,
 )
 from app.services import admin_content
 from app.services.admin_auth import authenticate_admin
@@ -66,6 +71,7 @@ from app.services.admin_mutations import (
     revoke_agent_access,
     revoke_pos_key_mutation,
     rotate_agent_api_key,
+    safe_audit_snapshot,
     unbind_card,
     update_business,
 )
@@ -87,6 +93,7 @@ from app.services.admin_queries import (
 from app.services.image_service import process_and_store_image
 from app.services.media_storage import MediaStorage, get_media_storage
 from app.services.push_sender import PushSender, get_push_sender
+from app.services.video_service import validate_mp4_video
 
 router = APIRouter(dependencies=[Depends(require_admin_origin)])
 
@@ -432,8 +439,11 @@ async def admin_promotions(
     db: Annotated[AsyncSession, Depends(get_session)],
     page: Annotated[PaginationParams, Depends()],
     business_id: uuid.UUID | None = None,
+    kind: PromotionKind | None = None,
 ) -> Page[PromotionAdminItem]:
-    return await admin_content.list_promotions(db, scope, business_id, page.limit, page.offset)
+    return await admin_content.list_promotions(
+        db, scope, business_id, page.limit, page.offset, kind=kind
+    )
 
 
 @router.post("/promotions", response_model=PromotionAdminItem, status_code=201)
@@ -547,4 +557,149 @@ async def admin_upload_image(
         storage=storage,
         admin=admin,
         db=db,
+    )
+
+
+MAX_SPLASH_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MiB limit for splash assets (video)
+
+
+@router.post("/media/splash", response_model=SplashMediaUploadResponse)
+async def admin_upload_splash_media(
+    file: Annotated[UploadFile, File(...)],
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[MediaStorage, Depends(get_media_storage)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    business_id: Annotated[uuid.UUID | None, Form()] = None,
+) -> SplashMediaUploadResponse:
+    # 1. Scope check
+    if admin.role == "business_manager":
+        if business_id is not None and business_id != admin.business_id:
+            raise AppError("FORBIDDEN", "Cannot upload splash for another business", status_code=403)
+        target_business_id = admin.business_id
+    else:
+        target_business_id = business_id or admin.business_id
+
+    # 2. Read in chunks up to 15 MiB
+    max_bytes = MAX_SPLASH_UPLOAD_BYTES
+    total_bytes = 0
+    chunks: list[bytes] = []
+    chunk_size = 65536
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_bytes += len(chunk)
+        if total_bytes > max_bytes:
+            raise AppError(
+                "FILE_TOO_LARGE",
+                f"File size exceeds maximum splash limit of {max_bytes} bytes (15 MiB).",
+                status_code=413,
+            )
+        chunks.append(chunk)
+
+    raw_bytes = b"".join(chunks)
+    if not raw_bytes:
+        raise AppError("VALIDATION_ERROR", "Uploaded file is empty.", status_code=422)
+
+    # 3. Detect format: MP4 video or Image
+    # Check if MP4: starts with ftyp atom (offset 4) or contains ftyp in first 32 bytes
+    is_mp4 = len(raw_bytes) >= 8 and (raw_bytes[4:8] == b"ftyp" or b"ftyp" in raw_bytes[:32])
+
+    if is_mp4:
+        # Validate MP4 video (H.264, duration <= 5.0, no audio)
+        meta = validate_mp4_video(raw_bytes)
+        file_id = uuid.uuid4().hex
+        relative_path = f"splashes/{file_id}.mp4"
+        await storage.put(relative_path, raw_bytes)
+        public_url = f"{settings.media_public_base_url.rstrip('/')}/{relative_path}"
+        media_type = "video"
+        width = meta.width
+        height = meta.height
+        duration_seconds = meta.duration_seconds
+    else:
+        # Image: limit to 5 MiB
+        if len(raw_bytes) > 5 * 1024 * 1024:
+            raise AppError(
+                "IMAGE_TOO_LARGE",
+                "Размер изображения заставки не должен превышать 5 МБ.",
+                status_code=413,
+            )
+        img_res = await process_and_store_image(
+            raw_bytes=raw_bytes,
+            purpose="splash",
+            settings=settings,
+            storage=storage,
+            admin=admin,
+            db=db,
+        )
+        public_url = img_res.url
+        media_type = "image"
+        width = img_res.width
+        height = img_res.height
+        duration_seconds = None
+
+    if target_business_id is not None:
+        db.add(
+            AuditLog(
+                actor=admin.login,
+                admin_user_id=admin.id,
+                business_id=target_business_id,
+                action="media_uploaded",
+                entity="splash_media",
+                before_state=None,
+                after_state=safe_audit_snapshot(
+                    "media_uploaded",
+                    {
+                        "purpose": "splash",
+                        "media_type": media_type,
+                        "bytes": len(raw_bytes),
+                        "width": width,
+                        "height": height,
+                        "duration_seconds": duration_seconds,
+                        "url": public_url,
+                    },
+                    admin_user_id=admin.id,
+                    business_id=target_business_id,
+                ),
+            )
+        )
+        await db.commit()
+
+    return SplashMediaUploadResponse(
+        url=public_url,
+        media_type=media_type,
+        width=width,
+        height=height,
+        duration_seconds=duration_seconds,
+        bytes=len(raw_bytes),
+    )
+
+
+@router.get(
+    "/businesses/{business_id}/splash",
+    response_model=BusinessSplashConfigResponse,
+)
+async def admin_get_business_splash(
+    business_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> BusinessSplashConfigResponse:
+    return await admin_content.get_splash_config(db, admin, business_id)
+
+
+@router.put(
+    "/businesses/{business_id}/splash",
+    response_model=BusinessSplashConfigResponse,
+)
+async def admin_update_business_splash(
+    business_id: uuid.UUID,
+    body: BusinessSplashConfigUpdateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    storage: Annotated[MediaStorage, Depends(get_media_storage)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BusinessSplashConfigResponse:
+    return await admin_content.update_splash_config(
+        db, admin, business_id, body, storage=storage, settings=settings
     )

@@ -5,11 +5,16 @@ import { LocaleProvider } from '../src/i18n/LocaleContext';
 import { getAdminTranslations } from '../src/i18n/admin';
 import { DashboardPage } from '../src/pages/DashboardPage';
 
+let currentAdminRole: 'superadmin' | 'business_manager' = 'superadmin';
+
 vi.mock('../src/auth/provider', () => ({
   useAdminSession: () => ({
     view: {
       status: 'authenticated',
-      admin: { role: 'business_manager', business: { name: 'Fixture Market' } },
+      admin: {
+        role: currentAdminRole,
+        business: currentAdminRole === 'business_manager' ? { name: 'Fixture Market' } : null,
+      },
     },
   }),
 }));
@@ -51,6 +56,7 @@ describe('Approved admin copy', () => {
   });
 
   it.each(['ru', 'kk'] as const)('removes the loyalty caption from all four metric cards in %s', locale => {
+    currentAdminRole = 'superadmin';
     const t = getAdminTranslations(locale);
     render(
       <MemoryRouter>
@@ -66,5 +72,27 @@ describe('Approved admin copy', () => {
     expect(within(metrics).getByText(t.dashboard.cardsTitle)).toBeInTheDocument();
     expect(metrics.querySelectorAll('.metric-value')[0]).toHaveTextContent('1');
     expect(metrics.querySelectorAll('.metric-value')[3]).toHaveTextContent('12');
+  });
+
+  it('renders three metric cards for business_manager without unblocked cards', () => {
+    currentAdminRole = 'business_manager';
+    render(
+      <MemoryRouter>
+        <LocaleProvider initialLocale="ru">
+          <DashboardPage />
+        </LocaleProvider>
+      </MemoryRouter>,
+    );
+    const metrics = screen.getByRole('region', { name: 'Показатели бизнеса' });
+    expect(within(metrics).getAllByRole('article')).toHaveLength(3);
+    expect(within(metrics).queryByText('Незаблокированные карты')).not.toBeInTheDocument();
+    expect(within(metrics).getByText('Карты')).toBeInTheDocument();
+    expect(within(metrics).getByText('Клиенты с картами')).toBeInTheDocument();
+    expect(within(metrics).getByText('Операции за период')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Найти клиента' })).toHaveAttribute('href', '/admin/operations');
+    expect(screen.getByRole('link', { name: 'Создать рассылку' })).toHaveAttribute('href', '/admin/notifications?create=1');
+    expect(screen.getByText('Баланс и операции обновляются после передачи данных из магазина.')).toBeInTheDocument();
+    expect(screen.getByText('Связь с магазином')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Подробнее/ })).toHaveAttribute('href', '/admin/agents');
   });
 });

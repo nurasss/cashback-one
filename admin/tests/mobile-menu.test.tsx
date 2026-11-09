@@ -210,9 +210,12 @@ describe('Mobile Menu (admin/src/layout/AdminLayout)', () => {
       renderLayout('ru');
 
       expect(screen.queryByRole('link', { name: /Бизнесы/ })).not.toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Обзор/ })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Агенты/ })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Карты и клиенты/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Главная/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Клиенты/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Приложение/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Рассылки/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Настройки/ })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Агенты/ })).not.toBeInTheDocument();
     });
 
     it('superadmin sees Businesses section', () => {
@@ -227,9 +230,12 @@ describe('Mobile Menu (admin/src/layout/AdminLayout)', () => {
       renderLayout('kk');
 
       expect(screen.queryByRole('link', { name: /Бизнестер/ })).not.toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Шолу/ })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Агенттер/ })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Карталар мен клиенттер/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Басты бет/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Клиенттер/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Қолданба/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Хабарламалар/ })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Баптаулар/ })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Агенттер/ })).not.toBeInTheDocument();
     });
   });
 });

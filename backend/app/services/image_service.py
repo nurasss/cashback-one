@@ -27,16 +27,16 @@ ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP", "GIF"}
 async def process_and_store_image(
     *,
     raw_bytes: bytes,
-    purpose: Literal["promotion", "logo", "avatar"] | str,
+    purpose: Literal["promotion", "logo", "avatar", "splash"] | str,
     settings: Settings,
     storage: MediaStorage,
     admin: AdminUser | None = None,
     db: AsyncSession | None = None,
 ) -> ImageUploadResponse:
-    if purpose not in ("promotion", "logo", "avatar"):
+    if purpose not in ("promotion", "logo", "avatar", "splash"):
         raise AppError(
             "VALIDATION_ERROR",
-            "purpose must be 'promotion', 'logo', or 'avatar'.",
+            "purpose must be 'promotion', 'logo', 'avatar', or 'splash'.",
             status_code=422,
         )
 
@@ -122,6 +122,11 @@ async def process_and_store_image(
         img = img.crop((left, top, left + min_dim, top + min_dim))
         if img.size != (512, 512):
             img = img.resize((512, 512), Image.Resampling.LANCZOS)
+    elif purpose == "splash":
+        # Splash screen image: max 2560px dimension, downscale only, never upscale
+        max_dim = 2560
+        if max(img.width, img.height) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     else:
         # Downscale only, never upscale
         max_dim = 1600 if purpose == "promotion" else 512
@@ -141,6 +146,8 @@ async def process_and_store_image(
         category = "promotions"
     elif purpose == "avatar":
         category = "avatars"
+    elif purpose == "splash":
+        category = "splashes"
     else:
         category = "logos"
     relative_path = f"{category}/{file_id}.webp"

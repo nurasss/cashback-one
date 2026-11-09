@@ -24,6 +24,71 @@ function periodBoundary(day: string, end: boolean): string {
   return next.toISOString();
 }
 
+function getClientConnectionState(
+  agents: {
+    online: number;
+    stale: number;
+    never_connected: number;
+    error: number;
+    disabled: number;
+  },
+  t: ReturnType<typeof useAdminTranslation>,
+) {
+  const total =
+    agents.online +
+    agents.stale +
+    agents.never_connected +
+    agents.error +
+    agents.disabled;
+
+  if (total === 0) {
+    return {
+      statusText: t.dashboard.clientConnOffline,
+      desc: t.dashboard.clientConnOfflineDesc,
+      tone: 'neutral' as const,
+      isWarning: false,
+    };
+  }
+  if (agents.error > 0) {
+    return {
+      statusText: t.dashboard.clientConnError,
+      desc: t.dashboard.clientConnErrorDesc,
+      tone: 'negative' as const,
+      isWarning: true,
+    };
+  }
+  if (agents.stale > 0) {
+    return {
+      statusText: t.dashboard.clientConnStale,
+      desc: t.dashboard.clientConnStaleDesc,
+      tone: 'warning' as const,
+      isWarning: true,
+    };
+  }
+  if (agents.online > 0) {
+    return {
+      statusText: t.dashboard.clientConnActive,
+      desc: t.dashboard.clientConnActiveDesc,
+      tone: 'positive' as const,
+      isWarning: false,
+    };
+  }
+  if (agents.never_connected > 0) {
+    return {
+      statusText: t.dashboard.clientConnWaiting,
+      desc: t.dashboard.clientConnWaitingDesc,
+      tone: 'warning' as const,
+      isWarning: true,
+    };
+  }
+  return {
+    statusText: t.dashboard.clientConnOffline,
+    desc: t.dashboard.clientConnOfflineDesc,
+    tone: 'neutral' as const,
+    isWarning: false,
+  };
+}
+
 export function DashboardPage() {
   const { view } = useAdminSession();
   const { locale } = useLocale();
@@ -67,9 +132,26 @@ export function DashboardPage() {
 
   const totalAgents = Object.values(data.agents).reduce((sum, item) => sum + item, 0);
 
+  const isClient = view.admin.role === 'business_manager';
+
   return (
     <div className="page-stack">
-      <PageHeading title={title} subtitle={t.dashboard.subtitle} />
+      <PageHeading
+        title={title}
+        subtitle={t.dashboard.subtitle}
+        actions={
+          isClient ? (
+            <div className="heading-actions">
+              <Link to="/admin/operations" className="button button-secondary">
+                {t.dashboard.findClientBtn}
+              </Link>
+              <Link to="/admin/notifications?create=1" className="button button-primary">
+                {t.dashboard.createNoticeBtn}
+              </Link>
+            </div>
+          ) : undefined
+        }
+      />
       {dashboard.isError && <ErrorNotice error={dashboard.error} retry={() => { void dashboard.refetch(); }} />}
 
       <section className="filter-panel" aria-label={t.dashboard.filterAria}>
@@ -86,7 +168,7 @@ export function DashboardPage() {
             <span>{t.dashboard.toLabel}</span>
             <input type="date" value={to} min={from} max={today} onChange={event => setTo(event.target.value)} />
           </label>
-          {view.admin.role === 'superadmin' && (
+          {!isClient && (
             <label className="form-control business-select">
               <span>{t.dashboard.businessLabel}</span>
               <select value={businessId} onChange={event => setBusinessId(event.target.value)} aria-label={t.dashboard.businessLabel}>
@@ -103,67 +185,140 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <section className="metric-grid" aria-label={t.dashboard.metricsAria}>
-        <Metric
-          title={t.dashboard.customersTitle}
-          value={data.customers_with_business_cards}
-          caption={t.dashboard.customersCaption}
-          icon={<IconUsers />}
-          locale={locale}
-        />
-        <Metric
-          title={t.dashboard.cardsTitle}
-          value={data.cards}
-          caption={t.dashboard.cardsCaption}
-          icon={<IconCards />}
-          locale={locale}
-        />
-        <Metric
-          title={t.dashboard.unblockedTitle}
-          value={data.unblocked_cards}
-          caption={t.dashboard.unblockedCaption}
-          icon={<IconCheckShield />}
-          locale={locale}
-        />
-        <Metric
-          title={t.dashboard.transactionsTitle}
-          value={data.transactions}
-          caption={t.dashboard.transactionsCaption(
-            data.period_days,
-            formatDate(data.period_from, locale),
-            formatDate(data.period_to, locale),
-          )}
-          icon={<IconTrendUp />}
-          locale={locale}
-        />
-      </section>
+      {isClient ? (
+        <section className="metric-grid" aria-label={t.dashboard.metricsAria}>
+          <Metric
+            title={t.dashboard.cardsTitle}
+            value={data.cards}
+            caption={t.dashboard.cardsCaption}
+            icon={<IconCards />}
+            locale={locale}
+          />
+          <Metric
+            title={t.dashboard.clientCustomersTitle}
+            value={data.customers_with_business_cards}
+            caption={t.dashboard.clientCustomersCaption}
+            icon={<IconUsers />}
+            locale={locale}
+          />
+          <Metric
+            title={t.dashboard.clientTransactionsTitle}
+            value={data.transactions}
+            caption={t.dashboard.transactionsCaption(
+              data.period_days,
+              formatDate(data.period_from, locale),
+              formatDate(data.period_to, locale),
+            )}
+            icon={<IconTrendUp />}
+            locale={locale}
+          />
+        </section>
+      ) : (
+        <section className="metric-grid" aria-label={t.dashboard.metricsAria}>
+          <Metric
+            title={t.dashboard.customersTitle}
+            value={data.customers_with_business_cards}
+            caption={t.dashboard.customersCaption}
+            icon={<IconUsers />}
+            locale={locale}
+          />
+          <Metric
+            title={t.dashboard.cardsTitle}
+            value={data.cards}
+            caption={t.dashboard.cardsCaption}
+            icon={<IconCards />}
+            locale={locale}
+          />
+          <Metric
+            title={t.dashboard.unblockedTitle}
+            value={data.unblocked_cards}
+            caption={t.dashboard.unblockedCaption}
+            icon={<IconCheckShield />}
+            locale={locale}
+          />
+          <Metric
+            title={t.dashboard.transactionsTitle}
+            value={data.transactions}
+            caption={t.dashboard.transactionsCaption(
+              data.period_days,
+              formatDate(data.period_from, locale),
+              formatDate(data.period_to, locale),
+            )}
+            icon={<IconTrendUp />}
+            locale={locale}
+          />
+        </section>
+      )}
 
-      <section className="surface-card">
-        <div className="section-heading">
-          <div>
-            <span className="panel-kicker">{t.dashboard.syncKicker}</span>
-            <h2>{t.dashboard.agentsHealthTitle}</h2>
+      {isClient ? (
+        <section className="surface-card client-connection-card">
+          <div className="section-heading" style={{ marginBottom: '1rem' }}>
+            <div>
+              <h2>{t.dashboard.clientSyncTitle}</h2>
+            </div>
+            <Link className="text-link" to="/admin/agents">
+              {t.dashboard.clientDetailsLink} <span aria-hidden="true">→</span>
+            </Link>
           </div>
-          <Link className="text-link" to="/admin/agents">
-            {t.dashboard.toAgentsLink} <span aria-hidden="true">→</span>
-          </Link>
-        </div>
-        {totalAgents === 0 ? (
-          <div className="compact-empty">{t.dashboard.noAgentsConnected}</div>
-        ) : (
-          <div className="health-grid">
-            {(Object.keys(t.dashboard.healthLabels) as AgentHealth[]).map(key => (
-              <div key={key} className="health-row">
-                <StatusPill tone={healthTone[key]}>{t.dashboard.healthLabels[key]}</StatusPill>
-                <strong>{data.agents[key]}</strong>
+          {(() => {
+            const state = getClientConnectionState(data.agents, t);
+            return (
+              <div
+                className={`client-conn-content ${state.isWarning ? 'has-warning' : ''}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  padding: '1rem',
+                  borderRadius: '8px',
+                  background: state.isWarning ? 'rgba(239, 68, 68, 0.06)' : 'var(--bg-secondary, #f8fafc)',
+                  border: `1px solid ${state.isWarning ? 'rgba(239, 68, 68, 0.25)' : 'var(--border-color, #e2e8f0)'}`,
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <StatusPill tone={state.tone}>{state.statusText}</StatusPill>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-muted, #64748b)' }}>
+                    {state.desc}
+                  </p>
+                </div>
               </div>
-            ))}
+            );
+          })()}
+        </section>
+      ) : (
+        <section className="surface-card">
+          <div className="section-heading">
+            <div>
+              <span className="panel-kicker">{t.dashboard.syncKicker}</span>
+              <h2>{t.dashboard.agentsHealthTitle}</h2>
+            </div>
+            <Link className="text-link" to="/admin/agents">
+              {t.dashboard.toAgentsLink} <span aria-hidden="true">→</span>
+            </Link>
           </div>
-        )}
-      </section>
+          {totalAgents === 0 ? (
+            <div className="compact-empty">{t.dashboard.noAgentsConnected}</div>
+          ) : (
+            <div className="health-grid">
+              {(Object.keys(t.dashboard.healthLabels) as AgentHealth[]).map(key => {
+                const label = t.dashboard.healthLabels[key];
+                return (
+                  <div key={key} className="health-row">
+                    <StatusPill tone={healthTone[key]}>{label}</StatusPill>
+                    <strong>{data.agents[key]}</strong>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       <p className="data-note">
-        {t.dashboard.dataNote}
+        {isClient ? t.dashboard.clientDataNote : t.dashboard.dataNote}
       </p>
     </div>
   );

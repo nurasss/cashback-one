@@ -239,6 +239,7 @@ async def test_app_texts_lifecycle_and_validation(
     )
     assert res.status_code == 200
     assert res.json() == {
+        "home_text": {"ru": None, "kk": None},
         "home_store_note_lead": {"ru": None, "kk": None},
         "balance_delay_note": {"ru": None, "kk": None},
     }
@@ -248,6 +249,10 @@ async def test_app_texts_lifecycle_and_validation(
         f"/admin/businesses/{biz_own.id}/app-texts",
         headers=mgr_headers,
         json={
+            "home_text": {
+                "ru": "Добро пожаловать в супермаркет!",
+                "kk": "Супермаркетке қош келдіңіз!",
+            },
             "home_store_note_lead": {
                 "ru": "  Вы можете потратить эти баллы в супермаркете «КеремЕт»  ",
                 "kk": "Сіз бұл ұпайларды «КеремЕт» супермаркетінде жұмсай аласыз",
@@ -260,6 +265,7 @@ async def test_app_texts_lifecycle_and_validation(
     )
     assert res.status_code == 200
     body = res.json()
+    assert body["home_text"]["ru"] == "Добро пожаловать в супермаркет!"
     assert (
         body["home_store_note_lead"]["ru"]
         == "Вы можете потратить эти баллы в супермаркете «КеремЕт»"
@@ -275,12 +281,12 @@ async def test_app_texts_lifecycle_and_validation(
     )
     assert res.status_code == 422
 
-    # Text exceeding 500 characters is rejected with 422
+    # Text exceeding 2000 characters is rejected with 422
     res = await mutation_client.put(
         f"/admin/businesses/{biz_own.id}/app-texts",
         headers=mgr_headers,
         json={
-            "home_store_note_lead": {"ru": "a" * 501, "kk": None},
+            "home_text": {"ru": "a" * 2001, "kk": None},
         },
     )
     assert res.status_code == 422
