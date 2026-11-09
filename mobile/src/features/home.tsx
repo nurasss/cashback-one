@@ -7,12 +7,17 @@ import { HeaderBadge } from '../components/BrandBadge';
 import { Icon, type IconName } from '../components/icons';
 import { motionEnabled, PressScale, useCountUp } from '../components/motion';
 import { useI18n, type Language } from '../i18n';
-import { fonts, theme as t } from '../theme';
+import { fonts, type Colors } from '../theme';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
+import type { ClientStatuses } from '../../clients/keremet/statuses';
 import type { AppContent, Promotion, Tier } from '../types/api';
 import { pointsText } from '../utils/format';
+import { StatusArt } from './StatusArt';
+import type { CurrentStatus } from './statuses';
 
 export function BalanceHeader({ phone, balance }: { phone: string; balance: string }) {
   const { t: tr } = useI18n();
+  const styles = useThemedStyles(makeStyles);
   return <View style={styles.headerRow}>
     <Text style={styles.phone} numberOfLines={1}>{phone}</Text>
     <PressScale
@@ -46,6 +51,7 @@ export function getCarouselLogicalIndex(rawSlot: number, count: number): number 
 
 // Looping carousel: only server banners. Empty list returns null (no empty frame).
 export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: (id: string) => void; openAll?: () => void }) {
+  const styles = useThemedStyles(makeStyles);
   const [index, setIndex] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
@@ -125,39 +131,64 @@ export function BannerCarousel({ banners, open }: { banners: Promotion[]; open: 
 
 // Dot `dot` is "full" while slot dot+1 is centred; the loop clones (slot 0 and count+1) also light the last / first dot.
 function Dot({ dot, count, step, scrollX }: { dot: number; count: number; step: number; scrollX: Animated.Value }) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   const peaks = [dot + 1, ...(dot === count - 1 ? [0] : []), ...(dot === 0 ? [count + 1] : [])];
   const slots = Array.from(new Set(peaks.flatMap(p => [p - 1, p, p + 1]))).sort((x, y) => x - y);
   const inputRange = slots.map(slot => slot * step);
   const full = (slot: number) => peaks.includes(slot);
   const width = scrollX.interpolate({ inputRange, outputRange: slots.map(slot => (full(slot) ? 18 : 6)), extrapolate: 'clamp' });
-  const backgroundColor = scrollX.interpolate({ inputRange, outputRange: slots.map(slot => (full(slot) ? t.colors.primary : '#D9D9DD')), extrapolate: 'clamp' });
+  const backgroundColor = scrollX.interpolate({ inputRange, outputRange: slots.map(slot => (full(slot) ? colors.primary : colors.dotInactive)), extrapolate: 'clamp' });
   return <Animated.View testID={`banner-dot-${dot}`} style={[styles.pageDot, { width, backgroundColor }]} />;
 }
 
-export function StatusCard({ tier, balance, onPress }: { tier: Tier | null | undefined; balance: string; onPress: () => void }) {
+// `statuses` (Keremet): the card shows the named status with its picture, or "status data is not available yet" — never a made-up level.
+export function StatusCard({ tier, balance, onPress, statuses }: { tier: Tier | null | undefined; balance: string; onPress: () => void; statuses?: { catalog: ClientStatuses; current: CurrentStatus } }) {
   const { t: tr } = useI18n();
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   const rightLabel = tr('pointsSum');
   const counted = useCountUp(Number(balance) || 0);
   const rightValue = pointsText(Math.abs(counted - (Number(balance) || 0)) < 0.005 ? balance : counted.toFixed(2));
-  return <PressScale accessibilityRole="button" accessibilityLabel={`${tr('yourStatus')} ${tier?.level ?? ''}. ${tr('pointsSum')} ${pointsText(balance)}`}
+  const statusLabel = statuses ? (statuses.current.known ? statuses.current.status.name : tr('statusUnavailable')) : String(tier?.level ?? '');
+  return <PressScale accessibilityRole="button" accessibilityLabel={`${tr('yourStatus')} ${statusLabel}. ${tr('pointsSum')} ${pointsText(balance)}`}
     onPress={onPress} scale={0.98} style={styles.statusWrap}>
-    <LinearGradient colors={['#FFB2A4', '#FFC4B6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statusCard}>
-      <View style={{ gap: 6 }}>
-        <Text style={styles.statusCaption}>{tr('yourStatus')}</Text>
-        <Text style={styles.statusValue}>{tier ? tier.level : '—'}</Text>
-      </View>
-      <View style={styles.statusRight}>
-        <View style={{ gap: 6, alignItems: 'flex-end', flexShrink: 1, minWidth: 0 }}>
-          <Text style={styles.statusCaption} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{rightLabel}</Text>
+    <LinearGradient colors={[colors.statusGradientStart, colors.statusGradientEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.statusCard, statuses && styles.statusCardStacked]}>
+      {statuses ? <>
+        {/* Named statuses are long ("Продуктовый эксперт"): the name gets the full width and the balance sits on its own row. */}
+        <View style={styles.statusNamed}>
+          {statuses.current.known && <StatusArt status={statuses.current.status} size={52} />}
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={styles.statusCaption}>{tr('yourStatus')}</Text>
+            {statuses.current.known
+              ? <Text testID="home-status-name" style={styles.statusName}>{statuses.current.status.name}</Text>
+              : <Text testID="home-status-unavailable" style={styles.statusUnavailable}>{tr('statusUnavailable')}</Text>}
+          </View>
+          <Icon name="chevronRight" size={22} />
+        </View>
+        <View style={styles.statusBalanceRow}>
+          <Text style={styles.statusCaption} numberOfLines={1}>{rightLabel}</Text>
           <Text style={styles.statusValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{rightValue}</Text>
         </View>
-        <Icon name="chevronRight" size={22} />
-      </View>
+      </> : <>
+        <View style={{ gap: 6 }}>
+          <Text style={styles.statusCaption}>{tr('yourStatus')}</Text>
+          <Text style={styles.statusValue}>{tier ? tier.level : '—'}</Text>
+        </View>
+        <View style={styles.statusRight}>
+          <View style={{ gap: 6, alignItems: 'flex-end', flexShrink: 1, minWidth: 0 }}>
+            <Text style={styles.statusCaption} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{rightLabel}</Text>
+            <Text style={styles.statusValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{rightValue}</Text>
+          </View>
+          <Icon name="chevronRight" size={22} />
+        </View>
+      </>}
     </LinearGradient>
   </PressScale>;
 }
 
 export function ServerOffersGrid({ offers, onOpen }: { offers: Promotion[]; onOpen: (id: string) => void }) {
+  const styles = useThemedStyles(makeStyles);
   if (offers.length === 0) return null;
   const displayOffers = offers.slice(0, 4);
   const rows = [
@@ -176,6 +207,8 @@ const offerIcons: IconName[] = ['percent', 'gift', 'card', 'cart'];
 
 // Offer card: full-width 4:3 image with top-left badge overlay, 2-line title below, placeholder icon if no image.
 export function OfferCard({ offer, index, onPress, wide = false, fill = false }: { offer: Promotion; index: number; onPress: () => void; wide?: boolean; fill?: boolean }) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   return <PressScale accessibilityRole="button" accessibilityLabel={[offer.badge, offer.title].filter(Boolean).join('. ')} onPress={onPress}
     style={[styles.offer, index === 0 || index === 3 ? styles.offerPink : styles.offerGray, (fill || wide) && styles.offerFill]}>
     <View style={styles.offerMedia}>
@@ -189,12 +222,12 @@ export function OfferCard({ offer, index, onPress, wide = false, fill = false }:
         />
       ) : (
         <View testID={`offer-placeholder-${offer.id}`} style={styles.offerPlaceholder}>
-          <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={32} color={t.colors.primary} strokeWidth={2} />
+          <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={32} color={colors.primaryText} strokeWidth={2} />
         </View>
       )}
       {offer.badge ? (
         <View style={styles.offerBadge}>
-          <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={11} color={t.colors.onPrimary} strokeWidth={2.4} />
+          <Icon name={offerIcons[index % offerIcons.length] ?? 'tag'} size={11} color={colors.onPrimary} strokeWidth={2.4} />
           <Text style={styles.offerBadgeText} numberOfLines={1}>{offer.badge}</Text>
         </View>
       ) : null}
@@ -215,6 +248,7 @@ export function StoreBlock({
   onOpenMap: (url: string) => void;
 }) {
   const { t: tr } = useI18n();
+  const styles = useThemedStyles(makeStyles);
   const stores = appContent?.stores;
   if (!stores || stores.length === 0) return null;
 
@@ -257,40 +291,45 @@ export function StoreBlock({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Colors) => StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
-  phone: { fontFamily: fonts.medium, fontSize: 15, color: t.colors.text, flexShrink: 1 },
+  phone: { fontFamily: fonts.medium, fontSize: 15, color: c.text, flexShrink: 1 },
   balanceGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  balance: { fontFamily: fonts.semibold, fontSize: 15, color: t.colors.text },
-  brandBadge: { backgroundColor: t.colors.primary, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 },
-  brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 13, color: t.colors.onPrimary, letterSpacing: 0.4 },
+  balance: { fontFamily: fonts.semibold, fontSize: 15, color: c.text },
+  brandBadge: { backgroundColor: c.primary, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 4 },
+  brandBadgeText: { fontFamily: fonts.extrabold, fontSize: 13, color: c.onPrimary, letterSpacing: 0.4 },
   carousel: { gap: 12, paddingBottom: 12 },
-  banner: { aspectRatio: 2.4, borderRadius: 22, overflow: 'hidden', backgroundColor: '#F1F1F4', justifyContent: 'center' },
+  banner: { aspectRatio: 2.4, borderRadius: 22, overflow: 'hidden', backgroundColor: c.offerGray, justifyContent: 'center' },
   bannerFullImage: { width: '100%', height: '100%' },
   bannerText: { width: '100%', paddingHorizontal: 22, gap: 6, zIndex: 1 },
-  bannerTitle: { fontFamily: fonts.extrabold, fontSize: 17, lineHeight: 20, color: t.colors.text, textTransform: 'uppercase' },
-  bannerTitleAccent: { color: t.colors.primary },
-  bannerSubtitle: { fontFamily: fonts.bold, fontSize: 11, lineHeight: 15, color: t.colors.muted, textTransform: 'uppercase', letterSpacing: 0.3 },
+  bannerTitle: { fontFamily: fonts.extrabold, fontSize: 17, lineHeight: 20, color: c.text, textTransform: 'uppercase' },
+  bannerTitleAccent: { color: c.primaryText },
+  bannerSubtitle: { fontFamily: fonts.bold, fontSize: 11, lineHeight: 15, color: c.muted, textTransform: 'uppercase', letterSpacing: 0.3 },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
-  pageDot: { height: 6, borderRadius: 3, backgroundColor: '#D9D9DD' },
-  pageDotActive: { backgroundColor: t.colors.primary },
-  statusWrap: { borderRadius: 22, overflow: 'hidden', shadowColor: '#F28A75', shadowOpacity: 0.18, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  pageDot: { height: 6, borderRadius: 3, backgroundColor: c.dotInactive },
+  pageDotActive: { backgroundColor: c.primary },
+  statusWrap: { borderRadius: 22, overflow: 'hidden', shadowColor: c.statusShadow, shadowOpacity: 0.18, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
   statusCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
   statusRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, minWidth: 0 },
-  statusCaption: { fontFamily: fonts.semibold, fontSize: 11, color: 'rgba(17,17,17,0.6)', textTransform: 'uppercase', letterSpacing: 0.8 },
-  statusValue: { fontFamily: fonts.extrabold, fontSize: 26, color: t.colors.text },
+  statusCaption: { fontFamily: fonts.semibold, fontSize: 11, color: c.statusCaption, textTransform: 'uppercase', letterSpacing: 0.8 },
+  statusValue: { fontFamily: fonts.extrabold, fontSize: 26, color: c.text },
+  statusCardStacked: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start', gap: 10 },
+  statusNamed: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  statusBalanceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  statusName: { fontFamily: fonts.extrabold, fontSize: 20, lineHeight: 25, color: c.text },
+  statusUnavailable: { fontFamily: fonts.semibold, fontSize: 13, lineHeight: 18, color: c.text },
   permanentGrid: { gap: 12, paddingHorizontal: 20 },
   permanentGridRow: { flexDirection: 'row', gap: 12 },
   offer: {
     flex: 1,
     borderRadius: 20,
-    backgroundColor: '#F3F3F5',
+    backgroundColor: c.offerGray,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(17,17,17,0.05)',
+    borderColor: c.cardBorder,
   },
-  offerPink: { backgroundColor: '#FCE9EC' },
-  offerGray: { backgroundColor: '#F1F1F4' },
+  offerPink: { backgroundColor: c.offerPink },
+  offerGray: { backgroundColor: c.offerGray },
   offerFill: { flex: 1 },
   offerMedia: {
     width: '100%',
@@ -298,7 +337,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 19,
     borderTopRightRadius: 19,
     overflow: 'hidden',
-    backgroundColor: '#EBEBEF',
+    backgroundColor: c.mediaBackground,
     position: 'relative',
   },
   offerImage: {
@@ -310,7 +349,7 @@ const styles = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    backgroundColor: c.imagePlaceholder,
   },
   offerBadge: {
     position: 'absolute',
@@ -319,7 +358,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: t.colors.primary,
+    backgroundColor: c.primary,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3.5,
@@ -330,7 +369,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 10,
     lineHeight: 13,
-    color: t.colors.onPrimary,
+    color: c.onPrimary,
     flexShrink: 1,
   },
   offerContent: {
@@ -344,10 +383,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 13,
     lineHeight: 17,
-    color: t.colors.text,
+    color: c.text,
   },
-  balanceNote: { backgroundColor: t.colors.softPrimary, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
-  balanceNoteText: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: t.colors.text },
+  balanceNote: { backgroundColor: c.softPrimary, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
+  balanceNoteText: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: c.text },
   storeAddress: { textDecorationLine: 'underline' },
   storeAddressPlain: { textDecorationLine: 'none' },
 });

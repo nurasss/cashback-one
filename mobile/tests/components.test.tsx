@@ -1,11 +1,12 @@
 import { fireEvent, render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { ApiError } from '../src/api/errors';
-import { TabBar, styles as tabBarStyles } from '../src/components/TabBar';
+import { TabBar, makeStyles as makeTabBarStyles } from '../src/components/TabBar';
 import { ErrorNotice } from '../src/components/ui';
 import { DynamicQr } from '../src/features/DynamicQr';
 import { OfferCard, StatusCard } from '../src/features/home';
 import { ru } from '../src/i18n/ru';
+import { lightColors } from '../src/theme';
 import type { CardQr, Promotion } from '../src/types/api';
 
 jest.mock('react-native-qrcode-svg', () => {
@@ -57,11 +58,11 @@ it('distinguishes the selected tab state', () => {
 });
 
 it('has flat styling without elevation or shadow artifacts', () => {
-  expect(tabBarStyles.qrButton).not.toHaveProperty('elevation');
-  expect(tabBarStyles.qrButton).not.toHaveProperty('shadowColor');
-  expect(tabBarStyles.qrButton).not.toHaveProperty('shadowOpacity');
-  expect(tabBarStyles.qrButton).not.toHaveProperty('shadowRadius');
-  expect(tabBarStyles.qrButton).not.toHaveProperty('shadowOffset');
+  expect(makeTabBarStyles(lightColors).qrButton).not.toHaveProperty('elevation');
+  expect(makeTabBarStyles(lightColors).qrButton).not.toHaveProperty('shadowColor');
+  expect(makeTabBarStyles(lightColors).qrButton).not.toHaveProperty('shadowOpacity');
+  expect(makeTabBarStyles(lightColors).qrButton).not.toHaveProperty('shadowRadius');
+  expect(makeTabBarStyles(lightColors).qrButton).not.toHaveProperty('shadowOffset');
 });
 
 it('dynamic QR encodes the server token, never the barcode, and hides expired tokens', () => {

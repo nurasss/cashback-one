@@ -4,16 +4,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useHistory, type HistoryFilter } from '../../src/api/wallet';
 import { Icon } from '../../src/components/icons';
 import { FadeIn } from '../../src/components/motion';
-import { Button, Chip, EmptyState, ErrorNotice, Loading, ScreenHeader, styles } from '../../src/components/ui';
+import { Button, Chip, EmptyState, ErrorNotice, Loading, ScreenHeader, useUiStyles } from '../../src/components/ui';
 import { useActiveCard } from '../../src/features/activeCard';
 import { type HistoryPeriod } from '../../src/features/historyPeriod';
 import { PeriodSheet } from '../../src/features/PeriodSheet';
 import { useI18n } from '../../src/i18n';
-import { fonts, theme } from '../../src/theme';
+import { fonts, type Colors } from '../../src/theme';
+import { useTheme, useThemedStyles } from '../../src/theme/ThemeProvider';
 import { birthDateToUi, dateText, pointsText, transactionLabel } from '../../src/utils/format';
 
 export default function HistoryScreen() {
   const { t, language } = useI18n();
+  const styles = useUiStyles();
+  const local = useThemedStyles(makeLocal);
+  const { colors } = useTheme();
   const { card } = useActiveCard();
   const [filter, setFilter] = useState<HistoryFilter>('all');
   const [period, setPeriod] = useState<HistoryPeriod>('all');
@@ -47,15 +51,15 @@ export default function HistoryScreen() {
       renderItem={({ item, index }) => {
         const incoming = item.type === 'accrual';
         return <FadeIn index={Math.min(index, 6)} style={local.row}>
-          <View style={[local.icon, { backgroundColor: incoming ? theme.colors.softSuccess : theme.colors.softError }]}>
-            <Icon name={incoming ? 'plus' : 'minus'} size={18} color={incoming ? theme.colors.success : theme.colors.error} />
+          <View style={[local.icon, { backgroundColor: incoming ? colors.softSuccess : colors.softError }]}>
+            <Icon name={incoming ? 'plus' : 'minus'} size={18} color={incoming ? colors.success : colors.error} />
           </View>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={local.title}>{transactionLabel(item.type, language)}</Text>
             <Text style={styles.muted}>{dateText(item.occurred_at, language)}</Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 2 }}>
-            <Text style={[local.amount, { color: incoming ? theme.colors.success : theme.colors.error }]}>{incoming ? '+' : '−'}{pointsText(item.amount.replace('-', ''))}</Text>
+            <Text style={[local.amount, { color: incoming ? colors.success : colors.error }]}>{incoming ? '+' : '−'}{pointsText(item.amount.replace('-', ''))}</Text>
             <Text style={styles.muted}>{t('balanceAfter')} {pointsText(item.balance_after)}</Text>
           </View>
         </FadeIn>;
@@ -70,9 +74,9 @@ export default function HistoryScreen() {
   </SafeAreaView>;
 }
 
-const local = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.colors.surface, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
+const makeLocal = (c: Colors) => StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: c.cardBorder },
   icon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  title: { fontFamily: fonts.semibold, fontSize: 14, color: theme.colors.text },
+  title: { fontFamily: fonts.semibold, fontSize: 14, color: c.text },
   amount: { fontFamily: fonts.bold, fontSize: 15 },
 });

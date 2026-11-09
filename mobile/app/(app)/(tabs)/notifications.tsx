@@ -4,15 +4,21 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNotifications } from '../../../src/api/app';
 import { Icon } from '../../../src/components/icons';
 import { FadeIn } from '../../../src/components/motion';
-import { EmptyState, ErrorNotice, Loading, NewDot, ScreenHeader, styles } from '../../../src/components/ui';
+import { EmptyState, ErrorNotice, Loading, NewDot, ScreenHeader, useUiStyles } from '../../../src/components/ui';
+import { LinkedText } from '../../../src/components/LinkedText';
 import { PushPermissionNotice } from '../../../src/features/push';
 import { useMarkSeen } from '../../../src/features/useMarkSeen';
 import { useI18n } from '../../../src/i18n';
-import { fonts, theme } from '../../../src/theme';
+import { fonts, type Colors } from '../../../src/theme';
+import { useTheme, useThemedStyles } from '../../../src/theme/ThemeProvider';
 import { dateText } from '../../../src/utils/format';
+import { hasLinks } from '../../../src/utils/links';
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
+  const styles = useUiStyles();
+  const local = useThemedStyles(makeLocal);
+  const { colors } = useTheme();
   const { t, language } = useI18n();
   const notifications = useNotifications();
   useMarkSeen('/me/notifications/read', (notifications.data?.unread_count ?? 0) > 0);
@@ -28,13 +34,16 @@ export default function NotificationsScreen() {
       renderItem={({ item, index }) => {
         const isAccrual = item.kind === 'accrual';
         const isRedemption = item.kind === 'redemption';
-        const iconBg = isAccrual ? theme.colors.softSuccess : isRedemption ? theme.colors.softError : theme.colors.softPrimary;
-        const iconColor = isAccrual ? theme.colors.success : isRedemption ? theme.colors.error : theme.colors.primary;
-        return <FadeIn index={Math.min(index, 6)}><View style={local.item} accessible accessibilityLabel={`${item.is_unread ? t('newBadge') + '. ' : ''}${item.title}. ${item.body}`}>
+        const iconBg = isAccrual ? colors.softSuccess : isRedemption ? colors.softError : colors.softPrimary;
+        const iconColor = isAccrual ? colors.success : isRedemption ? colors.error : colors.primaryText;
+        // A single accessible card would hide the links inside it from screen readers: with links, the children stay individually reachable.
+        const linked = hasLinks(item.body);
+        const unreadPrefix = item.is_unread ? `${t('newBadge')}. ` : '';
+        return <FadeIn index={Math.min(index, 6)}><View style={local.item} accessible={!linked} accessibilityLabel={linked ? undefined : `${unreadPrefix}${item.title}. ${item.body}`}>
           <View style={[local.icon, { backgroundColor: iconBg }]}><Icon name={isAccrual ? 'plus' : isRedemption ? 'minus' : 'bell'} size={18} color={iconColor} /></View>
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={local.title}>{item.title}</Text>
-            <Text style={local.body}>{item.body}</Text>
+            <Text style={local.title} accessibilityLabel={linked && item.is_unread ? `${unreadPrefix}${item.title}` : undefined}>{item.title}</Text>
+            <LinkedText text={item.body} style={local.body} />
             <Text style={styles.muted}>{dateText(item.created_at, language)}</Text>
           </View>
           {item.is_unread && <NewDot />}
@@ -43,9 +52,9 @@ export default function NotificationsScreen() {
   </SafeAreaView>;
 }
 
-const local = StyleSheet.create({
-  item: { flexDirection: 'row', gap: 12, backgroundColor: theme.colors.surface, borderRadius: 18, padding: 16, alignItems: 'flex-start', borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
-  icon: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.softPrimary, alignItems: 'center', justifyContent: 'center' },
-  title: { fontFamily: fonts.bold, fontSize: 15, color: theme.colors.text },
-  body: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: theme.colors.text },
+const makeLocal = (c: Colors) => StyleSheet.create({
+  item: { flexDirection: 'row', gap: 12, backgroundColor: c.surface, borderRadius: 18, padding: 16, alignItems: 'flex-start', borderWidth: 1, borderColor: c.cardBorder },
+  icon: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.softPrimary, alignItems: 'center', justifyContent: 'center' },
+  title: { fontFamily: fonts.bold, fontSize: 15, color: c.text },
+  body: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: c.text },
 });

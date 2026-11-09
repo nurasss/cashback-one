@@ -10,11 +10,12 @@ import { deleteAvatar, keys, uploadAvatar, useProfile } from '../../../src/api/a
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useSession } from '../../../src/auth/provider';
-import { ErrorNotice, Loading, ScreenHeader, styles } from '../../../src/components/ui';
+import { ErrorNotice, Loading, ScreenHeader, useUiStyles } from '../../../src/components/ui';
 import { Avatar, FieldSheet, LanguageSwitch, ProfileRow } from '../../../src/features/profile';
 import { useI18n, type Language } from '../../../src/i18n';
 import { ru } from '../../../src/i18n/ru';
-import { fonts, theme } from '../../../src/theme';
+import { fonts, type Colors } from '../../../src/theme';
+import { useTheme, useThemedStyles } from '../../../src/theme/ThemeProvider';
 import type { Profile } from '../../../src/types/api';
 import { cityOptions } from '../../../src/features/cities';
 import { birthDateInputText, birthDateToApi, birthDateToUi, initials, isAdultBirthDate } from '../../../src/utils/format';
@@ -35,6 +36,9 @@ export default function ProfileScreen() {
   const versionLabel = version
     ? `${t('appVersion', { version })}${typeof versionCode === 'number' && Number.isInteger(versionCode) && versionCode > 0 ? ` (${versionCode})` : ''}`
     : null;
+  const styles = useUiStyles();
+  const local = useThemedStyles(makeLocal);
+  const { colors } = useTheme();
   const { api } = useSession();
   const query = useQueryClient();
   const profile = useProfile();
@@ -282,7 +286,7 @@ export default function ProfileScreen() {
       } },
   };
 
-  return <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.colors.surface }]}>
+  return <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: colors.surface }]}>
     <ScreenHeader title={t('myProfile')} back onBack={() => router.navigate('/')}
       right={<LanguageSwitch value={language} onChange={changeLanguage} disabled={!profile.data} />} />
     <Animated.View ref={lift.ref} collapsable={false} onLayout={lift.onLayout} style={[{ flex: 1 }, lift.style]}>
@@ -310,6 +314,7 @@ export default function ProfileScreen() {
           {saved && <Text accessibilityLiveRegion="polite" style={local.saved}>{t('saved')}</Text>}
           <View style={local.links}>
             <ProfileRow icon="history" label={t('accrualHistory')} onPress={() => router.push('/history')} />
+            <ProfileRow icon="settings" label={t('settings')} onPress={() => router.push('/settings')} />
           </View>
         </>}
         {versionLabel && <Text style={local.appVersion}>{versionLabel}</Text>}
@@ -323,18 +328,21 @@ export default function ProfileScreen() {
 function Field({ label, value, placeholder, onChange, onBlur }: {
   label: string; value: string; placeholder: string; onChange: (value: string) => void; onBlur?: () => void;
 }) {
+  const styles = useUiStyles();
+  const local = useThemedStyles(makeLocal);
+  const { colors, isDark } = useTheme();
   return <View style={{ gap: 6 }}>
     <Text style={local.fieldLabel}>{label}</Text>
-    <TextInput accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={theme.colors.placeholder} maxLength={100}
+    <TextInput accessibilityLabel={label} value={value} placeholder={placeholder} placeholderTextColor={colors.placeholder} keyboardAppearance={isDark ? 'dark' : 'light'} maxLength={100}
       onChangeText={onChange} onBlur={onBlur} style={[styles.input, local.profileInput]} />
   </View>;
 }
 
-const local = StyleSheet.create({
-  fieldLabel: { fontFamily: fonts.semibold, fontSize: 11, color: theme.colors.muted, textTransform: 'uppercase', letterSpacing: 0.8 },
+const makeLocal = (c: Colors) => StyleSheet.create({
+  fieldLabel: { fontFamily: fonts.semibold, fontSize: 11, color: c.muted, textTransform: 'uppercase', letterSpacing: 0.8 },
   profileInput: { minHeight: 46, fontSize: 15 },
-  divider: { height: 1, backgroundColor: theme.colors.border },
-  saved: { fontFamily: fonts.medium, fontSize: 14, color: theme.colors.success, textAlign: 'center' },
-  links: { backgroundColor: theme.colors.background, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 4, marginTop: 8 },
-  appVersion: { fontFamily: fonts.regular, fontSize: 12, color: theme.colors.muted, textAlign: 'center', marginTop: 12, marginBottom: 8 },
+  divider: { height: 1, backgroundColor: c.border },
+  appVersion: { fontFamily: fonts.regular, fontSize: 12, color: c.muted, textAlign: 'center', marginTop: 12, marginBottom: 8 },
+  saved: { fontFamily: fonts.medium, fontSize: 14, color: c.success, textAlign: 'center' },
+  links: { backgroundColor: c.background, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 4, marginTop: 8 },
 });

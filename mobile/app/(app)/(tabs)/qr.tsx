@@ -5,16 +5,19 @@ import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, Text, Vie
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { requestWalletLink, useWalletAvailability } from '../../../src/api/app';
 import { useSession } from '../../../src/auth/provider';
-import { ErrorNotice, Loading, NoCardNotice, ScreenHeader, styles } from '../../../src/components/ui';
+import { ErrorNotice, Loading, NoCardNotice, ScreenHeader, useUiStyles } from '../../../src/components/ui';
 import { Icon } from '../../../src/components/icons';
 import { useActiveCard } from '../../../src/features/activeCard';
 import { DynamicQr } from '../../../src/features/DynamicQr';
 import { FadeIn, PressScale } from '../../../src/components/motion';
 import { useI18n } from '../../../src/i18n';
-import { fonts } from '../../../src/theme';
+import { fonts, type Colors } from '../../../src/theme';
+import { useThemedStyles } from '../../../src/theme/ThemeProvider';
 
 export default function QrScreen() {
   const insets = useSafeAreaInsets();
+  const styles = useUiStyles();
+  const walletStyles = useThemedStyles(makeWalletStyles);
   const { t } = useI18n();
   const { api } = useSession();
   const { card, cards } = useActiveCard();
@@ -79,10 +82,12 @@ export default function QrScreen() {
   </SafeAreaView>;
 }
 
-const walletStyles = StyleSheet.create({
+const makeWalletStyles = (c: Colors) => StyleSheet.create({
   button: {
     minHeight: 48,
-    backgroundColor: '#000000',
+    backgroundColor: c.walletBackground,
+    borderWidth: 1,
+    borderColor: c.walletBorder,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',

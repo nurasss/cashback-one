@@ -1,6 +1,7 @@
 {
   "slug": "cashbackone",
   "apk_name": "cashback-one",
+  "update_manifest": "version.json",
   "android_app_id": "kz.cashbackone.mobile",
   "app_name": {
     "ru": "Cashback One",

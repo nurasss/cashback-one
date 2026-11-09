@@ -2,7 +2,8 @@ import React from 'react';
 import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle, type TextStyle } from 'react-native';
 import { getClientConfig } from '../config/client';
 import { useI18n } from '../i18n';
-import { fonts, theme } from '../theme';
+import { fonts, type Colors } from '../theme';
+import { useThemedStyles } from '../theme/ThemeProvider';
 
 export interface BrandBadgeProps {
   height?: number;
@@ -31,6 +32,7 @@ export function HeaderBadge({ size = 38 }: { size?: number }) {
 export function BrandBadge({ height = 24, style, textStyle }: BrandBadgeProps) {
   const client = getClientConfig();
   const { t, language } = useI18n();
+  const styles = useThemedStyles(makeStyles);
 
   if (client.Logo) {
     const LogoComponent = client.Logo;
@@ -53,9 +55,9 @@ export function BrandBadge({ height = 24, style, textStyle }: BrandBadgeProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Colors) => StyleSheet.create({
   brandBadge: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: c.primary,
     borderRadius: 999,
     paddingHorizontal: 11,
     paddingVertical: 4,
@@ -63,7 +65,7 @@ const styles = StyleSheet.create({
   brandBadgeText: {
     fontFamily: fonts.extrabold,
     fontSize: 13,
-    color: theme.colors.onPrimary,
+    color: c.onPrimary,
     letterSpacing: 0.4,
   },
 });

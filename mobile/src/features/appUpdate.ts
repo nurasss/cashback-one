@@ -1,9 +1,40 @@
+import * as Application from 'expo-application';
 import Constants from 'expo-constants';
+import { getClientConfig, type ClientConfig } from '../config/client';
 
-export const VERSION_INFO_URL = 'https://cashback-qr.poscenter.kz/app/version.json';
+// Trusted origin and directory of every published APK and version manifest.
+export const UPDATE_BASE_URL = 'https://cashback-qr.poscenter.kz/app/';
+// The shared manifest of the general Cashback One app. Clients never fall back to it: each client reads its own file.
+export const VERSION_INFO_URL = `${UPDATE_BASE_URL}version.json`;
 
 const VERSION_REGEX = /^\d+\.\d+\.\d+$/;
-const DOWNLOAD_URL_REGEX = /^https:\/\/cashback-qr\.poscenter\.kz\/app\/cashback-one-\d+\.\d+\.\d+\.apk$/;
+const APK_NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const MANIFEST_FILE_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*\.json$/;
+
+export interface UpdateSource {
+  slug: string;
+  manifestUrl: string;
+  apkName: string;
+}
+
+/**
+ * Where the current build looks for updates and which APK name it may offer.
+ * General app: `version.json` + `cashback-one-X.Y.Z.apk`. Other clients: `<update_manifest>` (default `<slug>-version.json`)
+ * + `<apk_name>-X.Y.Z.apk`. Returns null for an invalid client config, which disables update checks instead of guessing.
+ */
+export function getUpdateSource(client?: ClientConfig): UpdateSource | null {
+  let config: ClientConfig;
+  try { config = client ?? getClientConfig(); } catch { return null; }
+  const apkName = config.apk_name ?? config.slug;
+  const manifestFile = config.update_manifest ?? (config.slug === 'cashbackone' ? 'version.json' : `${config.slug}-version.json`);
+  if (!APK_NAME_REGEX.test(apkName) || !MANIFEST_FILE_REGEX.test(manifestFile)) return null;
+  return { slug: config.slug, manifestUrl: `${UPDATE_BASE_URL}${manifestFile}`, apkName };
+}
+
+function downloadUrlRegex(apkName: string): RegExp {
+  const escapedBase = UPDATE_BASE_URL.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  return new RegExp(`^${escapedBase}${apkName}-\\d+\\.\\d+\\.\\d+\\.apk$`);
+}
 
 export interface VersionInfo {
   latest_version: string;
@@ -18,7 +49,10 @@ export type UpdateDecision = 'none' | 'optional' | 'required';
  * Pure parser for version.json.
  * Returns null if the value is malformed or violates security/integrity constraints.
  */
-export function parseVersionInfo(value: unknown): VersionInfo | null {
+export function parseVersionInfo(value: unknown, source: UpdateSource | null = getUpdateSource()): VersionInfo | null {
+  if (!source) {
+    return null;
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
   }
@@ -48,7 +82,7 @@ export function parseVersionInfo(value: unknown): VersionInfo | null {
     return null;
   }
 
-  if (typeof obj.download_url !== 'string' || !DOWNLOAD_URL_REGEX.test(obj.download_url)) {
+  if (typeof obj.download_url !== 'string' || !downloadUrlRegex(source.apkName).test(obj.download_url)) {
     return null;
   }
 
@@ -79,40 +113,67 @@ export function updateDecision(
   return 'none';
 }
 
-/**
- * Reads the current Android versionCode from Expo Constants.
- * Returns null if not configured or not a positive integer.
- */
-export function getCurrentVersionCode(): number | null {
-  const code = Constants.expoConfig?.android?.versionCode;
-  return typeof code === 'number' && Number.isInteger(code) && code > 0 ? code : null;
+function positiveInteger(value: unknown): number | null {
+  const number = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  return typeof number === 'number' && Number.isInteger(number) && number > 0 ? number : null;
 }
 
 /**
- * Fetches version.json from the public website with a 5s timeout and no cache.
- * Any network, HTTP, or parsing error returns null without logging or throwing.
+ * Reads the current Android versionCode. The installed package's real versionCode (native build, set in build.gradle)
+ * wins; the value embedded from app.json (Expo Constants) is the fallback when the native one is unavailable.
+ * Returns null if neither is a positive integer.
  */
-export async function fetchVersionInfo(
+export function getCurrentVersionCode(): number | null {
+  try {
+    const native = positiveInteger(Application.nativeBuildVersion);
+    if (native !== null) return native;
+  } catch {
+    // Native module unavailable (web, tests): use the embedded config.
+  }
+  return positiveInteger(Constants.expoConfig?.android?.versionCode);
+}
+
+export type VersionFetchResult = { ok: true; info: VersionInfo } | { ok: false };
+
+/**
+ * Fetches this client's manifest from the public website with a 5s timeout and no cache.
+ * Distinguishes a failed request or invalid manifest (`ok: false`) from a valid answer, so callers never report
+ * "up to date" after an error. Never throws and never logs.
+ */
+export async function loadVersionInfo(
   fetcher: typeof fetch = fetch,
-): Promise<VersionInfo | null> {
+  source: UpdateSource | null = getUpdateSource(),
+): Promise<VersionFetchResult> {
+  if (!source) {
+    return { ok: false };
+  }
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), 5000) : null;
   try {
-    const res = await fetcher(VERSION_INFO_URL, {
+    const res = await fetcher(source.manifestUrl, {
       method: 'GET',
       headers: { 'Cache-Control': 'no-cache' },
       signal: controller?.signal,
     });
     if (!res.ok) {
-      return null;
+      return { ok: false };
     }
-    const data = await res.json();
-    return parseVersionInfo(data);
+    const info = parseVersionInfo(await res.json(), source);
+    return info ? { ok: true, info } : { ok: false };
   } catch {
-    return null;
+    return { ok: false };
   } finally {
     if (timer) {
       clearTimeout(timer);
     }
   }
+}
+
+/** Same as `loadVersionInfo`, returning null on any failure. */
+export async function fetchVersionInfo(
+  fetcher: typeof fetch = fetch,
+  source: UpdateSource | null = getUpdateSource(),
+): Promise<VersionInfo | null> {
+  const result = await loadVersionInfo(fetcher, source);
+  return result.ok ? result.info : null;
 }

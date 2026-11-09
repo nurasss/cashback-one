@@ -5,11 +5,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError } from '../src/api/errors';
 import { useSession } from '../src/auth/provider';
 import { FadeIn } from '../src/components/motion';
-import { Button, ErrorNotice, Input, styles } from '../src/components/ui';
+import { Button, ErrorNotice, Input, useUiStyles } from '../src/components/ui';
 import { BrandBadge } from '../src/components/BrandBadge';
 import { useI18n } from '../src/i18n';
 import { deviceId } from '../src/storage/secure';
-import { fonts, theme } from '../src/theme';
+import { fonts, type Colors } from '../src/theme';
+import { useTheme, useThemedStyles } from '../src/theme/ThemeProvider';
 import type { CodeRequestResult, Tokens } from '../src/types/api';
 import { phoneInputDigits, phoneInputText, phoneText, phoneToApi } from '../src/utils/format';
 
@@ -17,6 +18,9 @@ const RESEND_SECONDS = 30;
 
 export default function Login() {
   const lift = useKeyboardLift();
+  const styles = useUiStyles();
+  const local = useThemedStyles(makeLocal);
+  const { colors } = useTheme();
   const { api, session } = useSession();
   const { t } = useI18n();
   const [phoneDigits, setPhoneDigits] = useState('');
@@ -57,7 +61,7 @@ export default function Login() {
         <FadeIn style={{ gap: 12 }}>
           <BrandBadge height={28} style={local.brand} textStyle={local.brandText} />
           <Text style={local.title}>{t('loginTitle')}</Text>
-          <Text style={[styles.body, { color: theme.colors.muted }]}>{t('loginBody')}</Text>
+          <Text style={[styles.body, { color: colors.muted }]}>{t('loginBody')}</Text>
         </FadeIn>
         {!sentPhone ? <View style={local.form}>
           <Input label={t('phone')} hint={t('phoneHint')} error={invalidPhone ? t('invalidPhone') : undefined} value={phone} onChangeText={raw => setPhoneDigits(phoneInputDigits(raw))} editable={!busy}
@@ -94,13 +98,13 @@ export default function Login() {
   </SafeAreaView>;
 }
 
-const local = StyleSheet.create({
+const makeLocal = (c: Colors) => StyleSheet.create({
   content: { padding: 20, gap: 20, paddingTop: 56 },
-  brand: { alignSelf: 'flex-start', backgroundColor: theme.colors.primary, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 8 },
-  brandText: { fontFamily: fonts.extrabold, fontSize: 16, color: theme.colors.onPrimary, letterSpacing: 0.4 },
-  title: { fontFamily: fonts.bold, fontSize: 26, lineHeight: 32, color: theme.colors.text },
-  form: { gap: 14, backgroundColor: theme.colors.surface, borderRadius: 22, padding: 20, borderWidth: 1, borderColor: 'rgba(17,17,17,0.05)' },
-  resendCountdown: { fontFamily: fonts.medium, fontSize: 14, color: theme.colors.muted, textAlign: 'center', paddingVertical: 8 },
+  brand: { alignSelf: 'flex-start', backgroundColor: c.primary, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 8 },
+  brandText: { fontFamily: fonts.extrabold, fontSize: 16, color: c.onPrimary, letterSpacing: 0.4 },
+  title: { fontFamily: fonts.bold, fontSize: 26, lineHeight: 32, color: c.text },
+  form: { gap: 14, backgroundColor: c.surface, borderRadius: 22, padding: 20, borderWidth: 1, borderColor: c.cardBorder },
+  resendCountdown: { fontFamily: fonts.medium, fontSize: 14, color: c.muted, textAlign: 'center', paddingVertical: 8 },
   resendLinkWrap: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 12 },
-  resendLinkText: { fontFamily: fonts.semibold, fontSize: 14, color: theme.colors.primary, textAlign: 'center', textDecorationLine: 'underline' },
+  resendLinkText: { fontFamily: fonts.semibold, fontSize: 14, color: c.primaryText, textAlign: 'center', textDecorationLine: 'underline' },
 });

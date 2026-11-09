@@ -4,10 +4,13 @@ import cashbackoneJson from '../../clients/cashbackone/client.json';
 import exampleJson from '../../clients/example/client.json';
 import keremetJson from '../../clients/keremet/client.json';
 import { KeremetLogo } from '../../clients/keremet/Logo';
+import { keremetStatuses, type ClientStatuses } from '../../clients/keremet/statuses';
 
 export interface ClientConfig {
   slug: string;
   apk_name?: string;
+  // File name of this client's version manifest under /app/ (default: version.json for the general app, `<slug>-version.json` otherwise).
+  update_manifest?: string;
   android_app_id: string;
   app_name: {
     ru: string;
@@ -20,6 +23,8 @@ export interface ClientConfig {
   Logo?: ComponentType<{ height?: number; accessibilityLabel?: string }>;
   // Round badge for the home header; when absent the shared text badge is used.
   headerBadge?: ImageSourcePropType;
+  // Client-specific named loyalty statuses with artwork. Clients without it keep the server's levels and the shared coin artwork.
+  statuses?: ClientStatuses;
 }
 
 const CLIENT_CONFIGS: Record<string, ClientConfig> = {
@@ -33,6 +38,7 @@ const CLIENT_CONFIGS: Record<string, ClientConfig> = {
     ...keremetJson,
     Logo: KeremetLogo,
     headerBadge: require('../../clients/keremet/header_badge.png') as ImageSourcePropType,
+    statuses: keremetStatuses,
   },
 };
 

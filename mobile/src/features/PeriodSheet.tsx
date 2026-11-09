@@ -14,7 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardLift } from '../components/useKeyboardLift';
 import { Button } from '../components/ui';
 import { useI18n } from '../i18n';
-import { fonts, theme } from '../theme';
+import { fonts, type Colors } from '../theme';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { birthDateInputText, birthDateToApi, birthDateToUi } from '../utils/format';
 
 export interface PeriodSheetProps {
@@ -25,6 +26,8 @@ export interface PeriodSheetProps {
 
 export function PeriodSheet({ initial, onApply, onClose }: PeriodSheetProps) {
   const { t } = useI18n();
+  const styles = useThemedStyles(makeStyles);
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const lift = useKeyboardLift();
 
@@ -132,12 +135,13 @@ export function PeriodSheet({ initial, onApply, onClose }: PeriodSheetProps) {
                   }}
                   accessibilityLabel={t('periodFrom')}
                   placeholder={t('birthDatePh')}
-                  placeholderTextColor={theme.colors.placeholder}
+                  placeholderTextColor={colors.placeholder}
+                  keyboardAppearance={isDark ? 'dark' : 'light'}
                   keyboardType="number-pad"
                   maxLength={10}
                   style={[
                     styles.input,
-                    error ? { borderWidth: 1, borderColor: theme.colors.error } : null,
+                    error ? { borderWidth: 1, borderColor: colors.error } : null,
                   ]}
                 />
               </View>
@@ -152,12 +156,13 @@ export function PeriodSheet({ initial, onApply, onClose }: PeriodSheetProps) {
                   }}
                   accessibilityLabel={t('periodTo')}
                   placeholder={t('birthDatePh')}
-                  placeholderTextColor={theme.colors.placeholder}
+                  placeholderTextColor={colors.placeholder}
+                  keyboardAppearance={isDark ? 'dark' : 'light'}
                   keyboardType="number-pad"
                   maxLength={10}
                   style={[
                     styles.input,
-                    error ? { borderWidth: 1, borderColor: theme.colors.error } : null,
+                    error ? { borderWidth: 1, borderColor: colors.error } : null,
                   ]}
                 />
               </View>
@@ -172,14 +177,14 @@ export function PeriodSheet({ initial, onApply, onClose }: PeriodSheetProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: Colors) => StyleSheet.create({
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: c.overlayLight },
   sheetWrap: { flex: 1, width: '100%', justifyContent: 'flex-end' },
   sheet: {
     flexShrink: 1,
     maxHeight: '88%',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: c.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 24,
@@ -191,15 +196,15 @@ const styles = StyleSheet.create({
     width: 44,
     height: 5,
     borderRadius: 3,
-    backgroundColor: theme.colors.border,
+    backgroundColor: c.border,
   },
-  sheetTitle: { fontFamily: fonts.bold, fontSize: 18, color: theme.colors.text },
+  sheetTitle: { fontFamily: fonts.bold, fontSize: 18, color: c.text },
   sheetContent: { gap: 16, paddingBottom: 4 },
   inputGroup: { gap: 6 },
   fieldLabel: {
     fontFamily: fonts.semibold,
     fontSize: 12,
-    color: theme.colors.muted,
+    color: c.muted,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
@@ -207,10 +212,10 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: theme.colors.input,
-    color: theme.colors.text,
+    backgroundColor: c.input,
+    color: c.text,
     fontFamily: fonts.medium,
     fontSize: 16,
   },
-  error: { fontFamily: fonts.medium, fontSize: 13, color: theme.colors.error },
+  error: { fontFamily: fonts.medium, fontSize: 13, color: c.error },
 });

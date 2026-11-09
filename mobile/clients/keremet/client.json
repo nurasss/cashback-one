@@ -1,6 +1,7 @@
 {
   "slug": "keremet",
   "apk_name": "keremet-cashback",
+  "update_manifest": "keremet-version.json",
   "android_app_id": "kz.cashbackone.keremet",
   "app_name": {
     "ru": "Keremet Bonus",

@@ -1,11 +1,12 @@
 import { Tabs } from 'expo-router';
 import { useBadges } from '../../../src/api/app';
 import { TabBar, type TabRoute } from '../../../src/components/TabBar';
-import { theme } from '../../../src/theme';
+import { useTheme } from '../../../src/theme/ThemeProvider';
 
 export default function TabsLayout() {
   const badges = useBadges();
-  return <Tabs screenOptions={{ headerShown: false, animation: 'shift', sceneStyle: { backgroundColor: theme.colors.background } }}
+  const { colors } = useTheme();
+  return <Tabs screenOptions={{ headerShown: false, animation: 'shift', sceneStyle: { backgroundColor: colors.background } }}
     tabBar={({ state, navigation }) => <TabBar active={state.routes[state.index]?.name as TabRoute}
       onSelect={route => navigation.navigate(route)}
       badges={{ promotions: badges.data?.promotions_new ?? false, notifications: badges.data?.notifications_unread ?? 0 }} />}>

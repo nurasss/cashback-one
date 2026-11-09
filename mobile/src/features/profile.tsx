@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon, type IconName } from '../components/icons';
 import { Button, ErrorNotice } from '../components/ui';
 import { useI18n, type Language } from '../i18n';
-import { fonts, theme as t } from '../theme';
+import { fonts, type Colors } from '../theme';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 
 function useSafeInsets() {
   try {
@@ -17,6 +18,7 @@ function useSafeInsets() {
 
 export function LanguageSwitch({ value, onChange, disabled }: { value: Language; onChange: (language: Language) => void; disabled?: boolean }) {
   const { t: tr } = useI18n();
+  const styles = useThemedStyles(makeStyles);
   return <View style={styles.switch} accessibilityRole="radiogroup">
     {(['kz', 'ru'] as const).map(language => {
       const selected = value === language;
@@ -40,6 +42,8 @@ export function Avatar({
   loading?: boolean;
 }) {
   const { t: tr } = useI18n();
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
@@ -69,24 +73,26 @@ export function Avatar({
         )}
         {loading ? (
           <View style={styles.avatarLoadingOverlay}>
-            <ActivityIndicator size="small" color={t.colors.primary} />
+            <ActivityIndicator size="small" color={colors.primary} />
           </View>
         ) : null}
       </View>
       <View style={styles.avatarBadge}>
-        <Icon name="camera" size={14} color={t.colors.onPrimary} />
+        <Icon name="camera" size={14} color={colors.onPrimary} />
       </View>
     </Pressable>
   );
 }
 
 export function ProfileRow({ label, value, placeholder, onPress, icon }: { label: string; value?: string; placeholder?: string; onPress: () => void; icon?: IconName }) {
+  const styles = useThemedStyles(makeStyles);
+  const { colors } = useTheme();
   return <Pressable accessibilityRole="button" accessibilityLabel={`${label}${value ? ': ' + value : ''}`} onPress={onPress}
     hitSlop={4} style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}>
-    {icon && <Icon name={icon} size={20} color={t.colors.primary} />}
+    {icon && <Icon name={icon} size={20} color={colors.primaryText} />}
     <Text style={styles.rowLabel}>{label}</Text>
-    <Text style={[styles.rowValue, !value && { color: t.colors.placeholder }]} numberOfLines={1}>{value || placeholder || ''}</Text>
-    <Icon name="chevronRight" size={18} color={t.colors.subtle} />
+    <Text style={[styles.rowValue, !value && { color: colors.placeholder }]} numberOfLines={1}>{value || placeholder || ''}</Text>
+    <Icon name="chevronRight" size={18} color={colors.subtle} />
   </Pressable>;
 }
 
@@ -98,6 +104,8 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
   onDone: (value: string) => void | Promise<void>; onClose: () => void;
 }) {
   const { t: tr } = useI18n();
+  const styles = useThemedStyles(makeStyles);
+  const { colors, isDark } = useTheme();
   const insets = useSafeInsets();
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [value, setValue] = useState(format ? format(initial) : initial);
@@ -155,11 +163,11 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
                 void finish(option.value);
               }} style={styles.option}>
               <Text style={styles.optionText}>{option.label}</Text>
-              {value === option.value && <Icon name="check" size={22} color={t.colors.primary} />}
+              {value === option.value && <Icon name="check" size={22} color={colors.primaryText} />}
             </Pressable>) : <View style={styles.inputWrap}>
               <TextInput value={value} onChangeText={next => { const formatted = format ? format(next) : next; setValue(formatted); setError(null); setSaveError(null); }} editable={!pending} accessibilityLabel={title} placeholder={isCustomMode && customOption ? customOption.placeholder : placeholder}
-                placeholderTextColor={t.colors.placeholder} keyboardType={keyboardType} maxLength={isCustomMode && customOption ? customOption.maxLength : maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
-                style={[styles.input, error ? { borderWidth: 1, borderColor: t.colors.error } : null]} onSubmitEditing={() => { void finish(value); }} />
+                placeholderTextColor={colors.placeholder} keyboardAppearance={isDark ? 'dark' : 'light'} keyboardType={keyboardType} maxLength={isCustomMode && customOption ? customOption.maxLength : maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
+                style={[styles.input, error ? { borderWidth: 1, borderColor: colors.error } : null]} onSubmitEditing={() => { void finish(value); }} />
               {error && <Text style={styles.error}>{error}</Text>}
 
             </View>}
@@ -172,17 +180,17 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
   </Modal>;
 }
 
-const styles = StyleSheet.create({
-  switch: { flexDirection: 'row', backgroundColor: t.colors.input, borderRadius: 999, padding: 3 },
+const makeStyles = (c: Colors) => StyleSheet.create({
+  switch: { flexDirection: 'row', backgroundColor: c.input, borderRadius: 999, padding: 3 },
   switchItem: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
-  switchSelected: { backgroundColor: t.colors.primary },
-  switchText: { fontFamily: fonts.semibold, fontSize: 13, color: t.colors.muted },
-  switchTextSelected: { color: t.colors.onPrimary },
+  switchSelected: { backgroundColor: c.primary },
+  switchText: { fontFamily: fonts.semibold, fontSize: 13, color: c.muted },
+  switchTextSelected: { color: c.onPrimary },
   avatarWrap: { alignSelf: 'center', marginVertical: 8, position: 'relative' },
-  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: t.colors.input, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: c.input, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarImage: { width: 96, height: 96, borderRadius: 48 },
-  avatarText: { fontFamily: fonts.bold, fontSize: 32, color: t.colors.muted },
-  avatarLoadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontFamily: fonts.bold, fontSize: 32, color: c.muted },
+  avatarLoadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: c.avatarOverlay, alignItems: 'center', justifyContent: 'center' },
   avatarBadge: {
     position: 'absolute',
     right: 0,
@@ -190,26 +198,26 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: t.colors.primary,
+    backgroundColor: c.primary,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: t.colors.surface,
+    borderColor: c.surface,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 },
-  rowLabel: { fontFamily: fonts.semibold, fontSize: 14, color: t.colors.text },
-  rowValue: { flex: 1, textAlign: 'right', fontFamily: fonts.regular, fontSize: 14, color: t.colors.muted },
+  rowLabel: { fontFamily: fonts.semibold, fontSize: 14, color: c.text },
+  rowValue: { flex: 1, textAlign: 'right', fontFamily: fonts.regular, fontSize: 14, color: c.muted },
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: c.overlayLight },
   sheetWrap: { flex: 1, width: '100%', justifyContent: 'flex-end' },
-  sheet: { flexShrink: 1, maxHeight: '88%', backgroundColor: t.colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 16, gap: 16 },
+  sheet: { flexShrink: 1, maxHeight: '88%', backgroundColor: c.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 16, gap: 16 },
   sheetContent: { gap: 12, paddingBottom: 4 },
   inputWrap: { gap: 16 },
-  sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: t.colors.border },
-  sheetTitle: { fontFamily: fonts.bold, fontSize: 18, color: t.colors.text },
-  sheetHint: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: t.colors.muted },
-  input: { minHeight: 48, paddingHorizontal: 16, borderRadius: 12, backgroundColor: t.colors.input, color: t.colors.text, fontFamily: fonts.medium, fontSize: 16 },
-  error: { fontFamily: fonts.medium, fontSize: 13, color: t.colors.error },
-  option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 50, borderBottomWidth: 1, borderBottomColor: t.colors.border },
-  optionText: { fontFamily: fonts.medium, fontSize: 16, color: t.colors.text },
+  sheetHandle: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: c.border },
+  sheetTitle: { fontFamily: fonts.bold, fontSize: 18, color: c.text },
+  sheetHint: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 20, color: c.muted },
+  input: { minHeight: 48, paddingHorizontal: 16, borderRadius: 12, backgroundColor: c.input, color: c.text, fontFamily: fonts.medium, fontSize: 16 },
+  error: { fontFamily: fonts.medium, fontSize: 13, color: c.error },
+  option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 50, borderBottomWidth: 1, borderBottomColor: c.border },
+  optionText: { fontFamily: fonts.medium, fontSize: 16, color: c.text },
 });

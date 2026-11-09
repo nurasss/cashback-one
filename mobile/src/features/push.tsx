@@ -11,7 +11,8 @@ import { useSession } from '../auth/provider';
 import { DEMO_ENABLED } from '../demo/mockApi';
 import { getClientConfig } from '../config/client';
 import { useI18n, type Language } from '../i18n';
-import { fonts, theme } from '../theme';
+import { fonts, type Colors } from '../theme';
+import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { Button } from '../components/ui';
 import { Icon } from '../components/icons';
 
@@ -275,6 +276,8 @@ export function PushNotificationManager() {
 
 export function PushPermissionNotice({ style }: { style?: ViewStyle }) {
   const { t } = useI18n();
+  const noticeStyles = useThemedStyles(makeNoticeStyles);
+  const { colors } = useTheme();
   const { session } = useSession();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
@@ -335,7 +338,7 @@ export function PushPermissionNotice({ style }: { style?: ViewStyle }) {
     <View style={[noticeStyles.card, style]} accessible accessibilityRole="alert">
       <View style={noticeStyles.header}>
         <View style={noticeStyles.iconWrap}>
-          <Icon name="bell" size={20} color={theme.colors.primary} />
+          <Icon name="bell" size={20} color={colors.primaryText} />
         </View>
         <Text style={noticeStyles.text}>{t('enableNotificationsPrompt')}</Text>
       </View>
@@ -348,12 +351,12 @@ export function PushPermissionNotice({ style }: { style?: ViewStyle }) {
   );
 }
 
-const noticeStyles = StyleSheet.create({
+const makeNoticeStyles = (c: Colors) => StyleSheet.create({
   card: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: c.surface,
     borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: theme.colors.primary,
+    borderColor: c.primary,
     padding: 16,
     gap: 12,
   },
@@ -366,7 +369,7 @@ const noticeStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: theme.colors.softPrimary,
+    backgroundColor: c.softPrimary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -375,7 +378,7 @@ const noticeStyles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 13,
     lineHeight: 18,
-    color: theme.colors.text,
+    color: c.text,
   },
   button: {
     alignSelf: 'stretch',

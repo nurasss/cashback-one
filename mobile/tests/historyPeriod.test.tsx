@@ -8,7 +8,7 @@ import { ActiveCardProvider } from '../src/features/activeCard';
 import { I18nProvider } from '../src/i18n';
 import { kz } from '../src/i18n/kz';
 import { ru } from '../src/i18n/ru';
-import { theme } from '../src/theme';
+import { lightColors as themeColors } from '../src/theme';
 import type { Card } from '../src/types/api';
 
 const mockRequest = jest.fn();
@@ -505,16 +505,16 @@ describe('HistoryScreen transaction colors and store exclusion', () => {
       </QueryClientProvider>
     );
 
-    // Accrual amount: green (theme.colors.success = '#1F8A4C')
+    // Accrual amount: green (themeColors.success = '#1F8A4C')
     await waitFor(() => expect(screen.getByText('+1 250,00')).toBeTruthy());
     const accrualAmount = screen.getByText('+1 250,00');
     expect(StyleSheet.flatten(accrualAmount.props.style).color).toBe('#1F8A4C');
-    expect(StyleSheet.flatten(accrualAmount.props.style).color).toBe(theme.colors.success);
+    expect(StyleSheet.flatten(accrualAmount.props.style).color).toBe(themeColors.success);
 
-    // Redemption amount: red (theme.colors.error = '#C8102E')
+    // Redemption amount: red (themeColors.error = '#C8102E')
     const redemptionAmount = screen.getByText('−500,00');
     expect(StyleSheet.flatten(redemptionAmount.props.style).color).toBe('#C8102E');
-    expect(StyleSheet.flatten(redemptionAmount.props.style).color).toBe(theme.colors.error);
+    expect(StyleSheet.flatten(redemptionAmount.props.style).color).toBe(themeColors.error);
 
     // Neither uses client primary color
     expect(StyleSheet.flatten(accrualAmount.props.style).color).not.toBe(sampleCard.business.branding?.primary_color);
@@ -528,10 +528,10 @@ describe('HistoryScreen transaction colors and store exclusion', () => {
   });
 
   it('ensures accrual is green (#1F8A4C) and redemption is red (#C8102E) across clients without using primary_color', () => {
-    expect(theme.colors.success).toBe('#1F8A4C');
-    expect(theme.colors.error).toBe('#C8102E');
-    expect(theme.colors.softSuccess).toBe('#E8F5EC');
-    expect(theme.colors.softError).toBe('#FFF1F0');
-    expect(theme.colors.success).not.toBe(theme.colors.primary);
+    expect(themeColors.success).toBe('#1F8A4C');
+    expect(themeColors.error).toBe('#C8102E');
+    expect(themeColors.softSuccess).toBe('#E8F5EC');
+    expect(themeColors.softError).toBe('#FFF1F0');
+    expect(themeColors.success).not.toBe(themeColors.primary);
   });
 });

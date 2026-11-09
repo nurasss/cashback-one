@@ -1,4 +1,5 @@
 <resources>
     <color name="primary_color">#FA2247</color>
     <color name="ic_launcher_background">#F15173</color>
+    <color name="notification_icon_color">#FA2247</color>
 </resources>
