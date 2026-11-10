@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -47,6 +48,8 @@ class Business(Base, UUIDPrimaryKey, Timestamps):
     )
     # Controlled app splash screen configuration (enabled, media_type, media_url, etc.)
     splash_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # Monotonically increasing version of loyalty tiers configuration
+    loyalty_tiers_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
 class Agent(Base, UUIDPrimaryKey):
@@ -500,6 +503,39 @@ class BusinessStore(Base, UUIDPrimaryKey, Timestamps):
     address_kk: Mapped[str] = mapped_column(String(255), nullable=False)
     map_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6), nullable=True)
+
+
+class BusinessLoyaltyTier(Base, UUIDPrimaryKey, Timestamps):
+    """Configurable loyalty tier for a business with per-tier turnover window."""
+
+    __tablename__ = "business_loyalty_tiers"
+    __table_args__ = (
+        UniqueConstraint("business_id", "level", name="uq_business_loyalty_tiers_biz_level"),
+        UniqueConstraint("business_id", "priority", name="uq_business_loyalty_tiers_biz_priority"),
+        Index("ix_business_loyalty_tiers_business_id", "business_id"),
+        Index("ix_business_loyalty_tiers_biz_active", "business_id", "is_active", "priority"),
+        CheckConstraint("turnover_period_months >= 1 AND turnover_period_months <= 36", name="ck_loyalty_tiers_period"),
+        CheckConstraint("min_turnover >= 0", name="ck_loyalty_tiers_min_turnover"),
+        CheckConstraint("percent >= 0 AND percent <= 100", name="ck_loyalty_tiers_percent"),
+    )
+
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False
+    )
+    level: Mapped[int] = mapped_column(Integer, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
+    name_ru: Mapped[str] = mapped_column(String(120), nullable=False)
+    name_kk: Mapped[str] = mapped_column(String(120), nullable=False)
+    description_ru: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_kk: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    turnover_period_months: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_turnover: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    max_turnover: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 

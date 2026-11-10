@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAdminSession } from '../auth/provider';
 import type {
-  Agent, AdminUser, AdminUserDetail, AppNotification, AppTexts, AuditItem, Business, BusinessDetail, BusinessSplashConfig, BusinessStore, Card, CardDetail, Dashboard, Page, PageQuery, PosKey, Promotion, PromotionKind,
+  Agent, AdminUser, AdminUserDetail, AppNotification, AppTexts, AuditItem, Business, BusinessDetail, BusinessSplashConfig, BusinessStore, Card, CardDetail, Dashboard, LoyaltyTier, Page, PageQuery, PosKey, Promotion, PromotionKind,
 } from './types';
 
 export const privateKey = ['admin'] as const;
@@ -143,6 +143,19 @@ export function useBusinessSplashConfig(businessId: string | undefined, enabled 
     queryFn: ({ signal }) =>
       session.api.request<BusinessSplashConfig>(
         `/admin/businesses/${encodeURIComponent(businessId!)}/splash`,
+        { signal }
+      ),
+  });
+}
+
+export function useLoyaltyTiers(businessId: string | undefined, enabled = true) {
+  const { session } = useAdminSession();
+  return useQuery({
+    queryKey: [...privateKey, 'loyalty-tiers', businessId],
+    enabled: Boolean(businessId) && enabled,
+    queryFn: ({ signal }) =>
+      session.api.request<LoyaltyTier[]>(
+        `/admin/businesses/${encodeURIComponent(businessId!)}/loyalty-tiers`,
         { signal }
       ),
   });

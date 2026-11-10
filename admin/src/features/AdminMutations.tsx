@@ -6,7 +6,7 @@ import type {
   AgentKeyDisclosure,
   BusinessCreatedResponse,
   BusinessDetail,
-  LoyaltyTier,
+  BusinessLegacyTier,
   ManagerAccessDisclosure,
 } from '../api/types';
 import { useAdminSession } from '../auth/provider';
@@ -14,8 +14,8 @@ import { ImageUploadField } from '../components/ImageUploadField';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
-export function DialogFrame({ title, onClose, children }: {
-  title: string; onClose: () => void; children: ReactNode;
+export function DialogFrame({ title, onClose, children, className }: {
+  title: string; onClose: () => void; children: ReactNode; className?: string;
 }) {
   const t = useAdminTranslation();
   const dialogRef = useRef<HTMLElement>(null);
@@ -39,7 +39,7 @@ export function DialogFrame({ title, onClose, children }: {
     }
   };
   return <div className="mutation-backdrop">
-    <section ref={dialogRef} tabIndex={-1} className="mutation-dialog" role="dialog" aria-modal="true" aria-labelledby="mutation-title" onKeyDown={closeOnEscape}>
+    <section ref={dialogRef} tabIndex={-1} className={`mutation-dialog ${className ?? ''}`.trim()} role="dialog" aria-modal="true" aria-labelledby="mutation-title" onKeyDown={closeOnEscape}>
       <header className="mutation-heading"><h2 id="mutation-title">{title}</h2>
         <button className="button button-secondary" type="button" onClick={onClose} aria-label={t.mutations.closeDialog}>{t.mutations.close}</button>
       </header>
@@ -48,7 +48,7 @@ export function DialogFrame({ title, onClose, children }: {
   </div>;
 }
 
-function isTier(value: unknown): value is LoyaltyTier {
+function isTier(value: unknown): value is BusinessLegacyTier {
   if (typeof value !== 'object' || value === null) return false;
   const tier = value as Record<string, unknown>;
   const decimal = (v: unknown) => (typeof v === 'string' || typeof v === 'number') && /^\d+(\.\d+)?$/.test(String(v));
@@ -122,7 +122,7 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       return;
     }
 
-    let loyaltyTiers: LoyaltyTier[] | null;
+    let loyaltyTiers: BusinessLegacyTier[] | null;
     try {
       const parsed: unknown = JSON.parse(tiersText || 'null');
       if (parsed === null) loyaltyTiers = null;
@@ -209,8 +209,8 @@ export function BusinessEditorDialog({ business, onClose, onSaved }: {
       </select>
       {error && <p className="form-error" role="alert">{error}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={onClose} disabled={saving || uploadingLogo}>{t.mutations.cancel}</button>
         <button className="button button-primary" type="submit" disabled={saving || uploadingLogo}>{saving ? t.mutations.saving : business ? t.mutations.save : t.mutations.create}</button>
+        <button className="button button-secondary" type="button" onClick={onClose} disabled={saving || uploadingLogo}>{t.mutations.cancel}</button>
       </footer>
     </form>
   </DialogFrame>;
@@ -263,8 +263,8 @@ export function AgentCreateDialog({ onClose, onCreated }: {
       <p className="muted-copy">{t.mutations.agentApiKeyHint}</p>
       {error && <p className="form-error" role="alert">{error}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={onClose} disabled={creating}>{t.mutations.cancel}</button>
         <button className="button button-primary" type="submit" disabled={creating || businesses.isPending}>{creating ? t.mutations.creating : t.mutations.agentCreateSubmit}</button>
+        <button className="button button-secondary" type="button" onClick={onClose} disabled={creating}>{t.mutations.cancel}</button>
       </footer>
     </form>
   </DialogFrame>;
@@ -293,8 +293,8 @@ export function AgentKeyDialog({ disclosure, title, onClose }: {
       <code className="secret-key" aria-label={t.mutations.agentApiKeyAria}>{disclosure.api_key}</code>
       {copyError && <p className="form-error" role="alert">{copyError}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={() => { setCopied(false); onClose(); }}>{t.mutations.closeAndDismissBtn}</button>
         <button className="button button-primary" type="button" onClick={() => { void copy(); }}>{t.mutations.copyKeyBtn}</button>
+        <button className="button button-secondary" type="button" onClick={() => { setCopied(false); onClose(); }}>{t.mutations.closeAndDismissBtn}</button>
       </footer>
       {copied && <p className="success-copy" role="status">{t.mutations.copied}</p>}
     </div>
@@ -333,8 +333,8 @@ export function ManagerAccessDialog({ disclosure, title, onClose }: {
       <code id="disclosure-password" className="secret-key" aria-label={t.mutations.managerPasswordAria}>{disclosure.password}</code>
       {copyError && <p className="form-error" role="alert">{copyError}</p>}
       <footer className="mutation-actions">
-        <button className="button button-secondary" type="button" onClick={onClose}>{t.mutations.close}</button>
         <button className="button button-primary" type="button" onClick={() => { void copyAll(); }}>{t.mutations.copyAllBtn}</button>
+        <button className="button button-secondary" type="button" onClick={onClose}>{t.mutations.close}</button>
       </footer>
       {copied && <p className="success-copy" role="status">{t.mutations.copyAllCopied}</p>}
     </div>

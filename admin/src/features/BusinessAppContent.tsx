@@ -40,6 +40,8 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
   const [addressRu, setAddressRu] = useState(store?.address_ru ?? '');
   const [addressKk, setAddressKk] = useState(store?.address_kk ?? '');
   const [mapUrl, setMapUrl] = useState(store?.map_url ?? '');
+  const [latitude, setLatitude] = useState<string>(store?.latitude != null ? String(store.latitude) : '');
+  const [longitude, setLongitude] = useState<string>(store?.longitude != null ? String(store.longitude) : '');
   const [sortOrder, setSortOrder] = useState<number>(store?.sort_order ?? 0);
   const [isActive, setIsActive] = useState<boolean>(store?.is_active ?? true);
   const [error, setError] = useState('');
@@ -54,6 +56,8 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
     const cleanAddressRu = addressRu.trim();
     const cleanAddressKk = addressKk.trim();
     const cleanMapUrl = mapUrl.trim();
+    const cleanLat = latitude.trim();
+    const cleanLon = longitude.trim();
 
     if (!cleanTitleRu || !cleanTitleKk) {
       setError(t.appContent.errTitleRequired);
@@ -68,6 +72,27 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
       return;
     }
 
+    if ((cleanLat !== '' && cleanLon === '') || (cleanLat === '' && cleanLon !== '')) {
+      setError(t.appContent.errCoordinatesPair);
+      return;
+    }
+    let parsedLat: number | null = null;
+    let parsedLon: number | null = null;
+    if (cleanLat !== '') {
+      parsedLat = Number(cleanLat);
+      if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) {
+        setError(t.appContent.errLatitudeRange);
+        return;
+      }
+    }
+    if (cleanLon !== '') {
+      parsedLon = Number(cleanLon);
+      if (!Number.isFinite(parsedLon) || parsedLon < -180 || parsedLon > 180) {
+        setError(t.appContent.errLongitudeRange);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const payload: BusinessStoreInput = {
@@ -76,6 +101,8 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
         address_ru: cleanAddressRu,
         address_kk: cleanAddressKk,
         map_url: cleanMapUrl || null,
+        latitude: parsedLat,
+        longitude: parsedLon,
         sort_order: Number.isFinite(sortOrder) ? sortOrder : 0,
         is_active: isActive,
       };
@@ -183,6 +210,35 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
           <span className="muted-copy">{t.appContent.fieldMapUrlHint}</span>
         </label>
 
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <label className="form-control" htmlFor="store-latitude">
+            {t.appContent.fieldLatitude}
+            <input
+              id="store-latitude"
+              type="number"
+              step="any"
+              placeholder="43.238949"
+              value={latitude}
+              onChange={e => setLatitude(e.target.value)}
+            />
+          </label>
+
+          <label className="form-control" htmlFor="store-longitude">
+            {t.appContent.fieldLongitude}
+            <input
+              id="store-longitude"
+              type="number"
+              step="any"
+              placeholder="76.889709"
+              value={longitude}
+              onChange={e => setLongitude(e.target.value)}
+            />
+          </label>
+        </div>
+        <p className="muted-copy" style={{ marginTop: '-0.25rem', marginBottom: '0.75rem', fontSize: '0.8125rem' }}>
+          {t.appContent.fieldCoordinatesHint}
+        </p>
+
         <label className="form-control" htmlFor="store-sort-order">
           {t.appContent.fieldSortOrder}
           <input
@@ -206,11 +262,11 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
         </label>
 
         <div className="dialog-actions">
-          <button className="button button-secondary" type="button" onClick={onClose} disabled={saving}>
-            {t.appContent.cancelBtn}
-          </button>
           <button className="button button-primary" type="submit" disabled={saving}>
             {saving ? t.appContent.savingBtn : t.appContent.saveBtn}
+          </button>
+          <button className="button button-secondary" type="button" onClick={onClose} disabled={saving}>
+            {t.appContent.cancelBtn}
           </button>
         </div>
       </form>
@@ -312,6 +368,11 @@ export function BusinessStoresSection({
                     </td>
                     <td>
                       <span>{locale === 'kk' ? (store.address_kk || store.address_ru) : store.address_ru}</span>
+                      {store.latitude != null && store.longitude != null && (
+                        <div className="muted-copy" style={{ fontSize: '0.75rem' }}>
+                          {store.latitude}, {store.longitude}
+                        </div>
+                      )}
                     </td>
                     <td>
                       {store.map_url ? (

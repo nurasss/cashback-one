@@ -1,5 +1,14 @@
 import type { SVGProps } from 'react';
 
+export function IconStatus(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" {...props}>
+      <circle cx="12" cy="8" r="6" />
+      <path d="m15.477 12.89 2.523 9.11-6-3-6 3 2.523-9.11" />
+    </svg>
+  );
+}
+
 export function IconOverview(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" {...props}>

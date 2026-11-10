@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, useAppNotifications, useBusinesses, usePromotions } from '../api/queries';
@@ -10,7 +10,7 @@ import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components
 import { ImageUploadField } from '../components/ImageUploadField';
 import { DialogFrame } from '../features/AdminMutations';
 import { BusinessAppContent, BusinessSplashSection, BusinessStoresSection, BusinessTextsSection } from '../features/BusinessAppContent';
-import { astanaLocalToUtcIso, formatAstanaDateTime, formatAstanaSchedule, formatDate, getAstanaNowLocal, utcIsoToAstanaLocal } from '../utils/format';
+import { astanaLocalToUtcIso, formatAstanaDateTime, formatAstanaSchedule, formatDate, getAstanaNowLocal, isValidAstanaDateTimeLocal, utcIsoToAstanaLocal } from '../utils/format';
 import { usePage } from '../utils/usePage';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
@@ -311,7 +311,13 @@ export function PromotionsTable({
 }) {
   const expansion = useTableExpansion();
   const t = useAdminTranslation();
-  const [page, setPage] = usePage();
+  const pageSize = kind !== undefined ? 7 : 25;
+  const [page, setPage] = usePage(pageSize);
+
+  useEffect(() => {
+    setPage(0);
+  }, [businessId, kind, setPage]);
+
   const query = usePromotions(businessId, page, kind);
   const remove = useRemove('promotions');
 
@@ -411,6 +417,7 @@ export function PromotionsTable({
           rows={query.data.items}
           rowKey={item => item.id}
           columns={columns}
+          disableCompacting={kind !== undefined}
         />
       )}
     </>
@@ -572,6 +579,14 @@ export function PromotionDialog({
     }
 
     // Date validations in Astana time
+    if (form.starts_at.trim() && !isValidAstanaDateTimeLocal(form.starts_at.trim())) {
+      setError(t.content.promoErrInvalidDate);
+      return;
+    }
+    if (form.ends_at.trim() && !isValidAstanaDateTimeLocal(form.ends_at.trim())) {
+      setError(t.content.promoErrInvalidDate);
+      return;
+    }
     if (!promotion && form.starts_at.trim()) {
       const startUtc = astanaLocalToUtcIso(form.starts_at.trim());
       if (startUtc && new Date(startUtc).getTime() < Date.now() - 5 * 60 * 1000) {
@@ -632,7 +647,7 @@ export function PromotionDialog({
         : t.content.offerDialogTitleNew;
 
   return (
-    <DialogFrame title={dialogTitle} onClose={onClose}>
+    <DialogFrame title={dialogTitle} onClose={onClose} className="mutation-dialog--wide">
       <form className="mutation-form" onSubmit={event => { void submit(event); }}>
         {superadmin && !promotion && (
           <>
@@ -728,11 +743,11 @@ export function PromotionDialog({
         </label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="mutation-actions">
-          <button className="button button-secondary" type="button" onClick={onClose} disabled={saving || uploadingImage}>
-            {t.content.cancelBtn}
-          </button>
           <button className="button button-primary" type="submit" disabled={saving || uploadingImage}>
             {saving ? t.content.savingBtn : t.content.saveBtn}
+          </button>
+          <button className="button button-secondary" type="button" onClick={onClose} disabled={saving || uploadingImage}>
+            {t.content.cancelBtn}
           </button>
         </footer>
       </form>
@@ -771,6 +786,10 @@ export function NotificationDialog({
     if (whenToSend === 'scheduled') {
       if (!scheduledLocal.trim()) {
         setError(t.content.noticeErrScheduledRequired);
+        return;
+      }
+      if (!isValidAstanaDateTimeLocal(scheduledLocal.trim())) {
+        setError(t.content.promoErrInvalidDate);
         return;
       }
       const utcIso = astanaLocalToUtcIso(scheduledLocal.trim());
@@ -870,15 +889,15 @@ export function NotificationDialog({
         <p className="muted-copy">{t.content.noticeHint}</p>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="mutation-actions">
-          <button className="button button-secondary" type="button" onClick={onClose} disabled={saving}>
-            {t.content.cancelBtn}
-          </button>
           <button className="button button-primary" type="submit" disabled={saving}>
             {saving
               ? t.content.sendingBtn
               : whenToSend === 'scheduled'
                 ? t.content.noticeScheduleBtn
                 : t.content.sendBtn}
+          </button>
+          <button className="button button-secondary" type="button" onClick={onClose} disabled={saving}>
+            {t.content.cancelBtn}
           </button>
         </footer>
       </form>

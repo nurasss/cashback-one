@@ -17,6 +17,7 @@ export function DataTable<T>({
   page,
   onPage,
   expansion,
+  disableCompacting = false,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -24,9 +25,10 @@ export function DataTable<T>({
   page: { limit: number; offset: number; has_more: boolean };
   onPage: (offset: number) => void;
   expansion?: TableExpansion;
+  disableCompacting?: boolean;
 }) {
   const { locale } = useLocale();
-  const compact = useCompactRows(rows, expansion);
+  const compact = useCompactRows(rows, expansion, disableCompacting);
 
   return (
     <div className="table-card">

@@ -7,6 +7,7 @@ import {
   IconAgents,
   IconCards,
   IconContent,
+  IconStatus,
   IconAudit,
   IconSend,
   IconSettings,
@@ -23,6 +24,7 @@ export interface NavItem {
     | 'agents'
     | 'operations'
     | 'clients'
+    | 'statuses'
     | 'content'
     | 'notifications'
     | 'audit'
@@ -38,12 +40,14 @@ export const adminNavigation: readonly NavItem[] = [
   { path: '/admin/businesses', navKey: 'businesses', label: 'Бизнесы', icon: IconBusinesses, roles: ['superadmin'] },
   { path: '/admin/agents', navKey: 'agents', label: 'Агенты', icon: IconAgents, roles: ['superadmin'] },
   { path: '/admin/operations', navKey: 'operations', label: 'Карты и клиенты', icon: IconCards, roles: ['superadmin'] },
+  { path: '/admin/statuses', navKey: 'statuses', label: 'Статусы', icon: IconStatus, roles: ['superadmin'] },
   { path: '/admin/content', navKey: 'content', label: 'Приложение', icon: IconContent, roles: ['superadmin'] },
   { path: '/admin/audit', navKey: 'audit', label: 'Журнал событий', icon: IconAudit, roles: ['superadmin'] },
 
   // Business Manager (client cabinet)
   { path: '/admin', navKey: 'home', label: 'Главная', icon: IconOverview, roles: ['business_manager'] },
   { path: '/admin/operations', navKey: 'clients', label: 'Клиенты', icon: IconCards, roles: ['business_manager'] },
+  { path: '/admin/statuses', navKey: 'statuses', label: 'Статусы', icon: IconStatus, roles: ['business_manager'] },
   { path: '/admin/content', navKey: 'content', label: 'Приложение', icon: IconContent, roles: ['business_manager'] },
   { path: '/admin/notifications', navKey: 'notifications', label: 'Рассылки', icon: IconSend, roles: ['business_manager'] },
   { path: '/admin/settings', navKey: 'settings', label: 'Настройки', icon: IconSettings, roles: ['business_manager'], secondary: true },
@@ -74,6 +78,9 @@ export function isNavActive(item: NavItem, currentPath: string, role: AdminRole)
   }
   if (item.path === '/admin/agents') {
     return currentPath.startsWith('/admin/agents');
+  }
+  if (item.path === '/admin/statuses') {
+    return currentPath.startsWith('/admin/statuses');
   }
   if (item.path === '/admin/content') {
     return currentPath.startsWith('/admin/content');

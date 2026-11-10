@@ -34,6 +34,8 @@ export function resolveAdminDocumentTitle({ pathname, view, t }: DocumentTitleOp
     section = isManager ? t.layout.nav.clients : t.layout.nav.operations;
   } else if (cleanPath === '/admin/content') {
     section = t.layout.nav.content;
+  } else if (cleanPath === '/admin/statuses') {
+    section = t.layout.nav.statuses;
   } else if (cleanPath === '/admin/notifications') {
     section = t.layout.nav.notifications;
   } else if (cleanPath === '/admin/settings') {

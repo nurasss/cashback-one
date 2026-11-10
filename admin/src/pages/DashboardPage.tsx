@@ -5,7 +5,7 @@ import { useBusinesses, useDashboard } from '../api/queries';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { IconCards, IconCheckShield, IconTrendUp, IconUsers } from '../components/Icons';
 import type { AgentHealth } from '../api/types';
-import { formatDate, formatNumber, localDate } from '../utils/format';
+import { formatDate, formatNumber, localDate, dayBoundary } from '../utils/format';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
@@ -18,10 +18,7 @@ const healthTone: Record<AgentHealth, 'neutral' | 'positive' | 'warning' | 'nega
 };
 
 function periodBoundary(day: string, end: boolean): string {
-  const next = new Date(`${day}T00:00:00`);
-  if (end) next.setDate(next.getDate() + 1);
-  if (end) next.setMilliseconds(next.getMilliseconds() - 1);
-  return next.toISOString();
+  return dayBoundary(day, end);
 }
 
 function getClientConnectionState(

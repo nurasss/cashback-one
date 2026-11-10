@@ -7,9 +7,9 @@ export interface Page<T> { items: T[]; limit: number; offset: number; has_more: 
 export interface Business {
   id: string; name: string; logo_url: string | null; colors: Record<string, unknown> | null;
   barcode_prefixes: string[] | null; android_app_id?: string | null; status: string;
-  loyalty_tiers?: LoyaltyTier[] | null; created_at: string; updated_at: string;
+  loyalty_tiers?: BusinessLegacyTier[] | null; created_at: string; updated_at: string;
 }
-export interface LoyaltyTier { level: number; name?: string | null; threshold: string; percent: string }
+export interface BusinessLegacyTier { level: number; name?: string | null; threshold: string; percent: string }
 export type PromotionKind = 'banner' | 'offer';
 export interface Promotion {
   id: string; business_id: string | null; kind: PromotionKind; title: string; subtitle: string | null; badge: string | null;
@@ -107,6 +107,8 @@ export interface BusinessStore {
   map_url: string | null;
   sort_order: number;
   is_active: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -122,6 +124,40 @@ export interface BusinessStoreInput {
   address_kk: string;
   map_url?: string | null;
   sort_order?: number;
+  is_active?: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+export interface LoyaltyTier {
+  id: string;
+  business_id: string;
+  level: number;
+  priority: number;
+  name_ru: string;
+  name_kk: string;
+  description_ru: string | null;
+  description_kk: string | null;
+  image_url: string | null;
+  turnover_period_months: number;
+  min_turnover: string;
+  max_turnover: string | null;
+  percent: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export interface LoyaltyTierInput {
+  level: number;
+  priority: number;
+  name_ru: string;
+  name_kk: string;
+  description_ru?: string | null;
+  description_kk?: string | null;
+  image_url?: string | null;
+  turnover_period_months: number;
+  min_turnover: number | string;
+  max_turnover?: number | string | null;
+  percent: number | string;
   is_active?: boolean;
 }
 export interface BusinessSplashConfig {

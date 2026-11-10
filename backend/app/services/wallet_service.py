@@ -17,6 +17,7 @@ from app.models.entities import Business, Card, Transaction, User, UserCard
 from app.schemas.wallet import (
     BusinessBranding,
     BusinessInfo,
+    CardLoyaltyStatus,
     CustomerCardResponse,
     CustomerTransactionHistoryResponse,
     CustomerTransactionResponse,
@@ -183,6 +184,11 @@ async def get_customer_cards(
                 bound_at=bound_at,
                 bind_method=bind_method,
                 tier=tier_info(business.loyalty_tiers, card.spend_total),
+                loyalty_status=CardLoyaltyStatus(
+                    known=False,
+                    reason="unconfirmed",
+                    program_version=getattr(business, "loyalty_tiers_version", 1) or 1,
+                ),
                 business=BusinessInfo(
                     id=business.id,
                     name=business.name,
@@ -229,6 +235,11 @@ async def get_customer_card_detail(
         bound_at=bound_at,
         bind_method=bind_method,
         tier=tier_info(business.loyalty_tiers, card.spend_total),
+        loyalty_status=CardLoyaltyStatus(
+            known=False,
+            reason="unconfirmed",
+            program_version=getattr(business, "loyalty_tiers_version", 1) or 1,
+        ),
         business=BusinessInfo(
             id=business.id,
             name=business.name,
@@ -642,6 +653,11 @@ async def bind_customer_card(
         bound_at=final_uc.bound_at,
         bind_method=final_uc.bind_method,
         tier=tier_info(target_business.loyalty_tiers, target_card.spend_total),
+        loyalty_status=CardLoyaltyStatus(
+            known=False,
+            reason="unconfirmed",
+            program_version=getattr(target_business, "loyalty_tiers_version", 1) or 1,
+        ),
         business=BusinessInfo(
             id=target_business.id,
             name=target_business.name,

@@ -14,8 +14,17 @@ from app.core.config import Settings, get_settings, settings
 from app.core.errors import AppError
 from app.core.time import as_utc, utcnow
 from app.db.session import get_session
-from app.models.entities import Business, BusinessStore, Card, Device, User, UserCard
+from app.models.entities import (
+    Business,
+    BusinessLoyaltyTier,
+    BusinessStore,
+    Card,
+    Device,
+    User,
+    UserCard,
+)
 from app.schemas.customer_app import (
+    AppLoyaltyTier,
     AppStoreItem,
     BadgesResponse,
     CardQrResponse,
@@ -406,8 +415,23 @@ async def get_app_content(
     )
     stores = list((await session.scalars(stores_stmt)).all())
 
-    # 4. updated_at is the latest modification timestamp among business and active stores
-    all_timestamps = [as_utc(business.updated_at)] + [as_utc(s.updated_at) for s in stores]
+    # 3. Active loyalty tiers ordered by priority ASC, level ASC, id ASC
+    tiers_stmt = (
+        select(BusinessLoyaltyTier)
+        .where(
+            BusinessLoyaltyTier.business_id == business_id,
+            BusinessLoyaltyTier.is_active.is_(True),
+        )
+        .order_by(
+            BusinessLoyaltyTier.priority.asc(),
+            BusinessLoyaltyTier.level.asc(),
+            BusinessLoyaltyTier.id.asc(),
+        )
+    )
+    tiers = list((await session.scalars(tiers_stmt)).all())
+
+    # 4. updated_at is the latest modification timestamp among business, active stores, and active tiers
+    all_timestamps = [as_utc(business.updated_at)] + [as_utc(s.updated_at) for s in stores] + [as_utc(t.updated_at) for t in tiers]
     latest_updated_at = max(all_timestamps)
 
     raw_texts = business.app_texts or {}
@@ -421,6 +445,23 @@ async def get_app_content(
         ),
     )
     stores_payload = [AppStoreItem.model_validate(s) for s in stores]
+    tiers_payload = [
+        AppLoyaltyTier(
+            id=t.id,
+            level=t.level,
+            priority=t.priority,
+            name_ru=t.name_ru,
+            name_kk=t.name_kk,
+            description_ru=t.description_ru,
+            description_kk=t.description_kk,
+            image_url=t.image_url,
+            turnover_period_months=t.turnover_period_months,
+            min_turnover=f"{t.min_turnover:.2f}",
+            max_turnover=f"{t.max_turnover:.2f}" if t.max_turnover is not None else None,
+            percent=f"{t.percent:.2f}",
+        )
+        for t in tiers
+    ]
     raw_splash = business.splash_config or {}
     splash = CustomerAppSplashConfig(
         enabled=bool(raw_splash.get("enabled", False)),
@@ -437,6 +478,8 @@ async def get_app_content(
         stores=stores_payload,
         app_texts=app_texts,
         splash=splash,
+        loyalty_tiers=tiers_payload,
+        loyalty_tiers_version=getattr(business, "loyalty_tiers_version", 1) or 1,
         updated_at=latest_updated_at,
     )
 

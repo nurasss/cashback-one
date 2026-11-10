@@ -6,18 +6,20 @@ manage only their own business. Every mutation is audited.
 import logging
 import uuid
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_deps import AdminScope, scope_for_admin
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.core.time import as_utc, utcnow
 from app.models.admin import AdminUser
 from app.models.entities import (
     Business,
+    BusinessLoyaltyTier,
     BusinessSplashAsset,
     BusinessStore,
     Notification,
@@ -28,6 +30,9 @@ from app.schemas.admin_content import (
     AppTextsResponse,
     AppTextsUpdateRequest,
     BroadcastPushResult,
+    BusinessLoyaltyTierAdminItem,
+    BusinessLoyaltyTierCreateRequest,
+    BusinessLoyaltyTierUpdateRequest,
     BusinessSplashConfigResponse,
     BusinessSplashConfigUpdateRequest,
     BusinessStoreAdminItem,
@@ -41,7 +46,11 @@ from app.schemas.admin_content import (
     PromotionUpdateRequest,
 )
 from app.services.admin_mutations import _audit
-from app.services.media_storage import MediaStorage, maybe_cleanup_old_media_file
+from app.services.media_storage import (
+    SAFE_MEDIA_PATH_REGEX,
+    MediaStorage,
+    maybe_cleanup_old_media_file,
+)
 from app.services.push_sender import PushSender, get_push_sender
 from app.services.push_service import send_broadcast_push
 
@@ -371,6 +380,8 @@ def _store_state(store: BusinessStore) -> dict[str, Any]:
         "map_url": store.map_url,
         "sort_order": store.sort_order,
         "is_active": store.is_active,
+        "latitude": float(store.latitude) if store.latitude is not None else None,
+        "longitude": float(store.longitude) if store.longitude is not None else None,
     }
 
 
@@ -434,7 +445,16 @@ async def update_store(
     if store is None:
         raise _not_found()
     before = _store_state(store)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    dumped = body.model_dump(exclude_unset=True)
+    merged_lat = dumped.get("latitude", store.latitude)
+    merged_lon = dumped.get("longitude", store.longitude)
+    if (merged_lat is None) != (merged_lon is None):
+        raise AppError(
+            "VALIDATION_ERROR",
+            "latitude and longitude must either both be provided or both be null",
+            422,
+        )
+    for field, value in dumped.items():
         setattr(store, field, value)
     await db.flush()
     _audit(db, admin, business_id, "store_updated", "business_store", before, _store_state(store))
@@ -651,3 +671,258 @@ async def update_splash_config(
         file_size=new_config["file_size"],
         version=new_config["version"],
     )
+
+
+def _tier_state(tier: BusinessLoyaltyTier) -> dict[str, Any]:
+    return {
+        "tier_id": str(tier.id),
+        "business_id": str(tier.business_id),
+        "level": tier.level,
+        "priority": tier.priority,
+        "name_ru": tier.name_ru,
+        "name_kk": tier.name_kk,
+        "description_ru": tier.description_ru,
+        "description_kk": tier.description_kk,
+        "image_url": tier.image_url,
+        "turnover_period_months": tier.turnover_period_months,
+        "min_turnover": str(tier.min_turnover),
+        "max_turnover": str(tier.max_turnover) if tier.max_turnover is not None else None,
+        "percent": str(tier.percent),
+        "is_active": tier.is_active,
+    }
+
+
+async def list_loyalty_tiers(
+    db: AsyncSession, admin: AdminUser, business_id: uuid.UUID
+) -> list[BusinessLoyaltyTierAdminItem]:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    await _require_business(db, business_id)
+    stmt = (
+        select(BusinessLoyaltyTier)
+        .where(BusinessLoyaltyTier.business_id == business_id)
+        .order_by(
+            BusinessLoyaltyTier.priority.asc(),
+            BusinessLoyaltyTier.level.asc(),
+            BusinessLoyaltyTier.id.asc(),
+        )
+    )
+    rows = (await db.scalars(stmt)).all()
+    return [BusinessLoyaltyTierAdminItem.model_validate(row) for row in rows]
+
+
+def _intervals_overlap(
+    min_a: Decimal,
+    max_a: Decimal | None,
+    min_b: Decimal,
+    max_b: Decimal | None,
+) -> bool:
+    if max_a is not None and max_a <= min_b:
+        return False
+    return not (max_b is not None and max_b <= min_a)
+
+
+async def _verify_scoped_tier_image(
+    db: AsyncSession,
+    settings: Settings,
+    business_id: uuid.UUID,
+    image_url: str,
+) -> None:
+    if not image_url.startswith("https://"):
+        raise AppError("VALIDATION_ERROR", "image_url must use https:// protocol", 422)
+    base = settings.media_public_base_url.rstrip("/") + "/"
+    if not image_url.startswith(base):
+        raise AppError("VALIDATION_ERROR", "image_url must point to the media storage host", 422)
+    rel_path = image_url[len(base):]
+    if not SAFE_MEDIA_PATH_REGEX.match(rel_path):
+        raise AppError("VALIDATION_ERROR", "image_url has invalid format or path", 422)
+    if not rel_path.endswith((".webp", ".png", ".jpg", ".jpeg")):
+        raise AppError("VALIDATION_ERROR", "image_url must be an image", 422)
+
+    asset = await db.scalar(
+        select(BusinessSplashAsset).where(BusinessSplashAsset.media_url == image_url)
+    )
+    if asset is None:
+        # Check if already used by this business in another tier
+        existing_tier = await db.scalar(
+            select(BusinessLoyaltyTier).where(
+                BusinessLoyaltyTier.business_id == business_id,
+                BusinessLoyaltyTier.image_url == image_url,
+            )
+        )
+        if existing_tier is not None:
+            return
+        raise AppError("NOT_FOUND", "Указанное изображение не найдено на сервере.", 404)
+    if asset.media_type != "image":
+        raise AppError("VALIDATION_ERROR", "Указанный медиафайл должен быть изображением.", 422)
+    if asset.business_id is not None and asset.business_id != business_id:
+        raise AppError("FORBIDDEN", "Указанное изображение принадлежит другому бизнесу.", 403)
+    if asset.business_id is None:
+        asset.business_id = business_id
+
+
+async def create_loyalty_tier(
+    db: AsyncSession,
+    admin: AdminUser,
+    business_id: uuid.UUID,
+    body: BusinessLoyaltyTierCreateRequest,
+    settings: Settings | None = None,
+) -> BusinessLoyaltyTierAdminItem:
+    if settings is None:
+        settings = get_settings()
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    await _require_business(db, business_id)
+    biz = await db.get(Business, business_id)
+    if biz is None:
+        raise _not_found()
+
+    if body.image_url:
+        await _verify_scoped_tier_image(db, settings, business_id, body.image_url)
+
+    existing = await db.scalar(
+        select(BusinessLoyaltyTier).where(
+            BusinessLoyaltyTier.business_id == business_id,
+            (BusinessLoyaltyTier.level == body.level) | (BusinessLoyaltyTier.priority == body.priority),
+        )
+    )
+    if existing is not None:
+        if existing.level == body.level:
+            raise AppError("CONFLICT", f"Tier with level {body.level} already exists", 409)
+        raise AppError("CONFLICT", f"Tier with priority {body.priority} already exists", 409)
+
+    if body.is_active:
+        active_same_period = (
+            await db.scalars(
+                select(BusinessLoyaltyTier).where(
+                    BusinessLoyaltyTier.business_id == business_id,
+                    BusinessLoyaltyTier.turnover_period_months == body.turnover_period_months,
+                    BusinessLoyaltyTier.is_active.is_(True),
+                )
+            )
+        ).all()
+        for other in active_same_period:
+            if _intervals_overlap(body.min_turnover, body.max_turnover, other.min_turnover, other.max_turnover):
+                raise AppError(
+                    "CONFLICT",
+                    f"Turnover range [{body.min_turnover}; {body.max_turnover or '∞'}) overlaps with tier '{other.name_ru}' [{other.min_turnover}; {other.max_turnover or '∞'}) for period {body.turnover_period_months} months",
+                    409,
+                )
+
+    tier = BusinessLoyaltyTier(business_id=business_id, **body.model_dump())
+    db.add(tier)
+    biz.loyalty_tiers_version = (biz.loyalty_tiers_version or 1) + 1
+    biz.updated_at = utcnow()
+    await db.flush()
+    _audit(db, admin, business_id, "loyalty_tier_created", "business_loyalty_tier", None, _tier_state(tier))
+    await db.commit()
+    await db.refresh(tier)
+    return BusinessLoyaltyTierAdminItem.model_validate(tier)
+
+
+async def update_loyalty_tier(
+    db: AsyncSession,
+    admin: AdminUser,
+    business_id: uuid.UUID,
+    tier_id: uuid.UUID,
+    body: BusinessLoyaltyTierUpdateRequest,
+    settings: Settings | None = None,
+) -> BusinessLoyaltyTierAdminItem:
+    if settings is None:
+        settings = get_settings()
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    await _require_business(db, business_id)
+    biz = await db.get(Business, business_id)
+    if biz is None:
+        raise _not_found()
+    tier = await db.scalar(
+        select(BusinessLoyaltyTier)
+        .where(BusinessLoyaltyTier.id == tier_id, BusinessLoyaltyTier.business_id == business_id)
+        .with_for_update()
+    )
+    if tier is None:
+        raise _not_found()
+
+    dumped = body.model_dump(exclude_unset=True)
+
+    if dumped.get("image_url"):
+        await _verify_scoped_tier_image(db, settings, business_id, dumped["image_url"])
+
+    new_level = dumped.get("level", tier.level)
+    new_priority = dumped.get("priority", tier.priority)
+    if new_level != tier.level or new_priority != tier.priority:
+        dup = await db.scalar(
+            select(BusinessLoyaltyTier).where(
+                BusinessLoyaltyTier.business_id == business_id,
+                BusinessLoyaltyTier.id != tier_id,
+                (BusinessLoyaltyTier.level == new_level) | (BusinessLoyaltyTier.priority == new_priority),
+            )
+        )
+        if dup is not None:
+            if dup.level == new_level:
+                raise AppError("CONFLICT", f"Tier with level {new_level} already exists", 409)
+            raise AppError("CONFLICT", f"Tier with priority {new_priority} already exists", 409)
+
+    new_min = dumped.get("min_turnover", tier.min_turnover)
+    new_max = dumped.get("max_turnover", tier.max_turnover)
+    if new_max is not None and new_max <= new_min:
+        raise AppError("VALIDATION_ERROR", "max_turnover must be greater than min_turnover", 422)
+
+    new_active = dumped.get("is_active", tier.is_active)
+    new_period = dumped.get("turnover_period_months", tier.turnover_period_months)
+    if new_active:
+        active_same_period = (
+            await db.scalars(
+                select(BusinessLoyaltyTier).where(
+                    BusinessLoyaltyTier.business_id == business_id,
+                    BusinessLoyaltyTier.id != tier_id,
+                    BusinessLoyaltyTier.turnover_period_months == new_period,
+                    BusinessLoyaltyTier.is_active.is_(True),
+                )
+            )
+        ).all()
+        for other in active_same_period:
+            if _intervals_overlap(new_min, new_max, other.min_turnover, other.max_turnover):
+                raise AppError(
+                    "CONFLICT",
+                    f"Turnover range [{new_min}; {new_max or '∞'}) overlaps with tier '{other.name_ru}' [{other.min_turnover}; {other.max_turnover or '∞'}) for period {new_period} months",
+                    409,
+                )
+
+    before = _tier_state(tier)
+    for field, value in dumped.items():
+        setattr(tier, field, value)
+    tier.updated_at = utcnow()
+    biz.loyalty_tiers_version = (biz.loyalty_tiers_version or 1) + 1
+    biz.updated_at = utcnow()
+    await db.flush()
+    _audit(db, admin, business_id, "loyalty_tier_updated", "business_loyalty_tier", before, _tier_state(tier))
+    await db.commit()
+    await db.refresh(tier)
+    return BusinessLoyaltyTierAdminItem.model_validate(tier)
+
+
+async def delete_loyalty_tier(
+    db: AsyncSession, admin: AdminUser, business_id: uuid.UUID, tier_id: uuid.UUID
+) -> None:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    await _require_business(db, business_id)
+    biz = await db.get(Business, business_id)
+    if biz is None:
+        raise _not_found()
+    tier = await db.scalar(
+        select(BusinessLoyaltyTier)
+        .where(BusinessLoyaltyTier.id == tier_id, BusinessLoyaltyTier.business_id == business_id)
+        .with_for_update()
+    )
+    if tier is None:
+        raise _not_found()
+    before = _tier_state(tier)
+    await db.delete(tier)
+    biz.loyalty_tiers_version = (biz.loyalty_tiers_version or 1) + 1
+    biz.updated_at = utcnow()
+    await db.flush()
+    _audit(db, admin, business_id, "loyalty_tier_deleted", "business_loyalty_tier", before, None)
+    await db.commit()

@@ -70,11 +70,11 @@ export function PosKeyCreateDialog({
         </label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="mutation-actions">
-          <button className="button button-secondary" type="button" onClick={onClose} disabled={creating}>
-            {t.posKeys.cancelBtn}
-          </button>
           <button className="button button-primary" type="submit" disabled={creating}>
             {creating ? t.posKeys.creatingSubmitBtn : t.posKeys.createSubmitBtn}
+          </button>
+          <button className="button button-secondary" type="button" onClick={onClose} disabled={creating}>
+            {t.posKeys.cancelBtn}
           </button>
         </footer>
       </form>
@@ -115,6 +115,9 @@ export function PosKeyDialog({ disclosure, onClose }: PosKeyDialogProps) {
         </code>
         {copyError && <p className="form-error" role="alert">{copyError}</p>}
         <footer className="mutation-actions">
+          <button className="button button-primary" type="button" onClick={() => { void copy(); }}>
+            {t.posKeys.copyBtn}
+          </button>
           <button
             className="button button-secondary"
             type="button"
@@ -124,9 +127,6 @@ export function PosKeyDialog({ disclosure, onClose }: PosKeyDialogProps) {
             }}
           >
             {t.posKeys.closeBtn}
-          </button>
-          <button className="button button-primary" type="button" onClick={() => { void copy(); }}>
-            {t.posKeys.copyBtn}
           </button>
         </footer>
         {copied && <p className="success-copy" role="status">{t.posKeys.copied}</p>}
@@ -170,9 +170,6 @@ export function PosKeyRevokeDialog({ posKey, onClose, onRevoked }: PosKeyRevokeD
         <p>{t.posKeys.confirmRevoke(posKey.name)}</p>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="mutation-actions">
-          <button className="button button-secondary" type="button" onClick={onClose} disabled={revoking}>
-            {t.posKeys.cancelBtn}
-          </button>
           <button
             className="button button-destructive"
             type="button"
@@ -180,6 +177,9 @@ export function PosKeyRevokeDialog({ posKey, onClose, onRevoked }: PosKeyRevokeD
             disabled={revoking}
           >
             {revoking ? t.posKeys.revoking : t.posKeys.revokeBtn}
+          </button>
+          <button className="button button-secondary" type="button" onClick={onClose} disabled={revoking}>
+            {t.posKeys.cancelBtn}
           </button>
         </footer>
       </div>

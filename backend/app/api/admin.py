@@ -46,6 +46,9 @@ from app.schemas.admin import (
 from app.schemas.admin_content import (
     AppTextsResponse,
     AppTextsUpdateRequest,
+    BusinessLoyaltyTierAdminItem,
+    BusinessLoyaltyTierCreateRequest,
+    BusinessLoyaltyTierUpdateRequest,
     BusinessSplashConfigResponse,
     BusinessSplashConfigUpdateRequest,
     BusinessStoreAdminItem,
@@ -232,6 +235,61 @@ async def admin_delete_store(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
     await admin_content.delete_store(db, admin, business_id, store_id)
+    return Response(status_code=204)
+
+
+@router.get(
+    "/businesses/{business_id}/loyalty-tiers",
+    response_model=list[BusinessLoyaltyTierAdminItem],
+)
+async def admin_list_loyalty_tiers(
+    business_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> list[BusinessLoyaltyTierAdminItem]:
+    return await admin_content.list_loyalty_tiers(db, admin, business_id)
+
+
+@router.post(
+    "/businesses/{business_id}/loyalty-tiers",
+    response_model=BusinessLoyaltyTierAdminItem,
+    status_code=201,
+)
+async def admin_create_loyalty_tier(
+    business_id: uuid.UUID,
+    body: BusinessLoyaltyTierCreateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BusinessLoyaltyTierAdminItem:
+    return await admin_content.create_loyalty_tier(db, admin, business_id, body, settings=settings)
+
+
+@router.patch(
+    "/businesses/{business_id}/loyalty-tiers/{tier_id}",
+    response_model=BusinessLoyaltyTierAdminItem,
+)
+async def admin_update_loyalty_tier(
+    business_id: uuid.UUID,
+    tier_id: uuid.UUID,
+    body: BusinessLoyaltyTierUpdateRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> BusinessLoyaltyTierAdminItem:
+    return await admin_content.update_loyalty_tier(
+        db, admin, business_id, tier_id, body, settings=settings
+    )
+
+
+@router.delete("/businesses/{business_id}/loyalty-tiers/{tier_id}", status_code=204)
+async def admin_delete_loyalty_tier(
+    business_id: uuid.UUID,
+    tier_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    await admin_content.delete_loyalty_tier(db, admin, business_id, tier_id)
     return Response(status_code=204)
 
 
@@ -521,6 +579,7 @@ async def admin_upload_image(
     db: Annotated[AsyncSession, Depends(get_session)],
     storage: Annotated[MediaStorage, Depends(get_media_storage)],
     settings: Annotated[Settings, Depends(get_settings)],
+    business_id: Annotated[uuid.UUID | None, Form()] = None,
 ) -> ImageUploadResponse:
     if purpose not in ("promotion", "logo"):
         raise AppError(
@@ -528,6 +587,13 @@ async def admin_upload_image(
             "purpose must be either 'promotion' or 'logo'.",
             status_code=422,
         )
+
+    if admin.role == "business_manager":
+        if business_id is not None and business_id != admin.business_id:
+            raise AppError("FORBIDDEN", "Cannot upload media for another business", status_code=403)
+        target_business_id = admin.business_id
+    else:
+        target_business_id = business_id or admin.business_id
 
     max_bytes = settings.media_max_upload_bytes
     total_bytes = 0
@@ -550,7 +616,7 @@ async def admin_upload_image(
     if not raw_bytes:
         raise AppError("VALIDATION_ERROR", "Uploaded file is empty.", status_code=422)
 
-    return await process_and_store_image(
+    res = await process_and_store_image(
         raw_bytes=raw_bytes,
         purpose=purpose,
         settings=settings,
@@ -558,6 +624,18 @@ async def admin_upload_image(
         admin=admin,
         db=db,
     )
+    asset = BusinessSplashAsset(
+        business_id=target_business_id,
+        media_type="image",
+        media_url=res.url,
+        width=res.width,
+        height=res.height,
+        duration_seconds=None,
+        file_size=res.bytes,
+    )
+    db.add(asset)
+    await db.commit()
+    return res
 
 
 MAX_SPLASH_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MiB limit for splash assets (video)

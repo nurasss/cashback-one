@@ -1,7 +1,8 @@
 """Admin schemas for customer app content: promotions, notifications, stores, and app texts."""
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from decimal import Decimal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -223,6 +224,15 @@ class BusinessStoreAdminItem(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    latitude: float | None = None
+    longitude: float | None = None
+
+    @field_validator("latitude", "longitude", mode="before")
+    @classmethod
+    def _convert_float(cls, v: Any) -> float | None:
+        if v is None:
+            return None
+        return float(v)
 
 
 class BusinessStoreCreateRequest(BaseModel):
@@ -235,12 +245,20 @@ class BusinessStoreCreateRequest(BaseModel):
     map_url: str | None = Field(default=None, max_length=1024)
     sort_order: int = Field(default=0, ge=-1000, le=1000)
     is_active: bool = True
+    latitude: float | None = Field(default=None, ge=-90.0, le=90.0)
+    longitude: float | None = Field(default=None, ge=-180.0, le=180.0)
 
     _title_ru = field_validator("title_ru", mode="before")(_strip_required)
     _title_kk = field_validator("title_kk", mode="before")(_strip_required)
     _address_ru = field_validator("address_ru", mode="before")(_strip_required)
     _address_kk = field_validator("address_kk", mode="before")(_strip_required)
     _map_url = field_validator("map_url", mode="before")(_validate_map_url)
+
+    @model_validator(mode="after")
+    def validate_coordinate_pair(self) -> "BusinessStoreCreateRequest":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must either both be provided or both be null")
+        return self
 
 
 class BusinessStoreUpdateRequest(BaseModel):
@@ -253,6 +271,8 @@ class BusinessStoreUpdateRequest(BaseModel):
     map_url: str | None = Field(default=None, max_length=1024)
     sort_order: int | None = Field(default=None, ge=-1000, le=1000)
     is_active: bool | None = None
+    latitude: float | None = Field(default=None, ge=-90.0, le=90.0)
+    longitude: float | None = Field(default=None, ge=-180.0, le=180.0)
 
     _title_ru = field_validator("title_ru", mode="before")(_strip_required)
     _title_kk = field_validator("title_kk", mode="before")(_strip_required)
@@ -363,4 +383,84 @@ class PublicSplashResponse(BaseModel):
     duration_seconds: float | None = None
     file_size: int | None = None
     version: str | None = None
+
+
+class BusinessLoyaltyTierAdminItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    business_id: uuid.UUID
+    level: int
+    priority: int
+    name_ru: str
+    name_kk: str
+    description_ru: str | None = None
+    description_kk: str | None = None
+    image_url: str | None = None
+    turnover_period_months: int
+    min_turnover: Decimal
+    max_turnover: Decimal | None = None
+    percent: Decimal
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class BusinessLoyaltyTierCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    level: int = Field(ge=1, le=100)
+    priority: int = Field(ge=1, le=1000)
+    name_ru: str = Field(min_length=1, max_length=120)
+    name_kk: str = Field(min_length=1, max_length=120)
+    description_ru: str | None = Field(default=None, max_length=2000)
+    description_kk: str | None = Field(default=None, max_length=2000)
+    image_url: str | None = Field(default=None, max_length=1024)
+    turnover_period_months: int = Field(ge=1, le=36)
+    min_turnover: Decimal = Field(ge=0)
+    max_turnover: Decimal | None = None
+    percent: Decimal = Field(ge=0, le=100)
+    is_active: bool = True
+
+    _name_ru = field_validator("name_ru", mode="before")(_strip_required)
+    _name_kk = field_validator("name_kk", mode="before")(_strip_required)
+    _desc_ru = field_validator("description_ru", mode="before")(_strip_optional)
+    _desc_kk = field_validator("description_kk", mode="before")(_strip_optional)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "BusinessLoyaltyTierCreateRequest":
+        if self.max_turnover is not None and self.max_turnover <= self.min_turnover:
+            raise ValueError("max_turnover must be greater than min_turnover")
+        return self
+
+
+class BusinessLoyaltyTierUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    level: int | None = Field(default=None, ge=1, le=100)
+    priority: int | None = Field(default=None, ge=1, le=1000)
+    name_ru: str | None = Field(default=None, min_length=1, max_length=120)
+    name_kk: str | None = Field(default=None, min_length=1, max_length=120)
+    description_ru: str | None = Field(default=None, max_length=2000)
+    description_kk: str | None = Field(default=None, max_length=2000)
+    image_url: str | None = Field(default=None, max_length=1024)
+    turnover_period_months: int | None = Field(default=None, ge=1, le=36)
+    min_turnover: Decimal | None = Field(default=None, ge=0)
+    max_turnover: Decimal | None = None
+    percent: Decimal | None = Field(default=None, ge=0, le=100)
+    is_active: bool | None = None
+
+    _name_ru = field_validator("name_ru", mode="before")(_strip_required)
+    _name_kk = field_validator("name_kk", mode="before")(_strip_required)
+    _desc_ru = field_validator("description_ru", mode="before")(_strip_optional)
+    _desc_kk = field_validator("description_kk", mode="before")(_strip_optional)
+
+    @model_validator(mode="after")
+    def require_fields(self) -> "BusinessLoyaltyTierUpdateRequest":
+        if not self.model_fields_set:
+            raise ValueError("Provide at least one field to update")
+        for required in ("level", "priority", "name_ru", "name_kk", "turnover_period_months", "min_turnover", "percent", "is_active"):
+            if required in self.model_fields_set and getattr(self, required) is None:
+                raise ValueError(f"{required} cannot be null")
+        return self
 

@@ -12,6 +12,7 @@ import { AgentsPage, AgentDetailPage } from '../pages/AgentsPage';
 import { OperationsPage, CardDetailPage, UserDetailPage } from '../pages/OperationsPage';
 import { AuditPage } from '../pages/AuditPage';
 import { ContentPage } from '../pages/ContentPage';
+import { StatusesPage } from '../pages/StatusesPage';
 import { NotificationsPage } from '../pages/NotificationsPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { ErrorNotice, LoadingPage } from '../components/Feedback';
@@ -128,6 +129,7 @@ function AdminRouterState() {
         <Route path="users/:userId" element={<UserDetailPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="content" element={<ContentPage />} />
+        <Route path="statuses" element={<StatusesPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<AdminNotFoundPage />} />

@@ -9,11 +9,11 @@ export function useTableExpansion() {
 
 export type TableExpansion = ReturnType<typeof useTableExpansion>;
 
-export function useCompactRows<T>(rows: T[], expansion?: TableExpansion) {
+export function useCompactRows<T>(rows: T[], expansion?: TableExpansion, disableCompacting?: boolean) {
   const localExpansion = useTableExpansion();
   const state = expansion ?? localExpansion;
   const bodyId = useId();
-  const collapsible = rows.length > 3;
+  const collapsible = !disableCompacting && rows.length > 3;
   return {
     ...state,
     bodyId,

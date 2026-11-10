@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.schemas.common import BARCODE_ERROR_MSG, BARCODE_REGEX
 
@@ -81,6 +81,20 @@ class LoyaltyTierInfo(BaseModel):
         return _money(val)
 
 
+class CardLoyaltyStatus(BaseModel):
+    """Safe per-tier turnover loyalty status contract for mobile apps."""
+
+    known: bool = False
+    reason: str | None = "unconfirmed"
+    tier_id: uuid.UUID | None = None
+    level: int | None = None
+    percent: str | None = None
+    turnover_amount: str | None = None
+    coverage_months: int | None = None
+    calculated_at: datetime | None = None
+    program_version: int = 1
+
+
 class CustomerCardResponse(BaseModel):
     """Customer loyalty card view."""
 
@@ -95,6 +109,7 @@ class CustomerCardResponse(BaseModel):
     bind_method: str
     business: BusinessInfo
     tier: LoyaltyTierInfo | None = None
+    loyalty_status: CardLoyaltyStatus | None = Field(default_factory=CardLoyaltyStatus)
 
     @field_serializer("balance")
     def serialize_balance(self, val: Decimal) -> str:

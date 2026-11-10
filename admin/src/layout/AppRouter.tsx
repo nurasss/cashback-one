@@ -59,6 +59,8 @@ export function AppRoutes() {
       <Route path="/audit/*" element={<LegacyRedirect />} />
       <Route path="/content" element={<LegacyRedirect />} />
       <Route path="/content/*" element={<LegacyRedirect />} />
+      <Route path="/statuses" element={<LegacyRedirect />} />
+      <Route path="/statuses/*" element={<LegacyRedirect />} />
 
       {/* Неизвестные публичные адреса */}
       <Route path="*" element={<PublicNotFoundPage />} />

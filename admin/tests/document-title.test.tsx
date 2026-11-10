@@ -75,6 +75,15 @@ describe('resolveAdminDocumentTitle', () => {
       expect(title).toBe('Приложение — Keremet Store — Cashback One');
     });
 
+    it('formats statuses tab as Статусы', () => {
+      const title = resolveAdminDocumentTitle({
+        pathname: '/admin/statuses',
+        view: managerViewWithBusiness,
+        t: adminRu,
+      });
+      expect(title).toBe('Статусы — Keremet Store — Cashback One');
+    });
+
     it('formats notifications tab as Рассылки', () => {
       const title = resolveAdminDocumentTitle({
         pathname: '/admin/notifications',
@@ -216,6 +225,14 @@ describe('resolveAdminDocumentTitle', () => {
           t: adminKk,
         })
       ).toBe('Қолданба — Keremet Store — Cashback One');
+
+      expect(
+        resolveAdminDocumentTitle({
+          pathname: '/admin/statuses',
+          view: managerViewWithBusiness,
+          t: adminKk,
+        })
+      ).toBe('Дәрежелер — Keremet Store — Cashback One');
 
       expect(
         resolveAdminDocumentTitle({

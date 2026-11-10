@@ -2,7 +2,7 @@
 import re
 import uuid
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -210,6 +210,32 @@ class AppStoreItem(BaseModel):
     address_kk: str
     map_url: str | None = None
     sort_order: int
+    latitude: float | None = None
+    longitude: float | None = None
+
+    @field_validator("latitude", "longitude", mode="before")
+    @classmethod
+    def _convert_float(cls, v: Any) -> float | None:
+        if v is None:
+            return None
+        return float(v)
+
+
+class AppLoyaltyTier(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    level: int
+    priority: int
+    name_ru: str
+    name_kk: str
+    description_ru: str | None = None
+    description_kk: str | None = None
+    image_url: str | None = None
+    turnover_period_months: int
+    min_turnover: str
+    max_turnover: str | None = None
+    percent: str
 
 
 class CustomerLocalizedText(BaseModel):
@@ -245,4 +271,6 @@ class CustomerAppContentResponse(BaseModel):
     stores: list[AppStoreItem]
     app_texts: CustomerAppTexts
     splash: CustomerAppSplashConfig = Field(default_factory=CustomerAppSplashConfig)
+    loyalty_tiers: list[AppLoyaltyTier] = Field(default_factory=list)
+    loyalty_tiers_version: int = 1
     updated_at: datetime

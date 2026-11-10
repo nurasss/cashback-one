@@ -2,19 +2,25 @@ import type { SiteLocale } from '../i18n/types';
 
 export function formatDate(value: string, locale: SiteLocale = 'ru'): string {
   const intlLocale = locale === 'kk' ? 'kk-KZ' : 'ru-RU';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  const astanaDate = new Date(d.getTime() + 5 * 3600 * 1000);
   return new Intl.DateTimeFormat(intlLocale, {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
-  }).format(new Date(value));
+  }).format(astanaDate);
 }
 
 export function formatDateOnly(value: string, locale: SiteLocale = 'ru'): string {
   const intlLocale = locale === 'kk' ? 'kk-KZ' : 'ru-RU';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  const astanaDate = new Date(d.getTime() + 5 * 3600 * 1000);
   return new Intl.DateTimeFormat(intlLocale, {
     dateStyle: 'medium',
     timeZone: 'UTC',
-  }).format(new Date(value));
+  }).format(astanaDate);
 }
 
 export function formatNumber(value: number, locale: SiteLocale = 'ru'): string {
@@ -29,15 +35,24 @@ export function formatBalance(value: string): string {
 }
 
 export function localDate(value: Date): string {
-  const date = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
-  return date.toISOString().slice(0, 10);
+  const d = new Date(value.getTime() + 5 * 3600 * 1000);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function dayBoundary(day: string, end: boolean): string {
-  const date = new Date(`${day}T00:00:00`);
-  if (end) date.setDate(date.getDate() + 1);
-  if (end) date.setMilliseconds(date.getMilliseconds() - 1);
-  return date.toISOString();
+  const parts = day.split('-');
+  const year = parseInt(parts[0] ?? '1970', 10);
+  const month = parseInt(parts[1] ?? '1', 10);
+  const dayNum = parseInt(parts[2] ?? '1', 10);
+  if (end) {
+    const ms = Date.UTC(year, month - 1, dayNum, 23 - 5, 59, 59, 999);
+    return new Date(ms).toISOString();
+  }
+  const ms = Date.UTC(year, month - 1, dayNum, 0 - 5, 0, 0, 0);
+  return new Date(ms).toISOString();
 }
 
 export function formatAstanaSchedule(value: string): string {
@@ -52,7 +67,31 @@ export function formatAstanaSchedule(value: string): string {
   return `${day}.${month} ${hour}:${minute}`;
 }
 
+export function isValidAstanaDateTimeLocal(val: string): boolean {
+  if (!val) return false;
+  // Year must be strictly 4 digits, month 01-12, day 01-31, hour 00-23, min 00-59
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(val);
+  if (!match || !match[1] || !match[2] || !match[3] || !match[4] || !match[5]) return false;
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  const hour = parseInt(match[4], 10);
+  const min = parseInt(match[5], 10);
+  const sec = match[6] ? parseInt(match[6], 10) : 0;
+
+  if (year < 2000 || year > 2100) return false;
+  if (month < 1 || month > 12) return false;
+  if (hour < 0 || hour > 23 || min < 0 || min > 59 || sec < 0 || sec > 59) return false;
+
+  // Real calendar day check (handling leap years and month lengths)
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > daysInMonth) return false;
+
+  return true;
+}
+
 export function astanaLocalToUtcIso(localVal: string): string {
+  if (!isValidAstanaDateTimeLocal(localVal)) return '';
   const [datePart, timePart] = localVal.split('T');
   if (!datePart || !timePart) return '';
   const [yearStr, monthStr, dayStr] = datePart.split('-');

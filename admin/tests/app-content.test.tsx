@@ -157,7 +157,7 @@ it('manager accesses App tab without business picker and sees stores and texts',
   // App texts are populated on texts tab
   const textsTab = screen.getByRole('tab', { name: 'Тексты' });
   await user.click(textsTab);
-  const homeInput = screen.getByDisplayValue(
+  const homeInput = await screen.findByDisplayValue(
     'Добро пожаловать в супермаркет «КеремЕт»!'
   );
   expect(homeInput).toBeInTheDocument();
