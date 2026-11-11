@@ -36,7 +36,12 @@ function parseMe(value: unknown): AdminMe {
       id: admin.id,
       login: admin.login,
       role: admin.role,
-      business: { id: admin.business.id, name: admin.business.name, status: admin.business.status },
+      business: {
+        id: admin.business.id,
+        name: admin.business.name,
+        status: admin.business.status,
+        android_app_id: typeof admin.business.android_app_id === 'string' ? admin.business.android_app_id : null,
+      },
     },
   };
 }

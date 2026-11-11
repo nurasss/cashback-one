@@ -1,6 +1,7 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { type PropsWithChildren, useEffect, useRef, useState } from 'react';
 import { useAdminSession } from '../auth/provider';
+import { useActiveBusiness, isKeremetBusiness } from '../context/ActiveBusinessContext';
 import { Navigation } from '../features/Navigation';
 import { IconBuilding, IconLogout } from '../components/Icons';
 import { LanguageSwitcher } from '../i18n/LocaleContext';
@@ -81,6 +82,27 @@ export function AdminLayout({ children }: PropsWithChildren) {
     }
   };
 
+  const { activeBusiness } = useActiveBusiness();
+  const effectiveBusiness = view.status === 'authenticated' && view.admin.role === 'business_manager'
+    ? view.admin.business
+    : activeBusiness;
+
+  // Dynamic Favicon: use Keremet client icon for Keremet, revert to Poscenter on switch, logout, or unmount
+  useEffect(() => {
+    const isKeremet = isKeremetBusiness(effectiveBusiness);
+    const target = isKeremet ? '/keremet-favicon.png' : '/brand-mark.png';
+    const link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+    if (link && link.getAttribute('href') !== target) {
+      link.setAttribute('href', target);
+    }
+    return () => {
+      const l = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+      if (l && l.getAttribute('href') !== '/brand-mark.png') {
+        l.setAttribute('href', '/brand-mark.png');
+      }
+    };
+  }, [effectiveBusiness]);
+
   if (view.status !== 'authenticated') return null;
   const { admin } = view;
   const signOut = async () => {
@@ -99,11 +121,10 @@ export function AdminLayout({ children }: PropsWithChildren) {
         <div className="sidebar-brand-container">
           <NavLink className="brand-lockup" to="/admin" aria-label={t.layout.brandAria}>
             <div className="brand-mark-wrap">
-              <img src="/brand-mark.png" alt="" className="brand-mark-img" width="36" height="36" />
+              <img src="/brand-mark.png" alt="" className="brand-mark-img" width="27" height="27" />
             </div>
             <div className="brand-text">
               <strong>poscenter.kz</strong>
-              <small>LOYALTY · ADMIN</small>
             </div>
           </NavLink>
         </div>

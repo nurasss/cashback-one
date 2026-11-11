@@ -20,7 +20,7 @@ describe('resolveAdminDocumentTitle', () => {
       id: 'mgr-2',
       login: 'nomarket_mgr',
       role: 'business_manager',
-      business: null as any,
+      business: null as unknown as { id: string; name: string; status: string },
     },
   };
 

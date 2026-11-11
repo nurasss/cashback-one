@@ -14,13 +14,13 @@ export function SettingsPage() {
         <section className="surface-card settings-card">
           <div className="settings-card-content">
             <div className="settings-card-header">
-              <span className="settings-card-icon" aria-hidden="true">
-                <IconAgents />
-              </span>
-              <div>
+              <div className="settings-card-title-row">
+                <span className="settings-card-icon" aria-hidden="true">
+                  <IconAgents />
+                </span>
                 <h2>{t.settings.agentsTitle}</h2>
-                <p className="muted-copy">{t.settings.agentsDesc}</p>
               </div>
+              <p className="muted-copy">{t.settings.agentsDesc}</p>
             </div>
           </div>
           <div className="settings-card-actions">
@@ -33,13 +33,13 @@ export function SettingsPage() {
         <section className="surface-card settings-card">
           <div className="settings-card-content">
             <div className="settings-card-header">
-              <span className="settings-card-icon" aria-hidden="true">
-                <IconAudit />
-              </span>
-              <div>
+              <div className="settings-card-title-row">
+                <span className="settings-card-icon" aria-hidden="true">
+                  <IconAudit />
+                </span>
                 <h2>{t.settings.auditTitle}</h2>
-                <p className="muted-copy">{t.settings.auditDesc}</p>
               </div>
+              <p className="muted-copy">{t.settings.auditDesc}</p>
             </div>
           </div>
           <div className="settings-card-actions">

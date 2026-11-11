@@ -9,17 +9,22 @@ export function useTableExpansion() {
 
 export type TableExpansion = ReturnType<typeof useTableExpansion>;
 
-export function useCompactRows<T>(rows: T[], expansion?: TableExpansion, disableCompacting?: boolean) {
+export function useCompactRows<T>(
+  rows: T[],
+  expansion?: TableExpansion,
+  disableCompacting?: boolean,
+  limit = 7,
+) {
   const localExpansion = useTableExpansion();
   const state = expansion ?? localExpansion;
   const bodyId = useId();
-  const collapsible = !disableCompacting && rows.length > 3;
+  const collapsible = !disableCompacting && rows.length > limit;
   return {
     ...state,
     bodyId,
     collapsible,
     count: rows.length,
-    visibleRows: collapsible && !state.expanded ? rows.slice(0, 3) : rows,
+    visibleRows: collapsible && !state.expanded ? rows.slice(0, limit) : rows,
     showPagination: !collapsible || state.expanded,
   };
 }

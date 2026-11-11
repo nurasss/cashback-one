@@ -1,9 +1,10 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useState, useEffect, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { useAdminSession } from '../auth/provider';
-import { privateKey, useBusinesses, useCard, useCards, useCardSearch, useUser, useUserSearch } from '../api/queries';
+import { useActiveBusiness } from '../context/ActiveBusinessContext';
+import { privateKey, useBusinesses, useCard, useCards, useCardSearch, useUser, useUsers, useUserSearch } from '../api/queries';
 import type { AdminUser, Card, CardUnbindResult, PageQuery } from '../api/types';
 import { DataTable } from '../components/DataTable';
 import { CompactTableToggle, useCompactRows, useTableExpansion, type TableExpansion } from '../components/CompactTable';
@@ -15,6 +16,7 @@ import { useAdminTranslation } from '../i18n/admin';
 
 export function OperationsPage() {
   const { view } = useAdminSession();
+  const { setActiveBusiness } = useActiveBusiness();
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const [mode, setMode] = useState<'barcode' | 'phone'>('barcode');
@@ -23,6 +25,7 @@ export function OperationsPage() {
   const [criteria, setCriteria] = useState<{ barcode?: string; phone?: string; business_id?: string } | null>(null);
   const [cardListPage, setCardListPage] = usePage(25);
   const [cardSearchPage, setCardSearchPage] = usePage(25);
+  const [userListPage, setUserListPage] = usePage(25);
   const [userPage, setUserPage] = usePage(25);
   const cardExpansion = useTableExpansion();
   const userExpansion = useTableExpansion();
@@ -32,13 +35,38 @@ export function OperationsPage() {
     view.status === 'authenticated' && view.admin.role === 'superadmin',
   );
 
+  const adminRole = view.status === 'authenticated' ? view.admin.role : null;
+
+  useEffect(() => {
+    if (view.status !== 'authenticated' || adminRole !== 'superadmin') return;
+    const selected = businessId ? businesses.data?.items.find(b => b.id === businessId) : null;
+    setActiveBusiness(selected ? {
+      id: selected.id,
+      name: selected.name,
+      android_app_id: selected.android_app_id,
+    } : null);
+  }, [businessId, businesses.data?.items, view.status, adminRole, setActiveBusiness]);
+
+  useEffect(() => {
+    return () => {
+      setActiveBusiness(null);
+    };
+  }, [setActiveBusiness]);
+
   const isSearchActive = criteria !== null;
   const isCardListActive = !isSearchActive && mode === 'barcode';
+  const isUserListActive = !isSearchActive && mode === 'phone';
 
   const cardList = useCards(
     businessId || undefined,
     cardListPage,
     isCardListActive,
+  );
+
+  const userList = useUsers(
+    businessId || undefined,
+    userListPage,
+    isUserListActive,
   );
 
   const cardSearch = useCardSearch(
@@ -58,7 +86,7 @@ export function OperationsPage() {
     const term = raw.trim();
     if (!term) return;
     if (mode === 'barcode' && !/^[0-9]{4,13}$/.test(term)) return;
-    if (mode === 'phone' && term.replace(/\D/g, '').length < 7) return;
+    if (mode === 'phone' && term.replace(/\D/g, '').length < 4) return;
     const next = {
       ...(mode === 'barcode' ? { barcode: term } : { phone: term }),
       ...(businessId ? { business_id: businessId } : {}),
@@ -74,6 +102,7 @@ export function OperationsPage() {
     setCriteria(null);
     setCardListPage(0);
     setCardSearchPage(0);
+    setUserListPage(0);
     setUserPage(0);
   };
 
@@ -81,6 +110,7 @@ export function OperationsPage() {
     setBusinessId(newBusId);
     setCardListPage(0);
     setCardSearchPage(0);
+    setUserListPage(0);
     setUserPage(0);
     if (criteria !== null) {
       setCriteria(prev => (prev ? { ...prev, business_id: newBusId || undefined } : null));
@@ -93,6 +123,7 @@ export function OperationsPage() {
     setCriteria(null);
     setCardListPage(0);
     setCardSearchPage(0);
+    setUserListPage(0);
     setUserPage(0);
   };
 
@@ -244,10 +275,23 @@ export function OperationsPage() {
             />
           ) : null
         ) : (
-          <EmptyState
-            title={t.operations.phonePromptTitle}
-            detail={t.operations.phonePromptDetail}
-          />
+          userList.isPending ? (
+            <LoadingPage label={t.operations.loadingUsers} />
+          ) : userList.isError ? (
+            <ErrorNotice error={userList.error} retry={() => { void userList.refetch(); }} />
+          ) : userList.data?.items.length === 0 && userListPage.offset === 0 ? (
+            <EmptyState title={t.operations.emptyUsersSearchTitle} detail={t.operations.emptyUsersSearchDetail} />
+          ) : userList.data ? (
+            <UserResults
+              expansion={userExpansion}
+              page={userListPage}
+              setPage={setUserListPage}
+              rows={userList.data.items}
+              hasMore={userList.data.has_more}
+              locale={locale}
+              t={t}
+            />
+          ) : null
         )
       )}
     </div>

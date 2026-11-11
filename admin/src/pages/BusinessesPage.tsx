@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAdminSession } from '../auth/provider';
+import { useActiveBusiness } from '../context/ActiveBusinessContext';
 import { DataTable } from '../components/DataTable';
 import { useTableExpansion } from '../components/CompactTable';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
@@ -114,6 +115,20 @@ export function BusinessDetailPage() {
   const [resetting, setResetting] = useState(false);
   const { businessId } = useParams<{ businessId: string }>();
   const query = useBusiness(businessId ?? '');
+  const { setActiveBusiness } = useActiveBusiness();
+
+  useEffect(() => {
+    if (query.data) {
+      setActiveBusiness({
+        id: query.data.id,
+        name: query.data.name,
+        android_app_id: query.data.android_app_id,
+      });
+    }
+    return () => {
+      setActiveBusiness(null);
+    };
+  }, [query.data, setActiveBusiness]);
 
   const handleManagerAccess = async (bId: string) => {
     if (!window.confirm(t.businesses.confirmResetManager)) {

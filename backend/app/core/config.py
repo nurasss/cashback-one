@@ -124,6 +124,10 @@ class Settings(BaseSettings):
         ge=1,
         description="Rate limit window for avatar upload in seconds.",
     )
+    twogis_api_key: str | None = Field(
+        default=None,
+        description="Optional 2GIS API key for Places and Geocoding API.",
+    )
 
     @property
     def is_media_storage_configured(self) -> bool:

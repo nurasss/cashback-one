@@ -1,6 +1,6 @@
 export type AdminRole = 'superadmin' | 'business_manager';
 export type AgentHealth = 'online' | 'stale' | 'never_connected' | 'error' | 'disabled';
-export interface BusinessIdentity { id: string; name: string; status: string }
+export interface BusinessIdentity { id: string; name: string; status: string; android_app_id?: string | null }
 export interface AdminIdentity { id: string; login: string; role: AdminRole; business: BusinessIdentity | null }
 export interface AdminMe { admin: AdminIdentity }
 export interface Page<T> { items: T[]; limit: number; offset: number; has_more: boolean }
@@ -97,6 +97,21 @@ export interface LocalizedText {
   ru: string | null;
   kk: string | null;
 }
+export interface StoreCoordinateCandidate {
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface StoreResolveCoordinatesResponse {
+  status: 'found' | 'ambiguous' | 'not_found' | 'error';
+  message?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  resolved_address?: string | null;
+  candidates?: StoreCoordinateCandidate[];
+}
+
 export interface BusinessStore {
   id: string;
   business_id: string;
@@ -148,7 +163,7 @@ export interface LoyaltyTier {
 }
 export interface LoyaltyTierInput {
   level: number;
-  priority: number;
+  priority?: number;
   name_ru: string;
   name_kk: string;
   description_ru?: string | null;

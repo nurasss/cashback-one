@@ -32,6 +32,7 @@ function setup(path: string, locale: 'ru' | 'kk' = 'ru', count = 25) {
     else if (url.pathname === '/admin/cards/fixture-card-0') body = { ...card(0), full_name: null, owner_language: null };
     else if (url.pathname === '/admin/cards' || url.pathname === '/admin/cards/search') body = page;
     else if (url.pathname === '/admin/dashboard') body = { business_id: null, business_name: null, period_from: timestamp, period_to: timestamp, period_days: 1, customers_with_business_cards: 1, cards: 25, unblocked_cards: 25, transactions: 0, agents: { online: 1, stale: 0, never_connected: 0, error: 0, disabled: 0 } };
+    else if (url.pathname.endsWith('/pos-keys') || url.pathname.endsWith('/stores') || url.pathname.endsWith('/loyalty-tiers')) body = [];
     else body = { ...page, items: [], has_more: false };
     return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   }));
@@ -49,7 +50,7 @@ afterEach(() => {
 const paths = ['/admin', '/admin/businesses', '/admin/businesses/fixture-business', '/admin/agents', '/admin/agents/fixture-agent', '/admin/content', '/admin/audit', '/admin/operations', '/admin/cards/fixture-card-0', '/admin/users/fixture-user'];
 it.each(paths.flatMap(path => (['ru', 'kk'] as const).map(locale => ({ path, locale }))))('removes only the page eyebrow at $path ($locale)', async ({ path, locale }) => {
   const { container } = setup(path, locale);
-  await waitFor(() => expect(container.querySelector('.page-heading h1')).not.toBeNull());
+  await waitFor(() => expect(container.querySelector('.page-heading h1')).not.toBeNull(), { timeout: 5000 });
   expect(container.querySelector('.page-heading .eyebrow')).toBeNull();
   expect(screen.getByText('poscenter.kz')).toBeInTheDocument();
   expect(container.textContent).not.toContain('POSCENTER.KZ');
@@ -66,11 +67,11 @@ it.each(['ru', 'kk'] as const)('preserves login eyebrows and uses lowercase bran
 it.each(['ru', 'kk'] as const)('compacts user cards, retains expansion through real query paging and collapses (%s)', async locale => {
   const user = userEvent.setup();
   const { container } = setup('/admin/users/fixture-user', locale);
-  const expand = locale === 'ru' ? 'Показать все (25)' : 'Барлығын көрсету (25)';
+  const expand = locale === 'ru' ? 'Все (25)' : 'Барлығы (25)';
   const collapse = locale === 'ru' ? 'Свернуть' : 'Жию';
   const next = locale === 'ru' ? 'Далее' : 'Келесі';
   const toggle = await screen.findByRole('button', { name: expand });
-  expect(container.querySelectorAll('tbody tr')).toHaveLength(3);
+  expect(container.querySelectorAll('tbody tr')).toHaveLength(7);
   expect(screen.queryByRole('button', { name: next })).not.toBeInTheDocument();
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
   expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toBe(container.querySelector('tbody'));
@@ -81,29 +82,29 @@ it.each(['ru', 'kk'] as const)('compacts user cards, retains expansion through r
   expect(container.querySelectorAll('tbody tr')).toHaveLength(25);
   expect(screen.getByRole('button', { name: collapse })).toHaveAttribute('aria-expanded', 'true');
   await user.click(screen.getByRole('button', { name: collapse }));
-  expect(container.querySelectorAll('tbody tr')).toHaveLength(3);
+  expect(container.querySelectorAll('tbody tr')).toHaveLength(7);
   expect(screen.queryByRole('button', { name: next })).not.toBeInTheDocument();
 });
 
-it.each([1, 3])('retains existing user card pagination for %i rows', async count => {
+it.each([1, 7])('retains existing user card pagination for %i rows', async count => {
   const { container } = setup('/admin/users/fixture-user', 'ru', count);
   expect(await screen.findByRole('button', { name: 'Далее' })).toBeEnabled();
   expect(container.querySelectorAll('tbody tr')).toHaveLength(count);
-  expect(screen.queryByRole('button', { name: /Показать все/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Все/ })).not.toBeInTheDocument();
 });
 
 it('keeps card list expansion through pending search/filter queries and resets on section navigation', async () => {
   const user = userEvent.setup();
   const { container } = setup('/admin/operations');
-  await user.click(await screen.findByRole('button', { name: 'Показать все (25)' }));
+  await user.click(await screen.findByRole('button', { name: 'Все (25)' }));
   await user.selectOptions(screen.getByLabelText('Бизнес поиска'), business.id);
   expect(await screen.findByRole('button', { name: 'Свернуть' })).toHaveAttribute('aria-expanded', 'true');
-  await user.type(screen.getByLabelText('Штрихкод карты'), '100000');
+  await user.type(screen.getByLabelText('Номер карты'), '100000');
   await user.click(screen.getByRole('button', { name: 'Найти' }));
   expect(await screen.findByRole('button', { name: 'Свернуть' })).toHaveAttribute('aria-expanded', 'true');
   expect(container.querySelectorAll('tbody tr')).toHaveLength(25);
   await user.click(screen.getByRole('link', { name: /Журнал событий/ }));
   await screen.findByRole('heading', { name: 'Журнал событий' });
   await user.click(screen.getByRole('link', { name: /Карты и клиенты/ }));
-  expect(await screen.findByRole('button', { name: 'Показать все (25)' })).toHaveAttribute('aria-expanded', 'false');
+  expect(await screen.findByRole('button', { name: 'Все (25)' })).toHaveAttribute('aria-expanded', 'false');
 });

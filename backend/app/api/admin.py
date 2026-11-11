@@ -5,7 +5,12 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.admin_deps import AdminScope, get_admin_scope, require_admin_origin
+from app.api.admin_deps import (
+    AdminScope,
+    get_admin_scope,
+    require_admin_origin,
+    scope_for_admin,
+)
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.db.session import get_session
@@ -62,6 +67,8 @@ from app.schemas.admin_content import (
     PromotionKind,
     PromotionUpdateRequest,
     SplashMediaUploadResponse,
+    StoreResolveCoordinatesRequest,
+    StoreResolveCoordinatesResponse,
 )
 from app.services import admin_content
 from app.services.admin_auth import authenticate_admin
@@ -90,9 +97,11 @@ from app.services.admin_queries import (
     list_businesses,
     list_cards,
     list_pos_keys,
+    list_users,
     search_cards,
     search_users,
 )
+from app.services.geo_service import resolve_store_coordinates
 from app.services.image_service import process_and_store_image
 from app.services.media_storage import MediaStorage, get_media_storage
 from app.services.push_sender import PushSender, get_push_sender
@@ -117,6 +126,10 @@ async def admin_dashboard(
     start: Annotated[datetime | None, Query(alias="from")] = None,
     end: Annotated[datetime | None, Query(alias="to")] = None,
 ) -> DashboardResponse:
+    if start is not None and not (1000 <= start.year <= 9999):
+        raise AppError("ADMIN_INVALID_PERIOD", "Start year must be 4 digits", 422)
+    if end is not None and not (1000 <= end.year <= 9999):
+        raise AppError("ADMIN_INVALID_PERIOD", "End year must be 4 digits", 422)
     return await dashboard(db, scope, business_id, start, end)
 
 
@@ -236,6 +249,26 @@ async def admin_delete_store(
 ) -> Response:
     await admin_content.delete_store(db, admin, business_id, store_id)
     return Response(status_code=204)
+
+
+@router.post(
+    "/businesses/{business_id}/stores/resolve-coordinates",
+    response_model=StoreResolveCoordinatesResponse,
+)
+async def admin_resolve_store_coordinates(
+    business_id: uuid.UUID,
+    body: StoreResolveCoordinatesRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StoreResolveCoordinatesResponse:
+    scope = scope_for_admin(admin)
+    admin_content._check_business_scope(scope, business_id)
+    return await resolve_store_coordinates(
+        query=body.query,
+        url=body.url,
+        address=body.address,
+        settings=settings,
+    )
 
 
 @router.get(
@@ -461,6 +494,16 @@ async def admin_unbind_card(
     return CardUnbindResponse(status=cast(CardUnbindStatus, result))
 
 
+@router.get("/users", response_model=Page[UserListItem])
+async def admin_list_users(
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    page: Annotated[PaginationParams, Depends()],
+    business_id: uuid.UUID | None = None,
+) -> Page[UserListItem]:
+    return await list_users(db, scope, business_id, page.limit, page.offset)
+
+
 @router.post("/users/search", response_model=Page[UserListItem])
 async def admin_search_users(
     body: UserSearchRequest,
@@ -681,10 +724,14 @@ async def admin_upload_splash_media(
         raise AppError("VALIDATION_ERROR", "Uploaded file is empty.", status_code=422)
 
     # 3. Detect format: MP4 video or Image
-    # Check if MP4: starts with ftyp atom (offset 4) or contains ftyp in first 32 bytes
-    is_mp4 = len(raw_bytes) >= 8 and (raw_bytes[4:8] == b"ftyp" or b"ftyp" in raw_bytes[:32])
+    content_type = (file.content_type or "").lower()
+    filename = (file.filename or "").lower()
+    is_mp4_box = len(raw_bytes) >= 8 and (raw_bytes[4:8] == b"ftyp" or b"ftyp" in raw_bytes[:64])
+    is_video_hint = content_type.startswith("video/") or filename.endswith(
+        (".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm")
+    )
 
-    if is_mp4:
+    if is_mp4_box or is_video_hint:
         # Validate MP4 video (H.264, duration <= 5.0, no audio)
         meta = validate_mp4_video(raw_bytes)
         file_id = uuid.uuid4().hex

@@ -415,7 +415,7 @@ async def get_app_content(
     )
     stores = list((await session.scalars(stores_stmt)).all())
 
-    # 3. Active loyalty tiers ordered by priority ASC, level ASC, id ASC
+    # 3. Active loyalty tiers ordered by level ASC, priority ASC, id ASC
     tiers_stmt = (
         select(BusinessLoyaltyTier)
         .where(
@@ -423,8 +423,8 @@ async def get_app_content(
             BusinessLoyaltyTier.is_active.is_(True),
         )
         .order_by(
-            BusinessLoyaltyTier.priority.asc(),
             BusinessLoyaltyTier.level.asc(),
+            BusinessLoyaltyTier.priority.asc(),
             BusinessLoyaltyTier.id.asc(),
         )
     )

@@ -222,7 +222,7 @@ describe('Client Cabinet Simplification (2026-11-09)', () => {
       expect(within(metrics).queryByText('Незаблокированные карты')).not.toBeInTheDocument();
 
       // Friendly connection block
-      expect(screen.getByText('Связь с магазином')).toBeInTheDocument();
+      expect(screen.getByText('Подключение к магазину / агенты')).toBeInTheDocument();
       expect(screen.getByText('Связь активна')).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /Подробнее/ })).toHaveAttribute('href', '/admin/agents');
 
@@ -246,7 +246,7 @@ describe('Client Cabinet Simplification (2026-11-09)', () => {
       expect(screen.getByRole('link', { name: 'Хабарлама жасау' })).toHaveAttribute('href', '/admin/notifications?create=1');
       expect(screen.getByText('Картасы бар клиенттер')).toBeInTheDocument();
       expect(screen.getByText('Кезеңдегі операциялар')).toBeInTheDocument();
-      expect(screen.getByText('Дүкенмен байланыс')).toBeInTheDocument();
+      expect(screen.getByText('Дүкенге қосылу / агенттер')).toBeInTheDocument();
       expect(screen.getByText('Байланыс белсенді')).toBeInTheDocument();
       expect(screen.getByText('Баланс пен операциялар дүкеннен деректер жіберілгеннен кейін жаңартылады.')).toBeInTheDocument();
     });

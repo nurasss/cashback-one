@@ -64,6 +64,13 @@ class _PromotionFields(BaseModel):
     )
     _image = field_validator("image_url")(_validate_logo_url)
 
+    @field_validator("starts_at", "ends_at")
+    @classmethod
+    def validate_4_digit_year(cls, value: datetime | None) -> datetime | None:
+        if value is not None and not (1000 <= value.year <= 9999):
+            raise ValueError("Год должен состоять ровно из четырёх цифр")
+        return value
+
     @model_validator(mode="after")
     def validate_window(self) -> "_PromotionFields":
         if self.starts_at and self.ends_at and as_utc(self.ends_at) <= as_utc(self.starts_at):
@@ -156,6 +163,8 @@ class NotificationCreateRequest(BaseModel):
     def validate_scheduled_at(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return None
+        if not (1000 <= value.year <= 9999):
+            raise ValueError("Год должен состоять ровно из четырёх цифр")
         now = utcnow()
         val_utc = (
             value.astimezone(UTC)
@@ -290,6 +299,42 @@ class BusinessStoreUpdateRequest(BaseModel):
         return self
 
 
+class StoreCoordinateCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    address: str
+    latitude: float
+    longitude: float
+
+
+class StoreResolveCoordinatesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str | None = Field(default=None, max_length=1024)
+    url: str | None = Field(default=None, max_length=1024)
+    address: str | None = Field(default=None, max_length=1024)
+
+    @model_validator(mode="after")
+    def validate_has_query(self) -> "StoreResolveCoordinatesRequest":
+        q = (self.query or "").strip()
+        u = (self.url or "").strip()
+        a = (self.address or "").strip()
+        if not (q or u or a):
+            raise ValueError("Необходимо указать ссылку 2ГИС или адрес магазина")
+        return self
+
+
+class StoreResolveCoordinatesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["found", "ambiguous", "not_found", "error"]
+    message: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    resolved_address: str | None = None
+    candidates: list[StoreCoordinateCandidate] = Field(default_factory=list)
+
+
 def _clean_localized_text(value: object) -> str | None:
     if value is None:
         return None
@@ -410,7 +455,7 @@ class BusinessLoyaltyTierCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     level: int = Field(ge=1, le=100)
-    priority: int = Field(ge=1, le=1000)
+    priority: int | None = Field(default=None, ge=1, le=1000)
     name_ru: str = Field(min_length=1, max_length=120)
     name_kk: str = Field(min_length=1, max_length=120)
     description_ru: str | None = Field(default=None, max_length=2000)
@@ -459,7 +504,7 @@ class BusinessLoyaltyTierUpdateRequest(BaseModel):
     def require_fields(self) -> "BusinessLoyaltyTierUpdateRequest":
         if not self.model_fields_set:
             raise ValueError("Provide at least one field to update")
-        for required in ("level", "priority", "name_ru", "name_kk", "turnover_period_months", "min_turnover", "percent", "is_active"):
+        for required in ("level", "name_ru", "name_kk", "turnover_period_months", "min_turnover", "percent", "is_active"):
             if required in self.model_fields_set and getattr(self, required) is None:
                 raise ValueError(f"{required} cannot be null")
         return self

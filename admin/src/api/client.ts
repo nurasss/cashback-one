@@ -75,7 +75,13 @@ export class AdminApiClient {
       if (response.status === 204) return undefined as T;
       let payload: unknown;
       try { payload = await response.json(); }
-      catch { throw new ApiError(response.ok ? 'INVALID_RESPONSE' : 'SERVER_UNAVAILABLE', response.status); }
+      catch {
+        const fallbackCode =
+          response.status === 413 ? 'FILE_TOO_LARGE' :
+          response.status === 415 ? 'UNSUPPORTED_MEDIA_TYPE' :
+          response.status >= 500 ? 'SERVER_UNAVAILABLE' : 'UNKNOWN_ERROR';
+        throw new ApiError(response.ok ? 'INVALID_RESPONSE' : fallbackCode, response.status);
+      }
       if (!response.ok) throw errorFromResponse(response.status, payload);
       return payload as T;
     } catch (error) {

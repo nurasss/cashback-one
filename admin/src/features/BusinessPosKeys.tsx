@@ -5,6 +5,7 @@ import { privateKey, usePosKeys } from '../api/queries';
 import type { PosKey, PosKeyDisclosure } from '../api/types';
 import { useAdminSession } from '../auth/provider';
 import { StatusPill } from '../components/Feedback';
+import { CompactTableToggle, useCompactRows, useTableExpansion } from '../components/CompactTable';
 import { DialogFrame } from './AdminMutations';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
@@ -196,6 +197,8 @@ export function BusinessPosKeys({ businessId }: { businessId: string }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [disclosure, setDisclosure] = useState<PosKeyDisclosure | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<PosKey | null>(null);
+  const expansion = useTableExpansion();
+  const compact = useCompactRows(keysQuery.data ?? [], expansion);
 
   const handleCreated = (newDisclosure: PosKeyDisclosure) => {
     setCreateOpen(false);
@@ -244,8 +247,8 @@ export function BusinessPosKeys({ businessId }: { businessId: string }) {
                   <th className="align-right">{t.posKeys.colActions}</th>
                 </tr>
               </thead>
-              <tbody>
-                {keysQuery.data.map(key => (
+              <tbody id={compact.bodyId}>
+                {compact.visibleRows.map(key => (
                   <tr key={key.id}>
                     <td>
                       <strong>{key.name}</strong>
@@ -284,7 +287,7 @@ export function BusinessPosKeys({ businessId }: { businessId: string }) {
 
           {/* Mobile Cards view (<= 640px) */}
           <div className="pos-keys-cards">
-            {keysQuery.data.map(key => (
+            {compact.visibleRows.map(key => (
               <div key={key.id} className="pos-key-card">
                 <div className="pos-key-card-header">
                   <strong>{key.name}</strong>
@@ -318,6 +321,8 @@ export function BusinessPosKeys({ businessId }: { businessId: string }) {
               </div>
             ))}
           </div>
+
+          <CompactTableToggle {...compact} />
         </>
       )}
 

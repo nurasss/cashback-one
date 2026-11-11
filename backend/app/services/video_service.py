@@ -187,7 +187,7 @@ def validate_mp4_video_pure_python(data: bytes) -> VideoMetadata:
 
     if duration_seconds > MAX_SPLASH_VIDEO_DURATION_SECONDS:
         raise AppError(
-            "VALIDATION_ERROR",
+            "VIDEO_DURATION_EXCEEDED",
             f"Длительность видео ({duration_seconds} с) превышает лимит 5 секунд.",
             status_code=422,
         )
@@ -249,7 +249,7 @@ def validate_mp4_video_pure_python(data: bytes) -> VideoMetadata:
 
         if handler_type == b"soun":
             raise AppError(
-                "VALIDATION_ERROR",
+                "VIDEO_HAS_AUDIO",
                 "Видео для заставки не должно содержать аудиодорожек (звук запрещён).",
                 status_code=422,
             )
@@ -290,7 +290,7 @@ def validate_mp4_video_pure_python(data: bytes) -> VideoMetadata:
     # Valid H.264 formats: avc1, avc3
     if detected_codec not in ("avc1", "avc3", "h264"):
         raise AppError(
-            "VALIDATION_ERROR",
+            "VIDEO_UNSUPPORTED_CODEC",
             f"Поддерживается только видеокодек H.264 (обнаружен: {detected_codec or 'неизвестен'}).",
             status_code=422,
         )
@@ -334,11 +334,11 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
             "-show_format",
             tmp_path,
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0, check=False)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10.0, check=False)
         if res.returncode != 0:
             err_msg = res.stderr.strip()[:200] or f"код ошибки {res.returncode}"
             raise AppError(
-                "VALIDATION_ERROR",
+                "VIDEO_CORRUPTED",
                 f"Видео повреждено или не может быть декодировано: {err_msg}",
                 status_code=422,
             )
@@ -347,7 +347,7 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
             probe_info = json.loads(res.stdout)
         except json.JSONDecodeError as exc:
             raise AppError(
-                "VALIDATION_ERROR",
+                "VIDEO_CORRUPTED",
                 "Не удалось разобрать метаданные видеофайла.",
                 status_code=422,
             ) from exc
@@ -357,7 +357,7 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
         for s in streams:
             if s.get("codec_type") == "audio":
                 raise AppError(
-                    "VALIDATION_ERROR",
+                    "VIDEO_HAS_AUDIO",
                     "Видео для заставки не должно содержать аудиодорожек (звук запрещён).",
                     status_code=422,
                 )
@@ -373,7 +373,7 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
         codec_name = video_stream.get("codec_name", "").lower()
         if codec_name != "h264":
             raise AppError(
-                "VALIDATION_ERROR",
+                "VIDEO_UNSUPPORTED_CODEC",
                 f"Поддерживается только видеокодек H.264 (обнаружен: {codec_name}).",
                 status_code=422,
             )
@@ -382,7 +382,7 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
         height = int(video_stream.get("height", 0))
         if width <= 0 or height <= 0:
             raise AppError(
-                "VALIDATION_ERROR",
+                "VIDEO_CORRUPTED",
                 "Не удалось определить разрешение видеодорожки.",
                 status_code=422,
             )
@@ -394,7 +394,7 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
             duration_seconds = round(float(dur_str), 2)
         except ValueError as exc:
             raise AppError(
-                "VALIDATION_ERROR",
+                "VIDEO_CORRUPTED",
                 "Не удалось определить длительность видео.",
                 status_code=422,
             ) from exc
@@ -408,7 +408,7 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
 
         if duration_seconds > MAX_SPLASH_VIDEO_DURATION_SECONDS:
             raise AppError(
-                "VALIDATION_ERROR",
+                "VIDEO_DURATION_EXCEEDED",
                 f"Длительность видео ({duration_seconds} с) превышает лимит 5 секунд.",
                 status_code=422,
             )
@@ -422,7 +422,7 @@ def validate_mp4_video_ffprobe(data: bytes) -> VideoMetadata:
         )
     except subprocess.TimeoutExpired as exc:
         raise AppError(
-            "VALIDATION_ERROR",
+            "VIDEO_CORRUPTED",
             "Время проверки видео истекло (файл слишком сложен для обработки).",
             status_code=422,
         ) from exc

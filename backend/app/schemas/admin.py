@@ -241,6 +241,7 @@ class AdminBusinessIdentity(BaseModel):
     id: uuid.UUID
     name: str
     status: str
+    android_app_id: str | None = None
 
 
 class AdminIdentity(BaseModel):
@@ -421,11 +422,14 @@ class CardSearchRequest(BaseModel):
 
         try:
             normalized = normalize_phone(value)
+            if normalized:
+                return normalized
         except ValueError:
-            raise ValueError("phone is invalid") from None
-        if normalized is None:
-            raise ValueError("phone is invalid")
-        return normalized
+            pass
+        cleaned = re.sub(r"\D", "", value)
+        if 4 <= len(cleaned) <= 15:
+            return cleaned
+        raise ValueError("phone is invalid")
 
     @model_validator(mode="after")
     def require_filter(self) -> "CardSearchRequest":
@@ -464,11 +468,14 @@ class UserSearchRequest(BaseModel):
 
         try:
             normalized = normalize_phone(value)
+            if normalized:
+                return normalized
         except ValueError:
-            raise ValueError("phone is invalid") from None
-        if normalized is None:
-            raise ValueError("phone is invalid")
-        return normalized
+            pass
+        cleaned = re.sub(r"\D", "", value)
+        if 4 <= len(cleaned) <= 15:
+            return cleaned
+        raise ValueError("phone is invalid")
 
 
 class UserListItem(BaseModel):

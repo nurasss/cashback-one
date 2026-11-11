@@ -92,7 +92,7 @@ describe('Approved admin copy', () => {
     expect(screen.getByRole('link', { name: 'Найти клиента' })).toHaveAttribute('href', '/admin/operations');
     expect(screen.getByRole('link', { name: 'Создать рассылку' })).toHaveAttribute('href', '/admin/notifications?create=1');
     expect(screen.getByText('Баланс и операции обновляются после передачи данных из магазина.')).toBeInTheDocument();
-    expect(screen.getByText('Связь с магазином')).toBeInTheDocument();
+    expect(screen.getByText('Подключение к магазину / агенты')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Подробнее/ })).toHaveAttribute('href', '/admin/agents');
   });
 });

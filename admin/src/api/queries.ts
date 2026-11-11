@@ -57,6 +57,17 @@ export function useCard(id: string) {
   return useQuery({ queryKey: [...privateKey, 'card', id], queryFn: ({ signal }) => session.api.request<CardDetail>(`/admin/cards/${encodeURIComponent(id)}`, { signal }) });
 }
 
+export function useUsers(business_id: string | undefined, page: PageQuery, enabled = true) {
+  const { session } = useAdminSession();
+  const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
+  if (business_id) query.set('business_id', business_id);
+  return useQuery({
+    queryKey: [...privateKey, 'users', business_id, page],
+    enabled,
+    queryFn: ({ signal }) => session.api.request<Page<AdminUser>>(`/admin/users?${query}`, { signal }),
+  });
+}
+
 export function useUserSearch(filters: { phone: string; business_id?: string }, page: PageQuery, enabled: boolean) {
   const { session } = useAdminSession();
   return useQuery({

@@ -711,3 +711,160 @@ async def test_image_upload_commit_visible_in_new_db_session(db_engine) -> None:
         app.dependency_overrides.pop(get_media_storage, None)
         app.dependency_overrides.pop(get_session, None)
         app.dependency_overrides.pop(get_rate_limiter, None)
+
+
+@pytest.mark.asyncio
+async def test_loyalty_tiers_auto_priority_and_level_ordering(
+    db_session: AsyncSession,
+    mutation_client: AsyncClient,  # noqa: F811
+) -> None:
+    """Test auto-allocation of priority, conflict avoidance with non-matching priority, and level-based ordering."""
+    biz = await make_business(db_session, "Auto Priority Biz")
+    manager = await make_admin(db_session, "business_manager", biz.id, "auto-mgr")
+    mgr_headers = await auth_headers(db_session, manager)
+    await db_session.commit()
+
+    # 1. Create tier with level=1 WITHOUT priority field
+    res = await mutation_client.post(
+        f"/admin/businesses/{biz.id}/loyalty-tiers",
+        headers=mgr_headers,
+        json={
+            "level": 1,
+            "name_ru": "Базовый",
+            "name_kk": "Базалық",
+            "turnover_period_months": 6,
+            "min_turnover": 0.0,
+            "max_turnover": 50000.0,
+            "percent": 2.0,
+        },
+    )
+    assert res.status_code == 201, res.text
+    t1 = res.json()
+    assert t1["level"] == 1
+    assert t1["priority"] == 1
+    t1_id = t1["id"]
+
+    # 2. Create tier with explicit non-matching level=2, priority=5 (e.g. legacy client or custom priority)
+    res = await mutation_client.post(
+        f"/admin/businesses/{biz.id}/loyalty-tiers",
+        headers=mgr_headers,
+        json={
+            "level": 2,
+            "priority": 5,
+            "name_ru": "Серебряный",
+            "name_kk": "Күміс",
+            "turnover_period_months": 6,
+            "min_turnover": 50000.0,
+            "max_turnover": 100000.0,
+            "percent": 3.0,
+        },
+    )
+    assert res.status_code == 201, res.text
+    t2 = res.json()
+    assert t2["level"] == 2
+    assert t2["priority"] == 5
+
+    # 3. Create tier with level=5 WITHOUT priority field.
+    # Level 5 matches existing tier t2's priority (5).
+    # Auto-allocation must NOT blindly set priority=5, which would cause 409 conflict!
+    res = await mutation_client.post(
+        f"/admin/businesses/{biz.id}/loyalty-tiers",
+        headers=mgr_headers,
+        json={
+            "level": 5,
+            "name_ru": "Платиновый",
+            "name_kk": "Платиналық",
+            "turnover_period_months": 6,
+            "min_turnover": 200000.0,
+            "max_turnover": None,
+            "percent": 5.0,
+        },
+    )
+    assert res.status_code == 201, res.text
+    t5 = res.json()
+    assert t5["level"] == 5
+    # Priority should be chosen without collision (e.g. 6)
+    assert t5["priority"] != 5
+    assert t5["priority"] not in (1, 5)
+    t5_id = t5["id"]
+
+    # 4. Create tier with level=3, priority=2 (explicit non-matching priority smaller than t2's priority)
+    res = await mutation_client.post(
+        f"/admin/businesses/{biz.id}/loyalty-tiers",
+        headers=mgr_headers,
+        json={
+            "level": 3,
+            "priority": 2,
+            "name_ru": "Золотой",
+            "name_kk": "Алтын",
+            "turnover_period_months": 6,
+            "min_turnover": 100000.0,
+            "max_turnover": 200000.0,
+            "percent": 4.0,
+        },
+    )
+    assert res.status_code == 201, res.text
+    t3 = res.json()
+    assert t3["level"] == 3
+    assert t3["priority"] == 2
+    t3_id = t3["id"]
+
+    # 5. List tiers: must be strictly ordered by level ASC: [1, 2, 3, 5],
+    # even though priorities are [1, 5, 2, 6] (which would be [1, 2, 5, 6] if ordered by priority)
+    res = await mutation_client.get(
+        f"/admin/businesses/{biz.id}/loyalty-tiers",
+        headers=mgr_headers,
+    )
+    assert res.status_code == 200
+    items = res.json()
+    assert len(items) == 4
+    levels = [item["level"] for item in items]
+    assert levels == [1, 2, 3, 5], f"Expected levels [1, 2, 3, 5], got {levels}"
+    priorities = [item["priority"] for item in items]
+    assert priorities == [1, 5, 2, t5["priority"]]
+
+    # 6. Edit existing tier t3 without priority field: existing priority must be preserved
+    res = await mutation_client.patch(
+        f"/admin/businesses/{biz.id}/loyalty-tiers/{t3_id}",
+        headers=mgr_headers,
+        json={
+            "name_ru": "Золотой VIP",
+            "percent": 4.5,
+        },
+    )
+    assert res.status_code == 200, res.text
+    updated_t3 = res.json()
+    assert updated_t3["name_ru"] == "Золотой VIP"
+    assert float(updated_t3["percent"]) == 4.5
+    assert updated_t3["priority"] == 2  # priority preserved!
+
+    # 7. Change level of tier t5 from 5 to 4 without priority field
+    res = await mutation_client.patch(
+        f"/admin/businesses/{biz.id}/loyalty-tiers/{t5_id}",
+        headers=mgr_headers,
+        json={
+            "level": 4,
+        },
+    )
+    assert res.status_code == 200, res.text
+    updated_t5 = res.json()
+    assert updated_t5["level"] == 4
+
+    # 8. Re-verify listing order after level change: now [1, 2, 3, 4]
+    res = await mutation_client.get(
+        f"/admin/businesses/{biz.id}/loyalty-tiers",
+        headers=mgr_headers,
+    )
+    assert res.status_code == 200
+    levels = [item["level"] for item in res.json()]
+    assert levels == [1, 2, 3, 4]
+
+    # 9. Customer app endpoint also returns tiers ordered by level ASC
+    _user, cust_hdr = await customer(db_session)
+    res_app = await mutation_client.get(
+        f"/me/app-content?business_id={biz.id}",
+        headers=cust_hdr,
+    )
+    assert res_app.status_code == 200
+    app_tiers = res_app.json()["loyalty_tiers"]
+    assert [t["level"] for t in app_tiers] == [1, 2, 3, 4]

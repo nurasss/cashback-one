@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type PropsWithChildren } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AdminSession } from './session';
+import { ActiveBusinessProvider } from '../context/ActiveBusinessContext';
 
 interface SessionContextValue {
   session: AdminSession;
@@ -18,7 +19,11 @@ export function AdminProvider({ children }: PropsWithChildren) {
   useEffect(() => { void session.bootstrap(); }, [session]);
   return (
     <SessionContext.Provider value={{ session, view, continueToLogin: () => session.continueToLogin() }}>
-      <QueryClientProvider client={query}>{children}</QueryClientProvider>
+      <QueryClientProvider client={query}>
+        <ActiveBusinessProvider>
+          {children}
+        </ActiveBusinessProvider>
+      </QueryClientProvider>
     </SessionContext.Provider>
   );
 }

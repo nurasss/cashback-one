@@ -14,7 +14,13 @@ export function errorFromResponse(status: number, payload: unknown): ApiError {
   const candidate = envelope?.code;
   const code = typeof candidate === 'string' && /^[A-Z0-9_]{1,64}$/.test(candidate)
     ? candidate
-    : status >= 500 ? 'SERVER_UNAVAILABLE' : 'UNKNOWN_ERROR';
+    : status === 413
+      ? 'FILE_TOO_LARGE'
+      : status === 415
+        ? 'UNSUPPORTED_MEDIA_TYPE'
+        : status >= 500
+          ? 'SERVER_UNAVAILABLE'
+          : 'UNKNOWN_ERROR';
   return new ApiError(code, status);
 }
 
@@ -38,6 +44,12 @@ const ruMessages: Record<string, string> = {
   ADMIN_PERIOD_TOO_LARGE: 'Выберите более короткий период.',
   ADMIN_INVALID_PERIOD: 'Проверьте даты периода.',
   FILE_TOO_LARGE: 'Файл слишком большой. Максимальный размер — 10 МБ.',
+  VIDEO_TOO_LARGE: 'Размер видео превышает допустимый лимит 15 МБ.',
+  VIDEO_DURATION_EXCEEDED: 'Длительность видео превышает допустимый лимит (не более 5 секунд).',
+  VIDEO_HAS_AUDIO: 'Видео для заставки должно быть без аудиодорожки (звук запрещён).',
+  VIDEO_UNSUPPORTED_CODEC: 'Поддерживается только видео с кодеком H.264 (avc1).',
+  VIDEO_CORRUPTED: 'Видеофайл повреждён или не может быть декодирован.',
+  VIDEO_VALIDATION_UNAVAILABLE: 'Серверная проверка видео временно недоступна. Попробуйте позже.',
   IMAGE_TOO_LARGE: 'Разрешение изображения слишком велико. Уменьшите картинку.',
   UNSUPPORTED_MEDIA_TYPE: 'Неподдерживаемый формат изображения. Загрузите JPEG, PNG, WebP или GIF.',
   MEDIA_STORAGE_ERROR: 'Не удалось сохранить изображение в хранилище. Попробуйте позже.',
@@ -70,8 +82,14 @@ const kkMessages: Record<string, string> = {
   ADMIN_PERIOD_TOO_LARGE: 'Қысқарақ кезеңді таңдаңыз.',
   ADMIN_INVALID_PERIOD: 'Кезең күндерін тексеріңіз.',
   FILE_TOO_LARGE: 'Файл тым үлкен. Ең жоғары өлшемі — 10 МБ.',
+  VIDEO_TOO_LARGE: 'Бейне өлшемі рұқсат етілген 15 МБ шегінен асты.',
+  VIDEO_DURATION_EXCEEDED: 'Бейне ұзақтығы рұқсат етілген шектен асады (5 секундтан аспауы керек).',
+  VIDEO_HAS_AUDIO: 'Қосымша заставкасына арналған бейнеде дыбыс болмауы керек (дыбысқа тыйым салынған).',
+  VIDEO_UNSUPPORTED_CODEC: 'Тек H.264 (avc1) кодегі бар бейнеге қолдау көрсетіледі.',
+  VIDEO_CORRUPTED: 'Бейне файл зақымдалған немесе оқу мүмкін емес.',
+  VIDEO_VALIDATION_UNAVAILABLE: 'Серверлік бейне тексеру уақытша қолжетімсіз. Кейінірек көріңіз.',
   IMAGE_TOO_LARGE: 'Сурет өлшемі тым үлкен. Кескінді кішірейтіңіз.',
-  UNSUPPORTED_MEDIA_TYPE: 'Қолдау көрсетілмейтін сурет форматы. JPEG, PNG, WebP немесе GIF жүктеңіз.',
+  UNSUPPORTED_MEDIA_TYPE: 'Суреттің қолдау көрсетілмейтін форматы. JPEG, PNG, WebP немесе GIF жүктеңіз.',
   MEDIA_STORAGE_ERROR: 'Суретті қоймаға сақтау мүмкін болмады. Кейінірек көріңіз.',
   MEDIA_STORAGE_NOT_CONFIGURED: 'Медиа файл қоймасы серверде әлі бапталмаған.',
   NETWORK_UNAVAILABLE: 'Байланыс жоқ. Интернетті тексеріп, қайталаңыз.',

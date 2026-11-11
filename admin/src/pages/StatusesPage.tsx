@@ -1,12 +1,14 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, useBusinesses, useLoyaltyTiers } from '../api/queries';
 import type { LoyaltyTier, LoyaltyTierInput } from '../api/types';
 import { useAdminSession } from '../auth/provider';
+import { useActiveBusiness } from '../context/ActiveBusinessContext';
 import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { ImageUploadField } from '../components/ImageUploadField';
 import { DialogFrame } from '../features/AdminMutations';
+import { CompactTableToggle, useCompactRows, useTableExpansion } from '../components/CompactTable';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
@@ -23,13 +25,14 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
   const t = useAdminTranslation();
   const queryClient = useQueryClient();
 
-  const [level, setLevel] = useState<number>(tier?.level ?? 1);
-  const [priority, setPriority] = useState<number>(tier?.priority ?? 1);
+  const [level, setLevel] = useState<string>(tier?.level != null ? String(tier.level) : '1');
   const [titleRu, setTitleRu] = useState(tier?.name_ru ?? '');
   const [titleKk, setTitleKk] = useState(tier?.name_kk ?? '');
   const [descriptionRu, setDescriptionRu] = useState(tier?.description_ru ?? '');
   const [descriptionKk, setDescriptionKk] = useState(tier?.description_kk ?? '');
-  const [turnoverPeriodMonths, setTurnoverPeriodMonths] = useState<number>(tier?.turnover_period_months ?? 6);
+  const [turnoverPeriodMonths, setTurnoverPeriodMonths] = useState<string>(
+    tier?.turnover_period_months != null ? String(tier.turnover_period_months) : '6'
+  );
   const [thresholdMin, setThresholdMin] = useState<string>(tier?.min_turnover != null ? String(tier.min_turnover) : '0');
   const [thresholdMax, setThresholdMax] = useState<string>(tier?.max_turnover != null ? String(tier.max_turnover) : '');
   const [percent, setPercent] = useState<string>(tier?.percent != null ? String(tier.percent) : '2');
@@ -54,11 +57,15 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
       setError(t.statuses.errTitleRequired);
       return;
     }
-    if (!Number.isInteger(level) || level <= 0) {
+
+    const parsedLevel = parseInt(level.trim(), 10);
+    if (isNaN(parsedLevel) || parsedLevel < 1 || parsedLevel > 100) {
       setError(t.statuses.errLevelRequired);
       return;
     }
-    if (!Number.isInteger(turnoverPeriodMonths) || turnoverPeriodMonths < 1 || turnoverPeriodMonths > 36) {
+
+    const parsedMonths = parseInt(turnoverPeriodMonths.trim(), 10);
+    if (isNaN(parsedMonths) || parsedMonths < 1 || parsedMonths > 36) {
       setError(t.statuses.errTurnoverPeriod);
       return;
     }
@@ -77,13 +84,12 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
     }
 
     const payload: LoyaltyTierInput = {
-      level,
-      priority: Number.isInteger(priority) ? priority : level,
+      level: parsedLevel,
       name_ru: cleanTitleRu,
       name_kk: cleanTitleKk,
       description_ru: cleanDescRu || null,
       description_kk: cleanDescKk || null,
-      turnover_period_months: turnoverPeriodMonths,
+      turnover_period_months: parsedMonths,
       min_turnover: minNum,
       max_turnover: maxNum,
       percent: pctNum,
@@ -126,32 +132,18 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
       <form className="mutation-form" onSubmit={handleSubmit}>
         {error && <p className="form-error" role="alert">{error}</p>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-          <label className="form-control" htmlFor="tier-level">
-            {t.statuses.fieldLevel}
-            <input
-              id="tier-level"
-              type="number"
-              min={1}
-              max={100}
-              required
-              value={level}
-              onChange={e => setLevel(parseInt(e.target.value, 10) || 1)}
-            />
-          </label>
-          <label className="form-control" htmlFor="tier-priority">
-            {t.statuses.fieldPriority}
-            <input
-              id="tier-priority"
-              type="number"
-              min={1}
-              max={1000}
-              required
-              value={priority}
-              onChange={e => setPriority(parseInt(e.target.value, 10) || 1)}
-            />
-          </label>
-        </div>
+        <label className="form-control" htmlFor="tier-level">
+          {t.statuses.fieldLevel}
+          <input
+            id="tier-level"
+            type="number"
+            min={1}
+            max={100}
+            required
+            value={level}
+            onChange={e => setLevel(e.target.value)}
+          />
+        </label>
 
         <label className="form-control" htmlFor="tier-title-ru">
           {t.statuses.fieldTitleRu}
@@ -212,7 +204,7 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
             max={36}
             required
             value={turnoverPeriodMonths}
-            onChange={e => setTurnoverPeriodMonths(parseInt(e.target.value, 10) || 1)}
+            onChange={e => setTurnoverPeriodMonths(e.target.value)}
           />
           <span className="muted-copy">{t.statuses.fieldTurnoverPeriodHint}</span>
         </label>
@@ -293,6 +285,7 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
 
 export function StatusesPage() {
   const { view, session } = useAdminSession();
+  const { setActiveBusiness } = useActiveBusiness();
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const queryClient = useQueryClient();
@@ -309,9 +302,30 @@ export function StatusesPage() {
     ? selectedBusinessId || (businessesQuery.data?.items[0]?.id ?? '')
     : managerBusinessId;
 
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    const selected = activeBusinessId ? businessesQuery.data?.items.find(b => b.id === activeBusinessId) : null;
+    setActiveBusiness(selected ? {
+      id: selected.id,
+      name: selected.name,
+      android_app_id: selected.android_app_id,
+    } : null);
+  }, [activeBusinessId, businessesQuery.data?.items, isSuperadmin, setActiveBusiness]);
+
+  useEffect(() => {
+    return () => {
+      setActiveBusiness(null);
+    };
+  }, [setActiveBusiness]);
+
   const tiersQuery = useLoyaltyTiers(activeBusinessId);
   const [editingTier, setEditingTier] = useState<LoyaltyTier | 'new' | null>(null);
   const [actionError, setActionError] = useState('');
+  const expansion = useTableExpansion();
+  const sortedTiers = Array.isArray(tiersQuery.data)
+    ? [...tiersQuery.data].sort((a, b) => a.level - b.level || a.priority - b.priority)
+    : [];
+  const compact = useCompactRows(sortedTiers, expansion);
 
   const handleDelete = async (tier: LoyaltyTier) => {
     const tierName = locale === 'kk' ? (tier.name_kk || tier.name_ru) : tier.name_ru;
@@ -389,7 +403,6 @@ export function StatusesPage() {
               <thead>
                 <tr>
                   <th>{t.statuses.colLevel}</th>
-                  <th>{t.statuses.colPriority}</th>
                   <th>{t.statuses.colTitle}</th>
                   <th>{t.statuses.colTurnoverPeriod}</th>
                   <th>{t.statuses.colThreshold}</th>
@@ -398,14 +411,11 @@ export function StatusesPage() {
                   <th aria-label="actions" />
                 </tr>
               </thead>
-              <tbody>
-                {tiersQuery.data.map(tier => (
+              <tbody id={compact.bodyId}>
+                {compact.visibleRows.map(tier => (
                   <tr key={tier.id}>
                     <td>
                       <span className="mono-value">#{tier.level}</span>
-                    </td>
-                    <td>
-                      <span className="mono-value">{tier.priority}</span>
                     </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -463,6 +473,7 @@ export function StatusesPage() {
               </tbody>
             </table>
           </div>
+          <CompactTableToggle {...compact} />
         </div>
       )}
 

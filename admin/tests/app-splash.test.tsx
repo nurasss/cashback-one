@@ -44,7 +44,7 @@ function setupMocks(config: BusinessSplashConfig = initialSplashConfig) {
   vi.stubEnv('VITE_ALLOW_INSECURE_HTTP', '0');
 
   let currentConfig = { ...config };
-  const putCalls: any[] = [];
+  const putCalls: Partial<BusinessSplashConfig>[] = [];
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);

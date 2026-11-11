@@ -2,7 +2,14 @@ import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, useBusinessAppTexts, useBusinessSplashConfig, useBusinessStores } from '../api/queries';
-import type { BusinessSplashUpdateRequest, BusinessStore, BusinessStoreInput, SplashMediaUploadResponse } from '../api/types';
+import type {
+  BusinessSplashUpdateRequest,
+  BusinessStore,
+  BusinessStoreInput,
+  SplashMediaUploadResponse,
+  StoreCoordinateCandidate,
+  StoreResolveCoordinatesResponse,
+} from '../api/types';
 import { useAdminSession } from '../auth/provider';
 import { CompactTableToggle, useCompactRows, useTableExpansion } from '../components/CompactTable';
 import { StatusPill } from '../components/Feedback';
@@ -46,6 +53,69 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
   const [isActive, setIsActive] = useState<boolean>(store?.is_active ?? true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [resolveInfo, setResolveInfo] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<StoreCoordinateCandidate[]>([]);
+  const [showManualCoords, setShowManualCoords] = useState(Boolean(store?.latitude || store?.longitude));
+
+  const handleAutoResolve = async () => {
+    setError('');
+    setResolveInfo(null);
+    setCandidates([]);
+
+    const trimmedUrl = mapUrl.trim();
+    const trimmedAddress = addressRu.trim() || addressKk.trim();
+    const query = trimmedUrl || trimmedAddress;
+    if (!query) {
+      setError(t.appContent.errAddressRequired);
+      return;
+    }
+
+    setResolving(true);
+    try {
+      const resp = await session.api.request<StoreResolveCoordinatesResponse>(
+        `/admin/businesses/${encodeURIComponent(businessId)}/stores/resolve-coordinates`,
+        {
+          method: 'POST',
+          body: {
+            query,
+            url: trimmedUrl || null,
+            address: trimmedAddress || null,
+          },
+        }
+      );
+
+      if (resp.status === 'found' && resp.latitude != null && resp.longitude != null) {
+        setLatitude(String(resp.latitude));
+        setLongitude(String(resp.longitude));
+        setResolveInfo(resp.resolved_address || `${resp.latitude}, ${resp.longitude}`);
+        setCandidates([]);
+      } else if (resp.status === 'ambiguous' && resp.candidates && resp.candidates.length > 0) {
+        setCandidates(resp.candidates);
+        setResolveInfo(resp.message || t.appContent.ambiguousSelectPrompt);
+      } else if (resp.status === 'not_found' || resp.status === 'error') {
+        setError(resp.message || 'Точка не найдена');
+      }
+    } catch (err) {
+      setError(messageForError(err, locale));
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const selectCandidate = (cand: StoreCoordinateCandidate) => {
+    setLatitude(String(cand.latitude));
+    setLongitude(String(cand.longitude));
+    setResolveInfo(cand.address);
+    setCandidates([]);
+  };
+
+  const handleClearCoords = () => {
+    setLatitude('');
+    setLongitude('');
+    setResolveInfo(null);
+    setCandidates([]);
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -56,8 +126,8 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
     const cleanAddressRu = addressRu.trim();
     const cleanAddressKk = addressKk.trim();
     const cleanMapUrl = mapUrl.trim();
-    const cleanLat = latitude.trim();
-    const cleanLon = longitude.trim();
+    const cleanLat = latitude.trim().replace(',', '.');
+    const cleanLon = longitude.trim().replace(',', '.');
 
     if (!cleanTitleRu || !cleanTitleKk) {
       setError(t.appContent.errTitleRequired);
@@ -210,34 +280,102 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
           <span className="muted-copy">{t.appContent.fieldMapUrlHint}</span>
         </label>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-          <label className="form-control" htmlFor="store-latitude">
-            {t.appContent.fieldLatitude}
-            <input
-              id="store-latitude"
-              type="number"
-              step="any"
-              placeholder="43.238949"
-              value={latitude}
-              onChange={e => setLatitude(e.target.value)}
-            />
-          </label>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={handleAutoResolve}
+            disabled={resolving || saving}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.75rem', fontSize: '0.875rem' }}
+          >
+            {resolving ? t.appContent.resolvingCoords : t.appContent.autoResolveBtn}
+          </button>
 
-          <label className="form-control" htmlFor="store-longitude">
-            {t.appContent.fieldLongitude}
-            <input
-              id="store-longitude"
-              type="number"
-              step="any"
-              placeholder="76.889709"
-              value={longitude}
-              onChange={e => setLongitude(e.target.value)}
-            />
-          </label>
+          {latitude && longitude && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
+              <strong>✓ {t.appContent.coordsDetected}:</strong> {latitude}, {longitude}
+              {resolveInfo && <span style={{ color: '#374151' }}>({resolveInfo})</span>}
+              <a
+                href={`https://maps.google.com/?q=${latitude},${longitude}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ textDecoration: 'underline', color: '#15803d', marginLeft: '0.25rem' }}
+              >
+                {t.appContent.viewOnMap} ↗
+              </a>
+              <button
+                type="button"
+                onClick={handleClearCoords}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#dc2626', textDecoration: 'underline', padding: 0, fontSize: '0.75rem' }}
+              >
+                {t.appContent.clearCoordsBtn}
+              </button>
+            </span>
+          )}
         </div>
-        <p className="muted-copy" style={{ marginTop: '-0.25rem', marginBottom: '0.75rem', fontSize: '0.8125rem' }}>
-          {t.appContent.fieldCoordinatesHint}
-        </p>
+
+        {candidates.length > 0 && (
+          <div style={{ marginBottom: '1rem', padding: '0.75rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px' }}>
+            <p style={{ fontWeight: 600, fontSize: '0.875rem', margin: '0 0 0.5rem 0', color: '#1e40af' }}>
+              {t.appContent.ambiguousSelectPrompt}
+            </p>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {candidates.map((cand, idx) => (
+                <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', background: '#fff', padding: '0.5rem 0.75rem', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '0.8125rem', color: '#1f2937' }}>
+                    {cand.address} <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>({cand.latitude}, {cand.longitude})</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem' }}
+                    onClick={() => selectCandidate(cand)}
+                  >
+                    {t.appContent.selectCandidateBtn}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <details
+          open={showManualCoords || Boolean(latitude || longitude)}
+          onToggle={e => setShowManualCoords((e.target as HTMLDetailsElement).open)}
+          style={{ marginBottom: '1rem', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '0.5rem 0.75rem' }}
+        >
+          <summary style={{ cursor: 'pointer', fontWeight: 500, fontSize: '0.8125rem', color: '#4b5563' }}>
+            {t.appContent.advancedCoordsToggle}
+          </summary>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
+            <label className="form-control" htmlFor="store-latitude">
+              {t.appContent.fieldLatitude}
+              <input
+                id="store-latitude"
+                type="number"
+                step="any"
+                placeholder="43.238949"
+                value={latitude}
+                onChange={e => setLatitude(e.target.value)}
+              />
+            </label>
+
+            <label className="form-control" htmlFor="store-longitude">
+              {t.appContent.fieldLongitude}
+              <input
+                id="store-longitude"
+                type="number"
+                step="any"
+                placeholder="76.889709"
+                value={longitude}
+                onChange={e => setLongitude(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className="muted-copy" style={{ marginTop: '0.35rem', marginBottom: '0.25rem', fontSize: '0.8125rem' }}>
+            {t.appContent.fieldCoordinatesHint}
+          </p>
+        </details>
 
         <label className="form-control" htmlFor="store-sort-order">
           {t.appContent.fieldSortOrder}

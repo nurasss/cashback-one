@@ -84,3 +84,19 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     ) as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def admin_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    async def override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_rate_limiter] = lambda: _test_limiter  # type: ignore[return-value]
+    _test_limiter.reset()
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="https://admin.test",
+    ) as ac:
+        yield ac
+    app.dependency_overrides.clear()

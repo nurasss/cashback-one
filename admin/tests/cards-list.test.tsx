@@ -115,7 +115,7 @@ it('immediately renders first page of all cards without requiring search input',
   // Verify leading zeros preserved
   expect(screen.getByText('0000000000001')).toBeInTheDocument();
   expect(screen.queryByText('0000000000025')).not.toBeInTheDocument();
-  await userEvent.setup().click(screen.getByRole('button', { name: 'Показать все (25)' }));
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Все (25)' }));
   expect(screen.getByText('0000000000025')).toBeInTheDocument();
   expect(screen.getAllByText('Alpha Market').length).toBeGreaterThan(0);
 
@@ -174,7 +174,7 @@ it('navigates next and previous pages properly with has_more handling', async ()
     expect(screen.getByText('0000000000001')).toBeInTheDocument();
   });
 
-  await user.click(screen.getByRole('button', { name: 'Показать все (25)' }));
+  await user.click(screen.getByRole('button', { name: 'Все (25)' }));
   const nextBtn = screen.getByRole('button', { name: 'Далее' });
   expect(nextBtn).toBeEnabled();
 
@@ -244,7 +244,7 @@ it('supports search by barcode and provides clear reset back to general list', a
   });
 
   // Enter barcode in search input
-  const input = screen.getByLabelText('Штрихкод карты');
+  const input = screen.getByLabelText('Номер карты');
   await user.type(input, '0000000000777');
   const searchBtn = screen.getByRole('button', { name: 'Найти' });
   await user.click(searchBtn);
@@ -309,7 +309,7 @@ it('barcode search accepts 4-13 digit numbers and ignores out-of-range terms', a
     expect(screen.getByText('0000000000001')).toBeInTheDocument();
   });
 
-  const input = screen.getByLabelText('Штрихкод карты');
+  const input = screen.getByLabelText('Номер карты');
   const searchBtn = screen.getByRole('button', { name: 'Найти' });
 
   // 3 digits: form must not be submitted

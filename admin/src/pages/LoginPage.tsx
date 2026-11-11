@@ -20,6 +20,10 @@ export function LoginPage() {
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.title = `${t.login.cardTitle} — Cashback One Admin`;
+      const link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+      if (link && link.getAttribute('href') !== '/brand-mark.png') {
+        link.setAttribute('href', '/brand-mark.png');
+      }
     }
   }, [t.login.cardTitle]);
 

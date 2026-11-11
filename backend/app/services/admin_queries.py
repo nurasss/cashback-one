@@ -3,7 +3,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
 
-from sqlalchemy import case, func, select, true
+from sqlalchemy import case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -39,7 +39,12 @@ async def admin_identity(db: AsyncSession, admin: AdminUser) -> dict[str, Any]:
         business = await db.scalar(select(Business).where(Business.id == admin.business_id))
         if business is None:
             raise AppError("ADMIN_UNAUTHENTICATED", "Admin authentication required", 401)
-        business_data = {"id": business.id, "name": business.name, "status": business.status}
+        business_data = {
+            "id": business.id,
+            "name": business.name,
+            "status": business.status,
+            "android_app_id": business.android_app_id,
+        }
     return {
         "id": admin.id,
         "login": admin.login,
@@ -334,9 +339,19 @@ async def search_cards(
         .where(scope.predicate(Card.business_id, filters.business_id))
     )
     if filters.barcode is not None:
-        query = query.where(Card.barcode == filters.barcode)
+        query = query.where(
+            or_(
+                Card.barcode == filters.barcode,
+                Card.barcode.endswith(filters.barcode),
+            )
+        )
     if filters.phone is not None:
-        query = query.where(Card.phone == filters.phone)
+        query = query.where(
+            or_(
+                Card.phone == filters.phone,
+                Card.phone.endswith(filters.phone),
+            )
+        )
     rows = (
         await db.execute(query.order_by(Card.updated_at.desc(), Card.id.desc()).limit(limit + 1).offset(offset))
     ).all()
@@ -365,6 +380,44 @@ async def get_card_detail(
         full_name=card.full_name,
         owner_language=user.language if user and user.deleted_at is None else None,
     )
+
+
+async def list_users(
+    db: AsyncSession,
+    scope: AdminScope,
+    business_id: uuid.UUID | None,
+    limit: int,
+    offset: int,
+) -> Page[UserListItem]:
+    resolved_business_id = scope.business_id_for(business_id)
+    scoped_card_ids = (
+        select(Card.id)
+        .select_from(Card)
+        .join(UserCard, UserCard.card_id == Card.id)
+        .where(scope.predicate(Card.business_id, resolved_business_id))
+    )
+    has_scoped_card = (
+        select(UserCard.id)
+        .where(UserCard.user_id == User.id, UserCard.card_id.in_(scoped_card_ids))
+        .exists()
+    )
+    card_count = (
+        select(func.count(Card.id))
+        .select_from(Card)
+        .join(UserCard, UserCard.card_id == Card.id)
+        .where(UserCard.user_id == User.id, scope.predicate(Card.business_id, business_id))
+        .scalar_subquery()
+    )
+    rows = (
+        await db.execute(
+            select(User, card_count)
+            .where(User.deleted_at.is_(None), has_scoped_card)
+            .order_by(User.created_at.desc(), User.id.desc())
+            .limit(limit + 1)
+            .offset(offset)
+        )
+    ).all()
+    return _page(list(rows), limit, offset, _user_item)
 
 
 async def search_users(
@@ -398,7 +451,14 @@ async def search_users(
     rows = (
         await db.execute(
             select(User, card_count)
-            .where(User.phone == filters.phone, User.deleted_at.is_(None), has_scoped_card)
+            .where(
+                or_(
+                    User.phone == filters.phone,
+                    User.phone.endswith(filters.phone),
+                ),
+                User.deleted_at.is_(None),
+                has_scoped_card,
+            )
             .order_by(User.created_at.desc(), User.id.desc())
             .limit(limit + 1)
             .offset(offset)

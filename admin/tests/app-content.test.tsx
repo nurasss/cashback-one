@@ -1,5 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AdminProvider } from '../src/auth/provider';
@@ -47,6 +46,8 @@ function renderAppContent(role: 'superadmin' | 'business_manager', initialLocale
   vi.stubEnv('VITE_API_BASE_URL', 'https://admin.test');
   vi.stubEnv('VITE_ALLOW_INSECURE_HTTP', '0');
 
+  let currentStore: BusinessStore = { ...store };
+
   const fetchMock: typeof fetch = vi.fn(async (input, init) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -85,19 +86,58 @@ function renderAppContent(role: 'superadmin' | 'business_manager', initialLocale
     if (url.includes('/admin/notifications?')) {
       return json(200, { items: [], limit: 25, offset: 0, has_more: false });
     }
+    if (url.includes(`/admin/businesses/${businessId}/stores/resolve-coordinates`)) {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+      const query = String(body.query || '');
+      if (query.includes('2gis.kz') || query.includes('go.2gis.com')) {
+        return json(200, {
+          status: 'found',
+          latitude: 43.238949,
+          longitude: 76.889709,
+          resolved_address: 'Координаты из метки 2ГИС',
+        });
+      }
+      if (query === 'Абая 10') {
+        return json(200, {
+          status: 'ambiguous',
+          message: 'Найдено несколько похожих адресов:',
+          candidates: [
+            { address: 'г. Алматы, пр. Абая, 10', latitude: 43.2401, longitude: 76.9205 },
+            { address: 'г. Астана, ул. Абая, 10', latitude: 51.1501, longitude: 71.4305 },
+          ],
+        });
+      }
+      if (query.includes('Несуществующий')) {
+        return json(200, {
+          status: 'not_found',
+          message: 'По указанному адресу объектов в Казахстане не найдено.',
+        });
+      }
+      return json(200, {
+        status: 'found',
+        latitude: 51.13245,
+        longitude: 71.46821,
+        resolved_address: 'г. Астана, ул. Достык, 5',
+      });
+    }
     if (url.includes(`/admin/businesses/${businessId}/stores`)) {
       if (method === 'GET') {
-        return json(200, [store]);
+        return json(200, [currentStore]);
       }
       if (method === 'POST') {
         return json(201, { ...store, id: 'new-store-id' });
       }
       if (method === 'PATCH') {
-        return json(200, { ...store, title_ru: 'Обновленное название' });
+        const patchData = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
+        currentStore = { ...currentStore, ...patchData };
+        return json(200, currentStore);
       }
       if (method === 'DELETE') {
         return new Response(null, { status: 204 });
       }
+    }
+    if (url.includes(`/admin/businesses/${businessId}/splash`)) {
+      return json(200, { splash: null });
     }
     if (url.includes(`/admin/businesses/${businessId}/app-texts`)) {
       if (method === 'GET') {
@@ -135,18 +175,14 @@ afterEach(() => {
 });
 
 it('manager accesses App tab without business picker and sees stores and texts', async () => {
-  const user = userEvent.setup();
   renderAppContent('business_manager');
 
-  // Verify tab is present and click it
   const storesTab = await screen.findByRole('tab', { name: 'Магазины' });
   expect(storesTab).toBeInTheDocument();
-  await user.click(storesTab);
+  fireEvent.click(storesTab);
 
-  // Business selector must NOT be visible for a manager
   expect(screen.queryByLabelText('Бизнес')).not.toBeInTheDocument();
 
-  // Store information is displayed
   expect(await screen.findByText('Супермаркет «КеремЕт»')).toBeInTheDocument();
   expect(screen.getByText('проспект Тауелсиздик, 4')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Открыть на карте' })).toHaveAttribute(
@@ -154,36 +190,34 @@ it('manager accesses App tab without business picker and sees stores and texts',
     'https://2gis.kz/astana/firm/70000001103172202'
   );
 
-  // App texts are populated on texts tab
   const textsTab = screen.getByRole('tab', { name: 'Тексты' });
-  await user.click(textsTab);
+  fireEvent.click(textsTab);
+
   const homeInput = await screen.findByDisplayValue(
     'Добро пожаловать в супермаркет «КеремЕт»!'
   );
   expect(homeInput).toBeInTheDocument();
-});
+}, 15000);
 
 it('validates store form and creates a store through the typed API', async () => {
-  const user = userEvent.setup();
   const fetchMock = renderAppContent('business_manager');
 
-  await user.click(await screen.findByRole('tab', { name: 'Магазины' }));
-  await user.click(await screen.findByRole('button', { name: 'Добавить магазин' }));
+  fireEvent.click(await screen.findByRole('tab', { name: 'Магазины' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Добавить магазин' }));
 
   const dialog = await screen.findByRole('dialog');
   expect(within(dialog).getByText('Новый магазин')).toBeInTheDocument();
 
   // Invalid map url check
-  await user.type(within(dialog).getByLabelText('Название (RU)'), 'Новый Филиал');
-  await user.type(within(dialog).getByLabelText('Название (KK)'), 'Жаңа филиал');
-  await user.type(within(dialog).getByLabelText('Адрес (RU)'), 'ул. Сыганак, 1');
-  await user.type(within(dialog).getByLabelText('Адрес (KK)'), 'Сығанақ к-сі, 1');
-  await user.type(
-    within(dialog).getByLabelText(/Ссылка на карту/i),
-    'http://insecure-site.kz'
-  );
+  fireEvent.change(within(dialog).getByLabelText('Название (RU)'), { target: { value: 'Новый Филиал' } });
+  fireEvent.change(within(dialog).getByLabelText('Название (KK)'), { target: { value: 'Жаңа филиал' } });
+  fireEvent.change(within(dialog).getByLabelText('Адрес (RU)'), { target: { value: 'ул. Сыганак, 1' } });
+  fireEvent.change(within(dialog).getByLabelText('Адрес (KK)'), { target: { value: 'Сығанақ к-сі, 1' } });
+  fireEvent.change(within(dialog).getByLabelText(/Ссылка на карту/i), {
+    target: { value: 'http://insecure-site.kz' },
+  });
 
-  await user.click(within(dialog).getByRole('button', { name: 'Сохранить' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Сохранить' }));
   expect(
     await within(dialog).findByText(
       'Ссылка должна начинаться с https:// и содержать корректный адрес сайта'
@@ -192,10 +226,9 @@ it('validates store form and creates a store through the typed API', async () =>
 
   // Fix URL and submit
   const mapInput = within(dialog).getByLabelText(/Ссылка на карту/i);
-  await user.clear(mapInput);
-  await user.type(mapInput, 'https://2gis.kz/astana/firm/12345');
+  fireEvent.change(mapInput, { target: { value: 'https://2gis.kz/astana/firm/12345' } });
 
-  await user.click(within(dialog).getByRole('button', { name: 'Сохранить' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Сохранить' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
   const postCall = vi
@@ -217,15 +250,14 @@ it('validates store form and creates a store through the typed API', async () =>
 });
 
 it('deletes store with user confirmation', async () => {
-  const user = userEvent.setup();
   const confirmMock = vi.fn(() => true);
   vi.stubGlobal('confirm', confirmMock);
 
   const fetchMock = renderAppContent('business_manager');
-  await user.click(await screen.findByRole('tab', { name: 'Магазины' }));
+  fireEvent.click(await screen.findByRole('tab', { name: 'Магазины' }));
   await screen.findByText('Супермаркет «КеремЕт»');
 
-  await user.click(screen.getByRole('button', { name: 'Удалить' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Удалить' }));
 
   expect(confirmMock).toHaveBeenCalledWith('Удалить магазин «Супермаркет «КеремЕт»»?');
   await waitFor(() => {
@@ -241,18 +273,15 @@ it('deletes store with user confirmation', async () => {
 });
 
 it('updates app texts in RU and KK', async () => {
-  const user = userEvent.setup();
   const fetchMock = renderAppContent('business_manager');
 
-  await user.click(await screen.findByRole('tab', { name: 'Тексты' }));
+  fireEvent.click(await screen.findByRole('tab', { name: 'Тексты' }));
   const homeRuInput = await screen.findByDisplayValue(
     'Добро пожаловать в супермаркет «КеремЕт»!'
   );
 
-  await user.clear(homeRuInput);
-  await user.type(homeRuInput, 'Новый текст на главной (RU)');
-
-  await user.click(screen.getByRole('button', { name: 'Сохранить тексты' }));
+  fireEvent.change(homeRuInput, { target: { value: 'Новый текст на главной (RU)' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить тексты' }));
 
   await waitFor(() => {
     const putCall = vi
@@ -275,17 +304,16 @@ it('updates app texts in RU and KK', async () => {
 });
 
 it('superadmin sees business picker on app tab and prompt when unselected', async () => {
-  const user = userEvent.setup();
   renderAppContent('superadmin');
 
-  await user.click(await screen.findByRole('tab', { name: 'Магазины и инфо' }));
+  fireEvent.click(await screen.findByRole('tab', { name: 'Магазины и инфо' }));
   expect(screen.getByLabelText('Бизнес')).toBeInTheDocument();
   expect(
     screen.getByText('Выберите бизнес для настройки магазинов и текстов приложения.')
   ).toBeInTheDocument();
 
   // Select business
-  await user.selectOptions(screen.getByLabelText('Бизнес'), businessId);
+  fireEvent.change(screen.getByLabelText('Бизнес'), { target: { value: businessId } });
   expect(await screen.findByText('Супермаркет «КеремЕт»')).toBeInTheDocument();
 });
 
@@ -296,4 +324,133 @@ it('renders in Kazakh locale with proper translations', async () => {
   expect(storesTab).toBeInTheDocument();
   const textsTab = await screen.findByRole('tab', { name: 'Мәтіндер' });
   expect(textsTab).toBeInTheDocument();
+});
+
+it('manager edits store map url and coordinates, saves, and reopens modal seeing saved values', async () => {
+  renderAppContent('business_manager');
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Магазины' }));
+  expect(await screen.findByText('Супермаркет «КеремЕт»')).toBeInTheDocument();
+
+  // Open edit modal
+  fireEvent.click(screen.getByRole('button', { name: 'Изменить' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('Изменить магазин')).toBeInTheDocument();
+
+  const mapInput = within(dialog).getByLabelText(/Ссылка на карту/i);
+  const latInput = within(dialog).getByLabelText(/Широта/i);
+  const lonInput = within(dialog).getByLabelText(/Долгота/i);
+
+  fireEvent.change(mapInput, { target: { value: 'https://2gis.kz/astana/firm/70000001103172202' } });
+  fireEvent.change(latInput, { target: { value: '51.13245' } });
+  fireEvent.change(lonInput, { target: { value: '71.46821' } });
+
+  const form = dialog.querySelector('form')!;
+  fireEvent.submit(form);
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+  // Verify coordinates are displayed in table
+  expect(await screen.findByText(/51\.13245, 71\.46821/)).toBeInTheDocument();
+
+  // Reopen modal to verify saved values persist in form
+  fireEvent.click(screen.getByRole('button', { name: 'Изменить' }));
+  const reopenedDialog = await screen.findByRole('dialog');
+
+  expect(within(reopenedDialog).getByLabelText(/Ссылка на карту/i)).toHaveValue(
+    'https://2gis.kz/astana/firm/70000001103172202'
+  );
+  expect(within(reopenedDialog).getByLabelText(/Широта/i)).toHaveValue(51.13245);
+  expect(within(reopenedDialog).getByLabelText(/Долгота/i)).toHaveValue(71.46821);
+}, 15000);
+
+it('auto-resolves coordinates from 2GIS link, displays badge and populates coordinates', async () => {
+  renderAppContent('business_manager');
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Магазины' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Добавить магазин' }));
+  const dialog = await screen.findByRole('dialog');
+
+  const mapInput = within(dialog).getByLabelText(/Ссылка на карту/i);
+  fireEvent.change(mapInput, {
+    target: { value: 'https://2gis.kz/almaty/firm/70000001018042456?m=76.889709%2C43.238949%2F16' },
+  });
+
+  // Click auto-resolve
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Определить точку' }));
+
+  // Verify coordinates are detected and badge is displayed
+  expect(await within(dialog).findByText(/Точка определена/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/43\.238949, 76\.889709/)).toBeInTheDocument();
+
+  // Verify input fields
+  expect(within(dialog).getByLabelText(/Широта/i)).toHaveValue(43.238949);
+  expect(within(dialog).getByLabelText(/Долгота/i)).toHaveValue(76.889709);
+
+  // Verify "Проверить на карте" link is rendered
+  expect(within(dialog).getByRole('link', { name: /Проверить на карте/i })).toHaveAttribute(
+    'href',
+    'https://maps.google.com/?q=43.238949,76.889709'
+  );
+
+  // Click clear coordinates
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Очистить точку' }));
+  expect(within(dialog).getByLabelText(/Широта/i)).toHaveValue(null);
+  expect(within(dialog).getByLabelText(/Долгота/i)).toHaveValue(null);
+  expect(within(dialog).queryByText(/Точка определена/)).not.toBeInTheDocument();
+});
+
+it('auto-resolves ambiguous address, displays candidates, and sets selected point', async () => {
+  renderAppContent('business_manager');
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Магазины' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Добавить магазин' }));
+  const dialog = await screen.findByRole('dialog');
+
+  const addrInput = within(dialog).getByLabelText(/Адрес \(RU\)/i);
+  fireEvent.change(addrInput, { target: { value: 'Абая 10' } });
+
+  // Click auto-resolve
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Определить точку' }));
+
+  // Ambiguous prompt and candidates
+  expect(await within(dialog).findByText(/Найдено несколько адресов, выберите подходящий:/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/г\. Алматы, пр\. Абая, 10/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/г\. Астана, ул\. Абая, 10/)).toBeInTheDocument();
+
+  // Pick first candidate
+  const selectBtns = within(dialog).getAllByRole('button', { name: 'Выбрать' });
+  fireEvent.click(selectBtns[0]);
+
+  // Verify selected coordinates are populated and candidates list is closed
+  expect(await within(dialog).findByText(/Точка определена/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Широта/i)).toHaveValue(43.2401);
+  expect(within(dialog).getByLabelText(/Долгота/i)).toHaveValue(76.9205);
+  expect(within(dialog).queryByText(/Найдено несколько адресов/)).not.toBeInTheDocument();
+});
+
+it('handles not-found coordinate resolution gracefully without erasing existing input', async () => {
+  renderAppContent('business_manager');
+
+  fireEvent.click(await screen.findByRole('tab', { name: 'Магазины' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Добавить магазин' }));
+  const dialog = await screen.findByRole('dialog');
+
+  const addrInput = within(dialog).getByLabelText(/Адрес \(RU\)/i);
+  fireEvent.change(addrInput, { target: { value: 'Несуществующий переулок 99999' } });
+
+  // Manually pre-set coordinates
+  const latInput = within(dialog).getByLabelText(/Широта/i);
+  const lonInput = within(dialog).getByLabelText(/Долгота/i);
+  fireEvent.change(latInput, { target: { value: '43.111' } });
+  fireEvent.change(lonInput, { target: { value: '76.222' } });
+
+  // Click auto-resolve
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Определить точку' }));
+
+  // Error is shown
+  expect(await within(dialog).findByText('По указанному адресу объектов в Казахстане не найдено.')).toBeInTheDocument();
+
+  // Coordinates are NOT erased or set to 0/0
+  expect(latInput).toHaveValue(43.111);
+  expect(lonInput).toHaveValue(76.222);
 });

@@ -67,6 +67,24 @@ export function formatAstanaSchedule(value: string): string {
   return `${day}.${month} ${hour}:${minute}`;
 }
 
+export function isValidDateOnly(val: string): boolean {
+  if (!val) return false;
+  // Year must be strictly 4 digits (1000-9999), month 01-12, day 01-31
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(val);
+  if (!match || !match[1] || !match[2] || !match[3]) return false;
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+
+  if (year < 1000 || year > 9999) return false;
+  if (month < 1 || month > 12) return false;
+
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > daysInMonth) return false;
+
+  return true;
+}
+
 export function isValidAstanaDateTimeLocal(val: string): boolean {
   if (!val) return false;
   // Year must be strictly 4 digits, month 01-12, day 01-31, hour 00-23, min 00-59

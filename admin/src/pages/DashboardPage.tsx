@@ -1,11 +1,12 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdminSession } from '../auth/provider';
+import { useActiveBusiness } from '../context/ActiveBusinessContext';
 import { useBusinesses, useDashboard } from '../api/queries';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { IconCards, IconCheckShield, IconTrendUp, IconUsers } from '../components/Icons';
 import type { AgentHealth } from '../api/types';
-import { formatDate, formatNumber, localDate, dayBoundary } from '../utils/format';
+import { formatDate, formatNumber, localDate, dayBoundary, isValidDateOnly } from '../utils/format';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
@@ -88,6 +89,7 @@ function getClientConnectionState(
 
 export function DashboardPage() {
   const { view } = useAdminSession();
+  const { setActiveBusiness } = useActiveBusiness();
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const [businessId, setBusinessId] = useState('');
@@ -105,6 +107,24 @@ export function DashboardPage() {
     { limit: 100, offset: 0 },
     view.status === 'authenticated' && view.admin.role === 'superadmin',
   );
+
+  const adminRole = view.status === 'authenticated' ? view.admin.role : null;
+
+  useEffect(() => {
+    if (view.status !== 'authenticated' || adminRole !== 'superadmin') return;
+    const selected = businessId ? businesses.data?.items.find(b => b.id === businessId) : null;
+    setActiveBusiness(selected ? {
+      id: selected.id,
+      name: selected.name,
+      android_app_id: selected.android_app_id,
+    } : null);
+  }, [businessId, businesses.data?.items, view.status, adminRole, setActiveBusiness]);
+
+  useEffect(() => {
+    return () => {
+      setActiveBusiness(null);
+    };
+  }, [setActiveBusiness]);
   const dashboard = useDashboard(filters, view.status === 'authenticated');
   const title = view.status === 'authenticated' ? view.admin.business?.name ?? t.dashboard.allBusinesses : t.layout.nav.overview;
 
@@ -122,12 +142,14 @@ export function DashboardPage() {
   const data = dashboard.data;
   if (!data) return <EmptyState title={t.feedback.noDataTitle} detail={t.dashboard.emptyDetail} />;
 
+  const isPeriodValid = isValidDateOnly(from) && isValidDateOnly(to) && from <= to;
+
   const apply = () => {
-    if (from > to) return;
+    if (!isPeriodValid) return;
     setFilters({ from: periodBoundary(from, false), to: periodBoundary(to, true), business_id: businessId || undefined });
   };
 
-  const totalAgents = Object.values(data.agents).reduce((sum, item) => sum + item, 0);
+  const totalAgents = data.agents ? Object.values(data.agents).reduce((sum, item) => sum + item, 0) : 0;
 
   const isClient = view.admin.role === 'business_manager';
 
@@ -159,11 +181,23 @@ export function DashboardPage() {
         <div className="filter-controls">
           <label className="form-control">
             <span>{t.dashboard.fromLabel}</span>
-            <input type="date" value={from} max={to} onChange={event => setFrom(event.target.value)} />
+            <input
+              type="date"
+              min="1000-01-01"
+              max={to || today}
+              value={from}
+              onChange={event => setFrom(event.target.value)}
+            />
           </label>
           <label className="form-control">
             <span>{t.dashboard.toLabel}</span>
-            <input type="date" value={to} min={from} max={today} onChange={event => setTo(event.target.value)} />
+            <input
+              type="date"
+              min={from || '1000-01-01'}
+              max={today}
+              value={to}
+              onChange={event => setTo(event.target.value)}
+            />
           </label>
           {!isClient && (
             <label className="form-control business-select">
@@ -176,7 +210,7 @@ export function DashboardPage() {
               </select>
             </label>
           )}
-          <button className="button button-primary" type="button" disabled={from > to} onClick={apply}>
+          <button className="button button-primary" type="button" disabled={!isPeriodValid} onClick={apply}>
             {t.dashboard.refreshBtn}
           </button>
         </div>

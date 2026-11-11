@@ -702,8 +702,8 @@ async def list_loyalty_tiers(
         select(BusinessLoyaltyTier)
         .where(BusinessLoyaltyTier.business_id == business_id)
         .order_by(
-            BusinessLoyaltyTier.priority.asc(),
             BusinessLoyaltyTier.level.asc(),
+            BusinessLoyaltyTier.priority.asc(),
             BusinessLoyaltyTier.id.asc(),
         )
     )
@@ -761,6 +761,19 @@ async def _verify_scoped_tier_image(
         asset.business_id = business_id
 
 
+def _allocate_priority(existing_priorities: set[int], preferred: int | None = None) -> int:
+    if preferred is not None and 1 <= preferred <= 1000 and preferred not in existing_priorities:
+        return preferred
+    start = max(1, preferred) if preferred is not None else 1
+    for candidate in range(start, 1001):
+        if candidate not in existing_priorities:
+            return candidate
+    for candidate in range(1, start):
+        if candidate not in existing_priorities:
+            return candidate
+    raise AppError("CONFLICT", "Maximum number of loyalty tiers reached", 409)
+
+
 async def create_loyalty_tier(
     db: AsyncSession,
     admin: AdminUser,
@@ -780,16 +793,23 @@ async def create_loyalty_tier(
     if body.image_url:
         await _verify_scoped_tier_image(db, settings, business_id, body.image_url)
 
-    existing = await db.scalar(
-        select(BusinessLoyaltyTier).where(
-            BusinessLoyaltyTier.business_id == business_id,
-            (BusinessLoyaltyTier.level == body.level) | (BusinessLoyaltyTier.priority == body.priority),
+    existing_tiers = (
+        await db.scalars(
+            select(BusinessLoyaltyTier).where(BusinessLoyaltyTier.business_id == business_id)
         )
-    )
-    if existing is not None:
-        if existing.level == body.level:
-            raise AppError("CONFLICT", f"Tier with level {body.level} already exists", 409)
-        raise AppError("CONFLICT", f"Tier with priority {body.priority} already exists", 409)
+    ).all()
+    existing_levels = {t.level for t in existing_tiers}
+    existing_priorities = {t.priority for t in existing_tiers}
+
+    if body.level in existing_levels:
+        raise AppError("CONFLICT", f"Tier with level {body.level} already exists", 409)
+
+    if body.priority is not None:
+        if body.priority in existing_priorities:
+            raise AppError("CONFLICT", f"Tier with priority {body.priority} already exists", 409)
+        chosen_priority = body.priority
+    else:
+        chosen_priority = _allocate_priority(existing_priorities, preferred=body.level)
 
     if body.is_active:
         active_same_period = (
@@ -809,7 +829,9 @@ async def create_loyalty_tier(
                     409,
                 )
 
-    tier = BusinessLoyaltyTier(business_id=business_id, **body.model_dump())
+    tier_data = body.model_dump()
+    tier_data["priority"] = chosen_priority
+    tier = BusinessLoyaltyTier(business_id=business_id, **tier_data)
     db.add(tier)
     biz.loyalty_tiers_version = (biz.loyalty_tiers_version or 1) + 1
     biz.updated_at = utcnow()
@@ -849,20 +871,36 @@ async def update_loyalty_tier(
     if dumped.get("image_url"):
         await _verify_scoped_tier_image(db, settings, business_id, dumped["image_url"])
 
-    new_level = dumped.get("level", tier.level)
-    new_priority = dumped.get("priority", tier.priority)
-    if new_level != tier.level or new_priority != tier.priority:
-        dup = await db.scalar(
+    other_tiers = (
+        await db.scalars(
             select(BusinessLoyaltyTier).where(
                 BusinessLoyaltyTier.business_id == business_id,
                 BusinessLoyaltyTier.id != tier_id,
-                (BusinessLoyaltyTier.level == new_level) | (BusinessLoyaltyTier.priority == new_priority),
             )
         )
-        if dup is not None:
-            if dup.level == new_level:
-                raise AppError("CONFLICT", f"Tier with level {new_level} already exists", 409)
+    ).all()
+    other_levels = {t.level for t in other_tiers}
+    other_priorities = {t.priority for t in other_tiers}
+
+    new_level = dumped.get("level", tier.level)
+    if new_level != tier.level and new_level in other_levels:
+        raise AppError("CONFLICT", f"Tier with level {new_level} already exists", 409)
+
+    if "priority" in dumped and dumped["priority"] is not None:
+        new_priority = dumped["priority"]
+        if new_priority in other_priorities:
             raise AppError("CONFLICT", f"Tier with priority {new_priority} already exists", 409)
+    else:
+        if new_level != tier.level:
+            if new_level not in other_priorities:
+                new_priority = new_level
+            elif tier.priority not in other_priorities:
+                new_priority = tier.priority
+            else:
+                new_priority = _allocate_priority(other_priorities, preferred=new_level)
+        else:
+            new_priority = tier.priority
+    dumped["priority"] = new_priority
 
     new_min = dumped.get("min_turnover", tier.min_turnover)
     new_max = dumped.get("max_turnover", tier.max_turnover)
