@@ -34,7 +34,7 @@ function renderContent(
     const method = init?.method ?? 'GET';
     if (url.endsWith('/admin/auth/refresh')) return json(200, { access_token: 'fixture-access', token_type: 'bearer', expires_in: 900 });
     if (url.endsWith('/admin/me')) return json(200, { admin: { id: 'a', login: 'fixture', role,
-      business: role === 'business_manager' ? { id: businessId, name: 'Fixture Market', status: 'active' } : null } });
+      business: role === 'business_manager' ? { id: businessId, name: 'Fixture Market', status: 'active' } : null }, admin_max_stats_period_days: 90 });
     if (url.includes('/admin/businesses?')) return json(200, { items: [{ id: businessId, name: 'Fixture Market' }], limit: 100, offset: 0, has_more: false });
     if (url.includes('/admin/promotions?')) return json(200, { items: [promotion], limit: 25, offset: 0, has_more: false });
     if (url.includes('/admin/notifications?')) return json(200, { items: [], limit: 25, offset: 0, has_more: false });

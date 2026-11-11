@@ -7,6 +7,7 @@ import { useAdminSession } from '../auth/provider';
 import { useActiveBusiness } from '../context/ActiveBusinessContext';
 import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { ImageUploadField } from '../components/ImageUploadField';
+import { NumericInput } from '../components/NumericInput';
 import { DialogFrame } from '../features/AdminMutations';
 import { CompactTableToggle, useCompactRows, useTableExpansion } from '../components/CompactTable';
 import { useLocale } from '../i18n/LocaleContext';
@@ -40,6 +41,7 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
   const [isActive, setIsActive] = useState<boolean>(tier?.is_active ?? true);
 
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({ level: '', period: '', thresholdMin: '', thresholdMax: '', percent: '' });
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -58,30 +60,20 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
       return;
     }
 
-    const parsedLevel = parseInt(level.trim(), 10);
-    if (isNaN(parsedLevel) || parsedLevel < 1 || parsedLevel > 100) {
-      setError(t.statuses.errLevelRequired);
-      return;
-    }
-
-    const parsedMonths = parseInt(turnoverPeriodMonths.trim(), 10);
-    if (isNaN(parsedMonths) || parsedMonths < 1 || parsedMonths > 36) {
-      setError(t.statuses.errTurnoverPeriod);
-      return;
-    }
-
-    const minNum = Number(thresholdMin);
-    const maxNum = thresholdMax.trim() !== '' ? Number(thresholdMax) : null;
-    if (isNaN(minNum) || minNum < 0 || (maxNum !== null && (isNaN(maxNum) || maxNum <= minNum))) {
-      setError(t.statuses.errThresholds);
-      return;
-    }
-
-    const pctNum = Number(percent);
-    if (isNaN(pctNum) || pctNum < 0 || pctNum > 100) {
-      setError(t.statuses.errPercent);
-      return;
-    }
+    const parsedLevel = Number(level.trim());
+    const parsedMonths = Number(turnoverPeriodMonths.trim());
+    const minNum = Number(thresholdMin.trim());
+    const maxNum = thresholdMax.trim() !== '' ? Number(thresholdMax.trim()) : null;
+    const pctNum = Number(percent.trim());
+    const nextFieldErrors = {
+      level: !Number.isInteger(parsedLevel) || parsedLevel < 1 || parsedLevel > 100 ? t.statuses.errLevelRequired : '',
+      period: !Number.isInteger(parsedMonths) || parsedMonths < 1 || parsedMonths > 36 ? t.statuses.errTurnoverPeriod : '',
+      thresholdMin: !thresholdMin.trim() || !Number.isFinite(minNum) || minNum < 0 ? t.statuses.errThresholds : '',
+      thresholdMax: maxNum !== null && (!Number.isFinite(maxNum) || !Number.isFinite(minNum) || maxNum <= minNum) ? t.statuses.errThresholds : '',
+      percent: !Number.isFinite(pctNum) || pctNum < 0 || pctNum > 100 ? t.statuses.errPercent : '',
+    };
+    setFieldErrors(nextFieldErrors);
+    if (Object.values(nextFieldErrors).some(Boolean)) return;
 
     const payload: LoyaltyTierInput = {
       level: parsedLevel,
@@ -129,20 +121,23 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
       onClose={onClose}
       className="mutation-dialog--wide"
     >
-      <form className="mutation-form" onSubmit={handleSubmit}>
+      <form className="mutation-form" onSubmit={handleSubmit} noValidate>
         {error && <p className="form-error" role="alert">{error}</p>}
 
         <label className="form-control" htmlFor="tier-level">
           {t.statuses.fieldLevel}
-          <input
+          <NumericInput
             id="tier-level"
-            type="number"
             min={1}
             max={100}
-            required
             value={level}
-            onChange={e => setLevel(e.target.value)}
+            aria-invalid={Boolean(fieldErrors.level)}
+            onChange={e => {
+              setLevel(e.target.value);
+              setFieldErrors(current => ({ ...current, level: '' }));
+            }}
           />
+          {fieldErrors.level && <span className="form-error">{fieldErrors.level}</span>}
         </label>
 
         <label className="form-control" htmlFor="tier-title-ru">
@@ -197,57 +192,73 @@ export function TierDialog({ businessId, tier, onClose, onSaved }: TierDialogPro
 
         <label className="form-control" htmlFor="tier-period">
           {t.statuses.fieldTurnoverPeriodMonths}
-          <input
+          <NumericInput
             id="tier-period"
-            type="number"
             min={1}
             max={36}
-            required
             value={turnoverPeriodMonths}
-            onChange={e => setTurnoverPeriodMonths(e.target.value)}
+            aria-invalid={Boolean(fieldErrors.period)}
+            onChange={e => {
+              setTurnoverPeriodMonths(e.target.value);
+              setFieldErrors(current => ({ ...current, period: '' }));
+            }}
           />
           <span className="muted-copy">{t.statuses.fieldTurnoverPeriodHint}</span>
+          {fieldErrors.period && <span className="form-error">{fieldErrors.period}</span>}
         </label>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
           <label className="form-control" htmlFor="tier-min">
             {t.statuses.fieldThresholdMin}
-            <input
+            <NumericInput
               id="tier-min"
-              type="number"
               min={0}
               step="any"
-              required
+              decimal
               value={thresholdMin}
-              onChange={e => setThresholdMin(e.target.value)}
+              aria-invalid={Boolean(fieldErrors.thresholdMin)}
+              onChange={e => {
+                setThresholdMin(e.target.value);
+                setFieldErrors(current => ({ ...current, thresholdMin: '' }));
+              }}
             />
+            {fieldErrors.thresholdMin && <span className="form-error">{fieldErrors.thresholdMin}</span>}
           </label>
           <label className="form-control" htmlFor="tier-max">
             {t.statuses.fieldThresholdMax}
-            <input
+            <NumericInput
               id="tier-max"
-              type="number"
               min={0}
               step="any"
+              decimal
               placeholder="Бессрочно / без предела"
               value={thresholdMax}
-              onChange={e => setThresholdMax(e.target.value)}
+              aria-invalid={Boolean(fieldErrors.thresholdMax)}
+              onChange={e => {
+                setThresholdMax(e.target.value);
+                setFieldErrors(current => ({ ...current, thresholdMax: '' }));
+              }}
             />
+            {fieldErrors.thresholdMax && <span className="form-error">{fieldErrors.thresholdMax}</span>}
           </label>
         </div>
 
         <label className="form-control" htmlFor="tier-percent">
           {t.statuses.fieldPercent}
-          <input
+          <NumericInput
             id="tier-percent"
-            type="number"
             min={0}
             max={100}
             step="any"
-            required
+            decimal
             value={percent}
-            onChange={e => setPercent(e.target.value)}
+            aria-invalid={Boolean(fieldErrors.percent)}
+            onChange={e => {
+              setPercent(e.target.value);
+              setFieldErrors(current => ({ ...current, percent: '' }));
+            }}
           />
+          {fieldErrors.percent && <span className="form-error">{fieldErrors.percent}</span>}
         </label>
 
         <label htmlFor="tier-image">{t.statuses.fieldImageUrl}</label>
@@ -308,6 +319,7 @@ export function StatusesPage() {
     setActiveBusiness(selected ? {
       id: selected.id,
       name: selected.name,
+      logo_url: selected.logo_url,
       android_app_id: selected.android_app_id,
     } : null);
   }, [activeBusinessId, businessesQuery.data?.items, isSuperadmin, setActiveBusiness]);

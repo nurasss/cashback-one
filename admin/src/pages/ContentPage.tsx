@@ -8,6 +8,7 @@ import { DataTable } from '../components/DataTable';
 import { useTableExpansion } from '../components/CompactTable';
 import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { ImageUploadField } from '../components/ImageUploadField';
+import { NumericInput } from '../components/NumericInput';
 import { DialogFrame } from '../features/AdminMutations';
 import { BusinessAppContent, BusinessSplashSection, BusinessStoresSection, BusinessTextsSection } from '../features/BusinessAppContent';
 import { astanaLocalToUtcIso, formatAstanaDateTime, formatAstanaSchedule, formatDate, getAstanaNowLocal, isValidAstanaDateTimeLocal, utcIsoToAstanaLocal } from '../utils/format';
@@ -556,10 +557,15 @@ export function PromotionDialog({
     is_active: promotion?.is_active ?? true,
   });
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({ sort_order: '', starts_at: '', ends_at: '' });
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
+  const set = (key: keyof typeof form) => (event: { target: { value: string } }) => {
     setForm(current => ({ ...current, [key]: event.target.value }));
+    if (key === 'sort_order' || key === 'starts_at' || key === 'ends_at') {
+      setFieldErrors(current => ({ ...current, [key]: '' }));
+    }
+  };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -573,35 +579,33 @@ export function PromotionDialog({
       return;
     }
     const sort = Number(form.sort_order);
-    if (!Number.isInteger(sort) || Math.abs(sort) > 1000) {
-      setError(t.content.promoErrSort);
-      return;
+    const nextFieldErrors = { sort_order: '', starts_at: '', ends_at: '' };
+    if (!form.sort_order.trim() || !Number.isInteger(sort) || Math.abs(sort) > 1000) {
+      nextFieldErrors.sort_order = t.content.promoErrSort;
     }
 
     // Date validations in Astana time
     if (form.starts_at.trim() && !isValidAstanaDateTimeLocal(form.starts_at.trim())) {
-      setError(t.content.promoErrInvalidDate);
-      return;
+      nextFieldErrors.starts_at = t.content.promoErrInvalidDate;
     }
     if (form.ends_at.trim() && !isValidAstanaDateTimeLocal(form.ends_at.trim())) {
-      setError(t.content.promoErrInvalidDate);
-      return;
+      nextFieldErrors.ends_at = t.content.promoErrInvalidDate;
     }
     if (!promotion && form.starts_at.trim()) {
       const startUtc = astanaLocalToUtcIso(form.starts_at.trim());
       if (startUtc && new Date(startUtc).getTime() < Date.now() - 5 * 60 * 1000) {
-        setError(t.content.promoErrStartPast);
-        return;
+        nextFieldErrors.starts_at = t.content.promoErrStartPast;
       }
     }
     if (form.starts_at.trim() && form.ends_at.trim()) {
       const startUtc = astanaLocalToUtcIso(form.starts_at.trim());
       const endUtc = astanaLocalToUtcIso(form.ends_at.trim());
       if (startUtc && endUtc && new Date(endUtc).getTime() <= new Date(startUtc).getTime()) {
-        setError(t.content.promoErrEndAfterStart);
-        return;
+        nextFieldErrors.ends_at = t.content.promoErrEndAfterStart;
       }
     }
+    setFieldErrors(nextFieldErrors);
+    if (Object.values(nextFieldErrors).some(Boolean)) return;
 
     const payload = {
       kind: form.kind,
@@ -648,7 +652,7 @@ export function PromotionDialog({
 
   return (
     <DialogFrame title={dialogTitle} onClose={onClose} className="mutation-dialog--wide">
-      <form className="mutation-form" onSubmit={event => { void submit(event); }}>
+      <form className="mutation-form" noValidate onSubmit={event => { void submit(event); }}>
         {superadmin && !promotion && (
           <>
             <label htmlFor="promo-business">{t.content.promoFieldAudience}</label>
@@ -704,8 +708,10 @@ export function PromotionDialog({
             type="datetime-local"
             value={form.starts_at}
             min={promotion ? undefined : getAstanaNowLocal()}
+            aria-invalid={Boolean(fieldErrors.starts_at)}
             onChange={set('starts_at')}
           />
+          {fieldErrors.starts_at && <p className="form-error">{fieldErrors.starts_at}</p>}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.5rem' }}>
@@ -725,12 +731,15 @@ export function PromotionDialog({
             type="datetime-local"
             value={form.ends_at}
             min={form.starts_at || getAstanaNowLocal()}
+            aria-invalid={Boolean(fieldErrors.ends_at)}
             onChange={set('ends_at')}
           />
+          {fieldErrors.ends_at && <p className="form-error">{fieldErrors.ends_at}</p>}
         </div>
 
         <label htmlFor="promo-sort">{t.content.promoFieldSort}</label>
-        <input id="promo-sort" type="number" value={form.sort_order} onChange={set('sort_order')} />
+        <NumericInput id="promo-sort" min={-1000} max={1000} allowNegative value={form.sort_order} aria-invalid={Boolean(fieldErrors.sort_order)} onChange={set('sort_order')} />
+        {fieldErrors.sort_order && <p className="form-error">{fieldErrors.sort_order}</p>}
         <label htmlFor="promo-active">
           <input
             id="promo-active"
@@ -773,10 +782,13 @@ export function NotificationDialog({
   const [whenToSend, setWhenToSend] = useState<'now' | 'scheduled'>('now');
   const [scheduledLocal, setScheduledLocal] = useState('');
   const [error, setError] = useState('');
+  const [scheduledError, setScheduledError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError('');
+    setScheduledError('');
     if (!title.trim() || !body.trim()) {
       setError(t.content.noticeErrFields);
       return;
@@ -785,26 +797,26 @@ export function NotificationDialog({
     let scheduledAtUtc: string | undefined = undefined;
     if (whenToSend === 'scheduled') {
       if (!scheduledLocal.trim()) {
-        setError(t.content.noticeErrScheduledRequired);
+        setScheduledError(t.content.noticeErrScheduledRequired);
         return;
       }
       if (!isValidAstanaDateTimeLocal(scheduledLocal.trim())) {
-        setError(t.content.promoErrInvalidDate);
+        setScheduledError(t.content.promoErrInvalidDate);
         return;
       }
       const utcIso = astanaLocalToUtcIso(scheduledLocal.trim());
       if (!utcIso) {
-        setError(t.content.noticeErrScheduledRequired);
+        setScheduledError(t.content.noticeErrScheduledRequired);
         return;
       }
       const targetTime = new Date(utcIso).getTime();
       const nowTime = Date.now();
       if (isNaN(targetTime) || targetTime <= nowTime) {
-        setError(t.content.noticeErrPast);
+        setScheduledError(t.content.noticeErrPast);
         return;
       }
       if (targetTime > nowTime + 30 * 24 * 60 * 60 * 1000) {
-        setError(t.content.noticeErrTooFar);
+        setScheduledError(t.content.noticeErrTooFar);
         return;
       }
       scheduledAtUtc = utcIso;
@@ -856,7 +868,7 @@ export function NotificationDialog({
                 name="whenToSend"
                 value="now"
                 checked={whenToSend === 'now'}
-                onChange={() => setWhenToSend('now')}
+                onChange={() => { setWhenToSend('now'); setScheduledError(''); }}
               />
               {t.content.noticeSendNow}
             </label>
@@ -866,7 +878,7 @@ export function NotificationDialog({
                 name="whenToSend"
                 value="scheduled"
                 checked={whenToSend === 'scheduled'}
-                onChange={() => setWhenToSend('scheduled')}
+                onChange={() => { setWhenToSend('scheduled'); setScheduledError(''); }}
               />
               {t.content.noticeSendScheduled}
             </label>
@@ -881,8 +893,10 @@ export function NotificationDialog({
               type="datetime-local"
               value={scheduledLocal}
               min={getAstanaNowLocal()}
-              onChange={event => setScheduledLocal(event.target.value)}
+              aria-invalid={Boolean(scheduledError)}
+              onChange={event => { setScheduledLocal(event.target.value); setScheduledError(''); }}
             />
+            {scheduledError && <p className="form-error">{scheduledError}</p>}
           </>
         )}
 

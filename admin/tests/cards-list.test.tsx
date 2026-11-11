@@ -68,6 +68,7 @@ function adminResponse(role: 'superadmin' | 'business_manager', business = busin
       role,
       business: role === 'business_manager' ? { id: business.id, name: business.name, status: 'active' } : null,
     },
+    admin_max_stats_period_days: 90,
   };
 }
 

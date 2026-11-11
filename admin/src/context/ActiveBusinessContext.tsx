@@ -3,6 +3,7 @@ import { createContext, useContext, useState, type PropsWithChildren } from 'rea
 export interface ActiveBusinessInfo {
   id?: string | null;
   name?: string | null;
+  logo_url?: string | null;
   android_app_id?: string | null;
 }
 

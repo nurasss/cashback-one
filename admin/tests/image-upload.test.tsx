@@ -56,6 +56,7 @@ function setupFetchMock(
     if (url.endsWith('/admin/me')) {
       return json(200, {
         admin: { id: 'admin-1', login: 'super', role: 'superadmin', business: null },
+        admin_max_stats_period_days: 90,
       });
     }
     if (handler) {

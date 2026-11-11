@@ -35,7 +35,7 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 
 function adminResponse(role: 'superadmin' | 'business_manager') {
   return { admin: { id: 'fixture-admin-id', login: `fixture.${role}`, role,
-    business: role === 'business_manager' ? { id: businessId, name: business.name, status: 'active' } : null } };
+    business: role === 'business_manager' ? { id: businessId, name: business.name, status: 'active' } : null }, admin_max_stats_period_days: 90 };
 }
 
 function renderAdmin(element: React.ReactNode, role: 'superadmin' | 'business_manager', route = '/') {

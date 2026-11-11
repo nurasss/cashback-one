@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { AdminSession } from '../src/auth/session';
 
-const me = { admin: { id: 'fixture-id', login: 'fixture.admin', role: 'superadmin', business: null } };
+const me = { admin: { id: 'fixture-id', login: 'fixture.admin', role: 'superadmin', business: null }, admin_max_stats_period_days: 90 };
 const token = { access_token: 'fixture-transient-access', token_type: 'bearer', expires_in: 900 };
 const json = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 

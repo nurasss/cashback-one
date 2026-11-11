@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdminSession } from '../auth/provider';
 import { useActiveBusiness } from '../context/ActiveBusinessContext';
@@ -6,7 +6,7 @@ import { useBusinesses, useDashboard } from '../api/queries';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { IconCards, IconCheckShield, IconTrendUp, IconUsers } from '../components/Icons';
 import type { AgentHealth } from '../api/types';
-import { formatDate, formatNumber, localDate, dayBoundary, isValidDateOnly } from '../utils/format';
+import { calendarDaysInclusive, formatDate, formatNumber, localDate, dayBoundary, isValidDateOnly } from '../utils/format';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
@@ -92,16 +92,21 @@ export function DashboardPage() {
   const { setActiveBusiness } = useActiveBusiness();
   const { locale } = useLocale();
   const t = useAdminTranslation();
+  const [defaultPeriod] = useState(() => {
+    const to = localDate(new Date());
+    return { from: localDate(new Date(Date.now() - 29 * 86400_000)), to, businessId: '' };
+  });
+  const today = defaultPeriod.to;
   const [businessId, setBusinessId] = useState('');
-  const today = localDate(new Date());
-  const defaultFrom = localDate(new Date(Date.now() - 29 * 86400_000));
-  const [from, setFrom] = useState(defaultFrom);
+  const [from, setFrom] = useState(defaultPeriod.from);
   const [to, setTo] = useState(today);
   const [filters, setFilters] = useState({
-    from: periodBoundary(defaultFrom, false),
+    from: periodBoundary(defaultPeriod.from, false),
     to: periodBoundary(today, true),
     business_id: undefined as string | undefined,
   });
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const lastWorkingPeriod = useRef<{ from: string; to: string; businessId: string } | null>(null);
 
   const businesses = useBusinesses(
     { limit: 100, offset: 0 },
@@ -116,6 +121,7 @@ export function DashboardPage() {
     setActiveBusiness(selected ? {
       id: selected.id,
       name: selected.name,
+      logo_url: selected.logo_url,
       android_app_id: selected.android_app_id,
     } : null);
   }, [businessId, businesses.data?.items, view.status, adminRole, setActiveBusiness]);
@@ -125,33 +131,68 @@ export function DashboardPage() {
       setActiveBusiness(null);
     };
   }, [setActiveBusiness]);
-  const dashboard = useDashboard(filters, view.status === 'authenticated');
+  const dashboard = useDashboard(filters, view.status === 'authenticated', refreshVersion);
   const title = view.status === 'authenticated' ? view.admin.business?.name ?? t.dashboard.allBusinesses : t.layout.nav.overview;
+
+  useEffect(() => {
+    if (!dashboard.data || !dashboard.isSuccess || dashboard.isFetching) return;
+    lastWorkingPeriod.current = {
+      from: localDate(new Date(filters.from)),
+      to: localDate(new Date(filters.to)),
+      businessId: filters.business_id ?? '',
+    };
+  }, [dashboard.data, dashboard.isSuccess, dashboard.isFetching, filters]);
+
+  useEffect(() => {
+    const resetToDefault = () => {
+      setFrom(defaultPeriod.from);
+      setTo(defaultPeriod.to);
+      setBusinessId('');
+      setFilters({
+        from: periodBoundary(defaultPeriod.from, false),
+        to: periodBoundary(defaultPeriod.to, true),
+        business_id: undefined,
+      });
+      setRefreshVersion(version => version + 1);
+    };
+    window.addEventListener('admin-dashboard-reset', resetToDefault);
+    return () => window.removeEventListener('admin-dashboard-reset', resetToDefault);
+  }, [defaultPeriod]);
 
   if (view.status !== 'authenticated') return null;
 
-  if (dashboard.isPending) return <LoadingPage label={t.dashboard.loadingMetrics} />;
-  if (dashboard.isError && !dashboard.data) {
-    return (
-      <div className="page-stack">
-        <ErrorNotice error={dashboard.error} retry={() => { void dashboard.refetch(); }} />
-      </div>
-    );
-  }
-
   const data = dashboard.data;
-  if (!data) return <EmptyState title={t.feedback.noDataTitle} detail={t.dashboard.emptyDetail} />;
-
-  const isPeriodValid = isValidDateOnly(from) && isValidDateOnly(to) && from <= to;
+  const isClient = view.admin.role === 'business_manager';
+  const dateRangeValid = isValidDateOnly(from) && isValidDateOnly(to) && from <= to;
+  const requestedDays = dateRangeValid ? calendarDaysInclusive(from, to) : 0;
+  const exceedsPeriodLimit = requestedDays > view.adminMaxStatsPeriodDays;
+  const isPeriodValid = dateRangeValid && !exceedsPeriodLimit;
+  const periodHint = !dateRangeValid
+    ? t.dashboard.periodInvalid
+    : exceedsPeriodLimit
+      ? t.dashboard.periodTooLarge(view.adminMaxStatsPeriodDays)
+      : '';
 
   const apply = () => {
     if (!isPeriodValid) return;
     setFilters({ from: periodBoundary(from, false), to: periodBoundary(to, true), business_id: businessId || undefined });
+    setRefreshVersion(version => version + 1);
   };
 
-  const totalAgents = data.agents ? Object.values(data.agents).reduce((sum, item) => sum + item, 0) : 0;
+  const restoreWorkingPeriod = () => {
+    const target = lastWorkingPeriod.current ?? defaultPeriod;
+    setFrom(target.from);
+    setTo(target.to);
+    setBusinessId(target.businessId);
+    setFilters({
+      from: periodBoundary(target.from, false),
+      to: periodBoundary(target.to, true),
+      business_id: target.businessId || undefined,
+    });
+    setRefreshVersion(version => version + 1);
+  };
 
-  const isClient = view.admin.role === 'business_manager';
+  const totalAgents = data?.agents ? Object.values(data.agents).reduce((sum, item) => sum + item, 0) : 0;
 
   return (
     <div className="page-stack">
@@ -171,8 +212,6 @@ export function DashboardPage() {
           ) : undefined
         }
       />
-      {dashboard.isError && <ErrorNotice error={dashboard.error} retry={() => { void dashboard.refetch(); }} />}
-
       <section className="filter-panel" aria-label={t.dashboard.filterAria}>
         <div className="filter-heading">
           <span className="panel-kicker">{t.dashboard.filterKicker}</span>
@@ -214,8 +253,24 @@ export function DashboardPage() {
             {t.dashboard.refreshBtn}
           </button>
         </div>
+        {periodHint && <p className="form-error" role="status">{periodHint}</p>}
       </section>
 
+      {dashboard.isError && (
+        <div className="dashboard-period-error">
+          <ErrorNotice error={dashboard.error} retry={() => { void dashboard.refetch(); }} />
+          <button className="button button-secondary" type="button" onClick={restoreWorkingPeriod}>
+            {t.dashboard.backToWorkingPeriod}
+          </button>
+        </div>
+      )}
+
+      {dashboard.isPending && !data && <LoadingPage label={t.dashboard.loadingMetrics} />}
+      {!dashboard.isPending && !dashboard.isError && !data && (
+        <EmptyState title={t.feedback.noDataTitle} detail={t.dashboard.emptyDetail} />
+      )}
+
+      {data && <>
       {isClient ? (
         <section className="metric-grid" aria-label={t.dashboard.metricsAria}>
           <Metric
@@ -351,6 +406,7 @@ export function DashboardPage() {
       <p className="data-note">
         {isClient ? t.dashboard.clientDataNote : t.dashboard.dataNote}
       </p>
+      </>}
     </div>
   );
 }

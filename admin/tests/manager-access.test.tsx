@@ -37,6 +37,7 @@ function adminResponse(role: 'superadmin' | 'business_manager') {
       role,
       business: role === 'business_manager' ? { id: businessId, name: business.name, status: 'active' } : null,
     },
+    admin_max_stats_period_days: 90,
   };
 }
 
@@ -80,7 +81,7 @@ it('renders ManagerAccessDialog with one-time credentials and supports copy-all'
   expect(await screen.findByText('Скопировано в буфер обмена.')).toBeInTheDocument();
 
   // Close button
-  const closeBtn = screen.getByRole('button', { name: 'Закрыть' });
+  const closeBtn = screen.getByRole('button', { name: 'Закрыть окно' });
   await user.click(closeBtn);
   expect(onClose).toHaveBeenCalled();
 
@@ -155,7 +156,7 @@ it('shows ManagerAccessDialog after business creation and clears on close', asyn
   expect(screen.getByLabelText('Пароль менеджера')).toHaveTextContent('CreatedSecret16x');
 
   // Close the disclosure dialog
-  const closeBtn = screen.getByRole('button', { name: 'Закрыть' });
+  const closeBtn = screen.getByRole('button', { name: 'Закрыть окно' });
   await user.click(closeBtn);
 
   // Dialog and secret must be completely gone from DOM
@@ -218,7 +219,7 @@ it('supports resetting manager credentials on business detail page', async () =>
   expect(screen.getByLabelText('Пароль менеджера')).toHaveTextContent('ResetSecretPass16');
 
   // Close modal
-  const closeBtn = screen.getByRole('button', { name: 'Закрыть' });
+  const closeBtn = screen.getByRole('button', { name: 'Закрыть окно' });
   await user.click(closeBtn);
 
   await waitFor(() => {

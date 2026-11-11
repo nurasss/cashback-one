@@ -5,6 +5,11 @@ export class ApiError extends Error {
   }
 }
 
+export function isRetryableNetworkError(error: unknown): boolean {
+  return error instanceof ApiError
+    && (error.code === 'NETWORK_UNAVAILABLE' || error.code === 'REQUEST_TIMEOUT');
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }

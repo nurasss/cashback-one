@@ -114,6 +114,11 @@ export function Navigation({ role }: { role: AdminRole }) {
         end={item.path === '/admin'}
         className={active ? 'nav-link active' : 'nav-link'}
         aria-current={active ? 'page' : undefined}
+        onClick={() => {
+          if (active && item.path === '/admin') {
+            window.dispatchEvent(new Event('admin-dashboard-reset'));
+          }
+        }}
       >
         <span className="nav-icon" aria-hidden="true">
           <Icon />

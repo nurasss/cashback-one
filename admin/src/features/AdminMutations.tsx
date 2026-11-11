@@ -313,6 +313,7 @@ export function ManagerAccessDialog({ disclosure, title, onClose }: {
 
   const copyAll = async () => {
     setCopyError('');
+    setCopied(false);
     const fullText = t.mutations.copyAllTemplate(loginUrl, disclosure.login, disclosure.password);
     try {
       await navigator.clipboard.writeText(fullText);
@@ -331,12 +332,12 @@ export function ManagerAccessDialog({ disclosure, title, onClose }: {
       <code id="disclosure-login" className="secret-key" aria-label={t.mutations.managerLoginAria}>{disclosure.login}</code>
       <label htmlFor="disclosure-password">{t.mutations.managerPasswordLabel}</label>
       <code id="disclosure-password" className="secret-key" aria-label={t.mutations.managerPasswordAria}>{disclosure.password}</code>
-      {copyError && <p className="form-error" role="alert">{copyError}</p>}
-      <footer className="mutation-actions">
+      <footer className="mutation-actions manager-access-actions">
         <button className="button button-primary" type="button" onClick={() => { void copyAll(); }}>{t.mutations.copyAllBtn}</button>
-        <button className="button button-secondary" type="button" onClick={onClose}>{t.mutations.close}</button>
       </footer>
-      {copied && <p className="success-copy" role="status">{t.mutations.copyAllCopied}</p>}
+      <div className="manager-access-status" aria-live="polite">
+        {copyError ? <p className="form-error" role="alert">{copyError}</p> : copied ? <p className="success-copy">{t.mutations.copyAllCopied}</p> : null}
+      </div>
     </div>
   </DialogFrame>;
 }

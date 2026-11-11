@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { messageForError } from '../api/errors';
+import { isRetryableNetworkError, messageForError } from '../api/errors';
 import { useLocale } from '../i18n/LocaleContext';
 
 export function LoadingPage({ label }: { label?: string }) {
@@ -23,7 +23,7 @@ export function ErrorNotice({ error, retry }: { error: unknown; retry?: () => vo
         <strong>{locale === 'kk' ? 'Сұранысты орындау мүмкін болмады' : 'Не удалось выполнить запрос'}</strong>
         <p>{messageForError(error, locale)}</p>
       </div>
-      {retry && (
+      {retry && isRetryableNetworkError(error) && (
         <button className="button button-secondary" type="button" onClick={retry}>
           {locale === 'kk' ? 'Қайталау' : 'Повторить'}
         </button>

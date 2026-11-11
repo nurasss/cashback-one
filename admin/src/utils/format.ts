@@ -55,6 +55,13 @@ export function dayBoundary(day: string, end: boolean): string {
   return new Date(ms).toISOString();
 }
 
+export function calendarDaysInclusive(from: string, to: string): number {
+  if (!isValidDateOnly(from) || !isValidDateOnly(to) || from > to) return 0;
+  const start = Date.parse(`${from}T00:00:00.000Z`);
+  const end = Date.parse(`${to}T00:00:00.000Z`);
+  return Math.floor((end - start) / 86400_000) + 1;
+}
+
 export function formatAstanaSchedule(value: string): string {
   const date = new Date(value);
   if (isNaN(date.getTime())) return '';

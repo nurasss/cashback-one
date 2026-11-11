@@ -23,7 +23,7 @@ function setup(path: string, locale: 'ru' | 'kk' = 'ru', count = 25) {
     if (url.pathname === '/admin/auth/refresh') {
       status = path === '/admin/login' ? 401 : 200;
       body = status === 401 ? { error: { code: 'ADMIN_UNAUTHENTICATED' } } : { access_token: 'fixture-access', token_type: 'bearer', expires_in: 900 };
-    } else if (url.pathname === '/admin/me') body = { admin: { id: 'fixture-admin', login: 'fixture.admin', role: 'superadmin', business: null } };
+    } else if (url.pathname === '/admin/me') body = { admin: { id: 'fixture-admin', login: 'fixture.admin', role: 'superadmin', business: null }, admin_max_stats_period_days: 90 };
     else if (url.pathname === '/admin/businesses') body = { ...page, items: [business], has_more: false };
     else if (url.pathname === `/admin/businesses/${business.id}`) body = business;
     else if (url.pathname === '/admin/agents') body = { ...page, items: [agent], has_more: false };

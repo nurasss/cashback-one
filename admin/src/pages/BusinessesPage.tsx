@@ -16,6 +16,7 @@ import { BusinessAppContent } from '../features/BusinessAppContent';
 import { BusinessPosKeys } from '../features/BusinessPosKeys';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
+import { resolveBusinessLogoSource } from '../utils/businessLogo';
 
 export function BusinessesPage() {
   const { locale } = useLocale();
@@ -60,6 +61,11 @@ export function BusinessesPage() {
                   <span>{item.id}</span>
                 </Link>
               ),
+            },
+            {
+              key: 'logo',
+              title: t.businesses.colLogo,
+              render: item => <BusinessLogo url={item.logo_url} t={t} className="business-logo--list" />,
             },
             {
               key: 'status',
@@ -122,6 +128,7 @@ export function BusinessDetailPage() {
       setActiveBusiness({
         id: query.data.id,
         name: query.data.name,
+        logo_url: query.data.logo_url,
         android_app_id: query.data.android_app_id,
       });
     }
@@ -310,17 +317,15 @@ function DetailLine({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-function BusinessLogo({ url, t }: { url: string | null; t: ReturnType<typeof useAdminTranslation> }) {
+function BusinessLogo({ url, t, className }: {
+  url: string | null;
+  t: ReturnType<typeof useAdminTranslation>;
+  className?: string;
+}) {
   if (!url) return <span className="muted-copy">{t.businesses.logoNone}</span>;
-  let safeSource: string;
-  try {
-    const parsed = new URL(url, window.location.origin);
-    if (parsed.protocol !== 'https:' && parsed.origin !== window.location.origin) {
-      return <span className="muted-copy">{t.businesses.logoHttpsOnly}</span>;
-    }
-    safeSource = parsed.href;
-  } catch {
-    return <span className="muted-copy">{t.businesses.logoInvalid}</span>;
+  const source = resolveBusinessLogoSource(url);
+  if (!source.ok) {
+    return <span className="muted-copy">{source.reason === 'https' ? t.businesses.logoHttpsOnly : t.businesses.logoInvalid}</span>;
   }
-  return <img className="business-logo" src={safeSource} alt={t.businesses.logoAlt} loading="lazy" referrerPolicy="no-referrer" />;
+  return <img className={`business-logo ${className ?? ''}`.trim()} src={source.src} alt={t.businesses.logoAlt} loading="lazy" referrerPolicy="no-referrer" />;
 }

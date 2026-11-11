@@ -384,13 +384,28 @@ body {
   height: 36px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  overflow: hidden;
+  border-radius: 50%;
   background: linear-gradient(135deg, #ffe4e6 0%, #fecdd3 100%);
   color: #be123c;
   font-weight: 700;
   font-size: 14px;
   border: 1px solid #fecdd3;
   box-shadow: var(--shadow-sm);
+}
+
+.account-avatar.has-logo {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+.account-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 3px;
+  border-radius: 50%;
+  object-fit: contain;
 }
 
 .account-copy {
@@ -610,6 +625,16 @@ a.button-primary:active {
   margin-top: 16px;
 }
 
+.dashboard-period-error {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.dashboard-period-error .error-notice {
+  flex: 1;
+}
+
 .form-control {
   display: grid;
   gap: 6px;
@@ -623,13 +648,22 @@ a.button-primary:active {
 .text-input {
   min-width: 145px;
   height: 38px;
-  padding: 0 12px;
+  padding: 9px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: #ffffff;
   color: var(--ink);
   font-size: 13px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-control textarea {
+  padding: 9px 12px;
+}
+
+.form-control select,
+.mutation-form select {
+  padding-right: 40px;
 }
 
 .form-control input:focus,
@@ -1369,6 +1403,15 @@ tbody tr:hover {
   object-position: left center;
 }
 
+:root .business-logo--list {
+  width: 40px;
+  height: 40px;
+  padding: 3px;
+  border: 1px solid #e2e8f0;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
 /* Modals & Dialogs */
 .mutation-backdrop {
   position: fixed;
@@ -1437,6 +1480,10 @@ tbody tr:hover {
   color: var(--ink);
   font: inherit;
   font-size: 13px;
+}
+
+.mutation-form select {
+  padding-right: 40px;
 }
 
 .mutation-form input[type="checkbox"],
@@ -1581,6 +1628,22 @@ tbody tr:hover {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
+}
+
+.manager-access-actions {
+  justify-content: center;
+}
+
+.manager-access-status {
+  min-height: 44px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.manager-access-status p {
+  margin: 0;
 }
 
 /* App Splash Section */
@@ -2205,6 +2268,9 @@ tbody tr:hover {
     align-items: stretch;
     gap: 10px;
   }
+  .dashboard-period-error {
+    flex-direction: column;
+  }
   .form-control {
     flex: 1 1 100%;
     min-width: 0;
@@ -2383,6 +2449,9 @@ tbody tr:hover {
   .mutation-actions .button {
     flex: 1;
   }
+  .manager-access-actions .button {
+    flex: 0 1 auto;
+  }
 }
 
 @media (max-width: 400px) {
@@ -2452,6 +2521,7 @@ tbody tr:hover {
 }
 
 .settings-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -2465,9 +2535,8 @@ tbody tr:hover {
 }
 
 .settings-card-title-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  min-height: 44px;
+  padding-right: 60px;
 }
 
 .settings-card-title-row h2 {
@@ -2479,16 +2548,12 @@ tbody tr:hover {
 
 .settings-card-header .muted-copy {
   margin: 0;
-  padding-left: 60px;
-}
-
-@media (max-width: 640px) {
-  .settings-card-header .muted-copy {
-    padding-left: 0;
-  }
 }
 
 .settings-card-icon {
+  position: absolute;
+  top: 24px;
+  right: 24px;
   width: 44px;
   height: 44px;
   display: flex;
@@ -2502,7 +2567,7 @@ tbody tr:hover {
 
 .settings-card-actions {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 
 @media (prefers-reduced-motion: reduce) {

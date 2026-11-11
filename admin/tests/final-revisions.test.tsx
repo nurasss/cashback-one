@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   astanaLocalToUtcIso,
+  calendarDaysInclusive,
   dayBoundary,
   formatDate,
   formatDateOnly,
@@ -44,6 +45,13 @@ describe('Final Revisions (Points 5–14)', () => {
       // End of day 2026-11-10 in Astana (UTC+5) is 2026-11-10 18:59:59.999 UTC
       const end = dayBoundary('2026-11-10', true);
       expect(end).toBe('2026-11-10T18:59:59.999Z');
+    });
+
+    it('counts inclusive calendar days without a local-machine timezone dependency', () => {
+      expect(calendarDaysInclusive('2026-11-10', '2026-11-10')).toBe(1);
+      expect(calendarDaysInclusive('2026-11-10', '2026-11-11')).toBe(2);
+      expect(calendarDaysInclusive('2026-11-11', '2026-11-10')).toBe(0);
+      expect(calendarDaysInclusive('2026-02-31', '2026-03-01')).toBe(0);
     });
 
     it('isValidAstanaDateTimeLocal enforces strict 4-digit year and real calendar dates', () => {

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useAdminSession } from '../auth/provider';
 import type {
   Agent, AdminUser, AdminUserDetail, AppNotification, AppTexts, AuditItem, Business, BusinessDetail, BusinessSplashConfig, BusinessStore, Card, CardDetail, Dashboard, LoyaltyTier, Page, PageQuery, PosKey, Promotion, PromotionKind,
@@ -6,14 +6,19 @@ import type {
 
 export const privateKey = ['admin'] as const;
 
-export function useDashboard(filters: { business_id?: string; from?: string; to?: string }, enabled = true) {
+export function useDashboard(filters: { business_id?: string; from?: string; to?: string }, enabled = true, refreshVersion = 0) {
   const { session } = useAdminSession();
   const params = new URLSearchParams();
   if (filters.business_id) params.set('business_id', filters.business_id);
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
   const query = params.size ? `?${params}` : '';
-  return useQuery({ queryKey: [...privateKey, 'dashboard', filters], enabled, queryFn: ({ signal }) => session.api.request<Dashboard>(`/admin/dashboard${query}`, { signal }) });
+  return useQuery({
+    queryKey: [...privateKey, 'dashboard', filters, refreshVersion],
+    enabled,
+    placeholderData: keepPreviousData,
+    queryFn: ({ signal }) => session.api.request<Dashboard>(`/admin/dashboard${query}`, { signal }),
+  });
 }
 
 export function useBusinesses(page: PageQuery = { limit: 25, offset: 0 }, enabled = true) {

@@ -61,9 +61,6 @@ export function LandingPage() {
 
           <div className="landing-header-actions">
             <LanguageSwitcher className="landing-lang-switcher" />
-            <a href="#business" className="landing-btn landing-btn-outline landing-btn-sm landing-header-biz-btn">
-              {t.header.businessBtn}
-            </a>
             <a href="/admin/login" className="landing-btn landing-btn-ghost landing-btn-sm landing-header-login-btn">
               {t.header.loginBtn}
             </a>

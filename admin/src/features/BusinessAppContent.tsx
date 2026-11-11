@@ -13,6 +13,7 @@ import type {
 import { useAdminSession } from '../auth/provider';
 import { CompactTableToggle, useCompactRows, useTableExpansion } from '../components/CompactTable';
 import { StatusPill } from '../components/Feedback';
+import { NumericInput } from '../components/NumericInput';
 import { DialogFrame } from './AdminMutations';
 import { useLocale } from '../i18n/LocaleContext';
 import { adminErrorMessage, useAdminTranslation } from '../i18n/admin';
@@ -49,9 +50,10 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
   const [mapUrl, setMapUrl] = useState(store?.map_url ?? '');
   const [latitude, setLatitude] = useState<string>(store?.latitude != null ? String(store.latitude) : '');
   const [longitude, setLongitude] = useState<string>(store?.longitude != null ? String(store.longitude) : '');
-  const [sortOrder, setSortOrder] = useState<number>(store?.sort_order ?? 0);
+  const [sortOrder, setSortOrder] = useState<string>(String(store?.sort_order ?? 0));
   const [isActive, setIsActive] = useState<boolean>(store?.is_active ?? true);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({ latitude: '', longitude: '', sortOrder: '' });
   const [saving, setSaving] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [resolveInfo, setResolveInfo] = useState<string | null>(null);
@@ -88,6 +90,7 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
       if (resp.status === 'found' && resp.latitude != null && resp.longitude != null) {
         setLatitude(String(resp.latitude));
         setLongitude(String(resp.longitude));
+        setFieldErrors(current => ({ ...current, latitude: '', longitude: '' }));
         setResolveInfo(resp.resolved_address || `${resp.latitude}, ${resp.longitude}`);
         setCandidates([]);
       } else if (resp.status === 'ambiguous' && resp.candidates && resp.candidates.length > 0) {
@@ -106,6 +109,7 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
   const selectCandidate = (cand: StoreCoordinateCandidate) => {
     setLatitude(String(cand.latitude));
     setLongitude(String(cand.longitude));
+    setFieldErrors(current => ({ ...current, latitude: '', longitude: '' }));
     setResolveInfo(cand.address);
     setCandidates([]);
   };
@@ -113,6 +117,7 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
   const handleClearCoords = () => {
     setLatitude('');
     setLongitude('');
+    setFieldErrors(current => ({ ...current, latitude: '', longitude: '' }));
     setResolveInfo(null);
     setCandidates([]);
   };
@@ -128,6 +133,7 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
     const cleanMapUrl = mapUrl.trim();
     const cleanLat = latitude.trim().replace(',', '.');
     const cleanLon = longitude.trim().replace(',', '.');
+    const cleanSort = sortOrder.trim();
 
     if (!cleanTitleRu || !cleanTitleKk) {
       setError(t.appContent.errTitleRequired);
@@ -142,25 +148,39 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
       return;
     }
 
-    if ((cleanLat !== '' && cleanLon === '') || (cleanLat === '' && cleanLon !== '')) {
-      setError(t.appContent.errCoordinatesPair);
-      return;
-    }
+    const nextFieldErrors = { latitude: '', longitude: '', sortOrder: '' };
     let parsedLat: number | null = null;
     let parsedLon: number | null = null;
-    if (cleanLat !== '') {
-      parsedLat = Number(cleanLat);
-      if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) {
-        setError(t.appContent.errLatitudeRange);
-        return;
+
+    if ((cleanLat !== '' && cleanLon === '') || (cleanLat === '' && cleanLon !== '')) {
+      if (cleanLat === '') nextFieldErrors.latitude = t.appContent.errCoordinatesPair;
+      if (cleanLon === '') nextFieldErrors.longitude = t.appContent.errCoordinatesPair;
+    } else {
+      if (cleanLat !== '') {
+        parsedLat = Number(cleanLat);
+        if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) {
+          nextFieldErrors.latitude = t.appContent.errLatitudeRange;
+        }
+      }
+      if (cleanLon !== '') {
+        parsedLon = Number(cleanLon);
+        if (!Number.isFinite(parsedLon) || parsedLon < -180 || parsedLon > 180) {
+          nextFieldErrors.longitude = t.appContent.errLongitudeRange;
+        }
       }
     }
-    if (cleanLon !== '') {
-      parsedLon = Number(cleanLon);
-      if (!Number.isFinite(parsedLon) || parsedLon < -180 || parsedLon > 180) {
-        setError(t.appContent.errLongitudeRange);
-        return;
+
+    const parsedSort = Number(cleanSort);
+    if (!cleanSort || !Number.isInteger(parsedSort) || Math.abs(parsedSort) > 1000) {
+      nextFieldErrors.sortOrder = t.content.promoErrSort;
+    }
+
+    setFieldErrors(nextFieldErrors);
+    if (Object.values(nextFieldErrors).some(Boolean)) {
+      if (nextFieldErrors.latitude || nextFieldErrors.longitude) {
+        setShowManualCoords(true);
       }
+      return;
     }
 
     setSaving(true);
@@ -173,7 +193,7 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
         map_url: cleanMapUrl || null,
         latitude: parsedLat,
         longitude: parsedLon,
-        sort_order: Number.isFinite(sortOrder) ? sortOrder : 0,
+        sort_order: parsedSort,
         is_active: isActive,
       };
 
@@ -212,7 +232,7 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
       title={store ? t.appContent.storeDialogEditTitle : t.appContent.storeDialogCreateTitle}
       onClose={onClose}
     >
-      <form className="mutation-form" onSubmit={handleSubmit}>
+      <form className="mutation-form" noValidate onSubmit={handleSubmit}>
         {error && <p className="form-error" role="alert">{error}</p>}
 
         <label className="form-control" htmlFor="store-title-ru">
@@ -340,7 +360,7 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
         )}
 
         <details
-          open={showManualCoords || Boolean(latitude || longitude)}
+          open={showManualCoords || Boolean(latitude || longitude || fieldErrors.latitude || fieldErrors.longitude)}
           onToggle={e => setShowManualCoords((e.target as HTMLDetailsElement).open)}
           style={{ marginBottom: '1rem', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '0.5rem 0.75rem' }}
         >
@@ -350,26 +370,38 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
             <label className="form-control" htmlFor="store-latitude">
               {t.appContent.fieldLatitude}
-              <input
+              <NumericInput
                 id="store-latitude"
-                type="number"
                 step="any"
+                allowNegative
+                decimal
                 placeholder="43.238949"
                 value={latitude}
-                onChange={e => setLatitude(e.target.value)}
+                aria-invalid={Boolean(fieldErrors.latitude)}
+                onChange={e => {
+                  setLatitude(e.target.value);
+                  setFieldErrors(current => ({ ...current, latitude: '' }));
+                }}
               />
+              {fieldErrors.latitude && <span className="form-error">{fieldErrors.latitude}</span>}
             </label>
 
             <label className="form-control" htmlFor="store-longitude">
               {t.appContent.fieldLongitude}
-              <input
+              <NumericInput
                 id="store-longitude"
-                type="number"
                 step="any"
+                allowNegative
+                decimal
                 placeholder="76.889709"
                 value={longitude}
-                onChange={e => setLongitude(e.target.value)}
+                aria-invalid={Boolean(fieldErrors.longitude)}
+                onChange={e => {
+                  setLongitude(e.target.value);
+                  setFieldErrors(current => ({ ...current, longitude: '' }));
+                }}
               />
+              {fieldErrors.longitude && <span className="form-error">{fieldErrors.longitude}</span>}
             </label>
           </div>
           <p className="muted-copy" style={{ marginTop: '0.35rem', marginBottom: '0.25rem', fontSize: '0.8125rem' }}>
@@ -379,14 +411,19 @@ export function StoreDialog({ businessId, store, onClose, onSaved }: StoreDialog
 
         <label className="form-control" htmlFor="store-sort-order">
           {t.appContent.fieldSortOrder}
-          <input
+          <NumericInput
             id="store-sort-order"
-            type="number"
             min={-1000}
             max={1000}
+            allowNegative
             value={sortOrder}
-            onChange={e => setSortOrder(parseInt(e.target.value, 10) || 0)}
+            aria-invalid={Boolean(fieldErrors.sortOrder)}
+            onChange={e => {
+              setSortOrder(e.target.value);
+              setFieldErrors(current => ({ ...current, sortOrder: '' }));
+            }}
           />
+          {fieldErrors.sortOrder && <span className="form-error">{fieldErrors.sortOrder}</span>}
         </label>
 
         <label className="checkbox-row" htmlFor="store-is-active">

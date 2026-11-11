@@ -129,6 +129,7 @@ describe('StatusesPage and TierDialog without Priority field', () => {
               role: 'business_manager',
               business: { id: businessId, name: 'Керемет', status: 'active' },
             },
+            admin_max_stats_period_days: 90,
           })
         );
       }
@@ -171,6 +172,7 @@ describe('StatusesPage and TierDialog without Priority field', () => {
               role: 'business_manager',
               business: { id: businessId, name: 'Керемет', status: 'active' },
             },
+            admin_max_stats_period_days: 90,
           })
         );
       }
@@ -240,6 +242,7 @@ describe('StatusesPage and TierDialog without Priority field', () => {
               role: 'business_manager',
               business: { id: businessId, name: 'Керемет', status: 'active' },
             },
+            admin_max_stats_period_days: 90,
           })
         );
       }
@@ -314,6 +317,7 @@ describe('StatusesPage and TierDialog without Priority field', () => {
               role: 'business_manager',
               business: { id: businessId, name: 'Керемет', status: 'active' },
             },
+            admin_max_stats_period_days: 90,
           })
         );
       }

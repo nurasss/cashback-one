@@ -5,7 +5,7 @@ import type { AdminAccessToken, AdminIdentity, AdminMe } from '../api/types';
 export type SessionView =
   | { status: 'loading' | 'authenticating' | 'signing_out' }
   | { status: 'anonymous' }
-  | { status: 'authenticated'; admin: AdminIdentity }
+  | { status: 'authenticated'; admin: AdminIdentity; adminMaxStatsPeriodDays: number }
   | { status: 'error' | 'logout_error'; error: ApiError };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -21,13 +21,19 @@ function parseToken(value: unknown): AdminAccessToken {
 }
 
 function parseMe(value: unknown): AdminMe {
-  if (!isRecord(value) || !isRecord(value.admin)) throw new ApiError('INVALID_RESPONSE');
+  if (!isRecord(value) || !isRecord(value.admin)
+    || typeof value.admin_max_stats_period_days !== 'number'
+    || !Number.isInteger(value.admin_max_stats_period_days)
+    || value.admin_max_stats_period_days < 1) throw new ApiError('INVALID_RESPONSE');
   const admin = value.admin;
   if (typeof admin.id !== 'string' || typeof admin.login !== 'string'
     || (admin.role !== 'superadmin' && admin.role !== 'business_manager')) throw new ApiError('INVALID_RESPONSE');
   if (admin.role === 'superadmin') {
     if (admin.business !== null) throw new ApiError('INVALID_RESPONSE');
-    return { admin: { id: admin.id, login: admin.login, role: admin.role, business: null } };
+    return {
+      admin: { id: admin.id, login: admin.login, role: admin.role, business: null },
+      admin_max_stats_period_days: value.admin_max_stats_period_days,
+    };
   }
   if (!isRecord(admin.business) || typeof admin.business.id !== 'string' || typeof admin.business.name !== 'string'
     || typeof admin.business.status !== 'string') throw new ApiError('INVALID_RESPONSE');
@@ -40,9 +46,11 @@ function parseMe(value: unknown): AdminMe {
         id: admin.business.id,
         name: admin.business.name,
         status: admin.business.status,
+        logo_url: typeof admin.business.logo_url === 'string' ? admin.business.logo_url : null,
         android_app_id: typeof admin.business.android_app_id === 'string' ? admin.business.android_app_id : null,
       },
     },
+    admin_max_stats_period_days: value.admin_max_stats_period_days,
   };
 }
 
@@ -100,7 +108,11 @@ export class AdminSession {
     try {
       await this.refreshAccess();
       const me = parseMe(await this.api.request<unknown>('/admin/me'));
-      if (generation === this.epoch) this.publish({ status: 'authenticated', admin: me.admin });
+      if (generation === this.epoch) this.publish({
+        status: 'authenticated',
+        admin: me.admin,
+        adminMaxStatsPeriodDays: me.admin_max_stats_period_days,
+      });
     } catch (error) {
       if (generation !== this.epoch) return;
       if (error instanceof ApiError && error.status === 401) this.publish({ status: 'anonymous' });
@@ -135,7 +147,11 @@ export class AdminSession {
       this.clearPrivateCache();
       this.access = token.access_token;
       const me = parseMe(await this.api.request<unknown>('/admin/me'));
-      if (generation === this.epoch) this.publish({ status: 'authenticated', admin: me.admin });
+      if (generation === this.epoch) this.publish({
+        status: 'authenticated',
+        admin: me.admin,
+        adminMaxStatsPeriodDays: me.admin_max_stats_period_days,
+      });
     } catch (error) {
       if (generation === this.epoch) {
         this.access = null;

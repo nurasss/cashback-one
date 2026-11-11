@@ -1,8 +1,8 @@
 export type AdminRole = 'superadmin' | 'business_manager';
 export type AgentHealth = 'online' | 'stale' | 'never_connected' | 'error' | 'disabled';
-export interface BusinessIdentity { id: string; name: string; status: string; android_app_id?: string | null }
+export interface BusinessIdentity { id: string; name: string; status: string; logo_url?: string | null; android_app_id?: string | null }
 export interface AdminIdentity { id: string; login: string; role: AdminRole; business: BusinessIdentity | null }
-export interface AdminMe { admin: AdminIdentity }
+export interface AdminMe { admin: AdminIdentity; admin_max_stats_period_days: number }
 export interface Page<T> { items: T[]; limit: number; offset: number; has_more: boolean }
 export interface Business {
   id: string; name: string; logo_url: string | null; colors: Record<string, unknown> | null;

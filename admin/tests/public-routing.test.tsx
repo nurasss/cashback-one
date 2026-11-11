@@ -359,6 +359,7 @@ describe('Both 404 pages', () => {
       if (url.endsWith('/admin/me')) {
         return json(200, {
           admin: { id: 'admin-1', login: 'superadmin', role: 'superadmin', business: null },
+          admin_max_stats_period_days: 90,
         });
       }
       return json(404, {});

@@ -70,6 +70,7 @@ function renderAppContent(role: 'superadmin' | 'business_manager', initialLocale
               ? { id: businessId, name: 'Fixture Market', status: 'active' }
               : null,
         },
+        admin_max_stats_period_days: 90,
       });
     }
     if (url.includes('/admin/businesses?')) {

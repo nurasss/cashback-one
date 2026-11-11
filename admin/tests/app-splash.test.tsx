@@ -65,6 +65,7 @@ function setupMocks(config: BusinessSplashConfig = initialSplashConfig) {
           role: 'business_manager',
           business: { id: businessId, name: 'Keremet Store', status: 'active' },
         },
+        admin_max_stats_period_days: 90,
       });
     }
     if (url.includes('/admin/promotions?')) {

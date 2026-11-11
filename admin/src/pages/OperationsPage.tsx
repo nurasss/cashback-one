@@ -43,6 +43,7 @@ export function OperationsPage() {
     setActiveBusiness(selected ? {
       id: selected.id,
       name: selected.name,
+      logo_url: selected.logo_url,
       android_app_id: selected.android_app_id,
     } : null);
   }, [businessId, businesses.data?.items, view.status, adminRole, setActiveBusiness]);

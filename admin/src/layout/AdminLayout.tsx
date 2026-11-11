@@ -6,6 +6,7 @@ import { Navigation } from '../features/Navigation';
 import { IconBuilding, IconLogout } from '../components/Icons';
 import { LanguageSwitcher } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
+import { resolveBusinessLogoSource } from '../utils/businessLogo';
 
 export function AdminLayout({ children }: PropsWithChildren) {
   const { session, view } = useAdminSession();
@@ -208,9 +209,7 @@ export function AdminLayout({ children }: PropsWithChildren) {
 
           <div className="account-menu">
             <LanguageSwitcher className="topbar-lang-switcher" />
-            <div className="account-avatar" aria-hidden="true">
-              {admin.login.slice(0, 1).toUpperCase()}
-            </div>
+            <AccountAvatar login={admin.login} logoUrl={effectiveBusiness?.logo_url ?? null} />
             <div className="account-copy">
               <strong>{admin.login}</strong>
               <span className="account-role-pill">
@@ -231,6 +230,24 @@ export function AdminLayout({ children }: PropsWithChildren) {
 
         <main className="main-content">{children}</main>
       </div>
+    </div>
+  );
+}
+
+export function AccountAvatar({ login, logoUrl }: { login: string; logoUrl: string | null }) {
+  const source = resolveBusinessLogoSource(logoUrl);
+  const [failed, setFailed] = useState(false);
+  const safeUrl = source.ok ? source.src : null;
+
+  useEffect(() => setFailed(false), [safeUrl]);
+
+  return (
+    <div className={`account-avatar${safeUrl && !failed ? ' has-logo' : ''}`} aria-hidden="true">
+      {safeUrl && !failed ? (
+        <img src={safeUrl} alt="" referrerPolicy="no-referrer" style={{ objectFit: 'contain' }} onError={() => setFailed(true)} />
+      ) : (
+        login.slice(0, 1).toUpperCase() || '?'
+      )}
     </div>
   );
 }
