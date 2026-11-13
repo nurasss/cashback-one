@@ -183,4 +183,4 @@ def test_default_poll_interval_is_60() -> None:
     settings = AgentSettings(agent_api_key="test-key-12345678")
     assert settings.agent_poll_interval_seconds == 60
     assert settings.sync_interval_seconds == 60
-    assert settings.agent_version == "0.4.0"
+    assert settings.agent_version == "0.5.0"
