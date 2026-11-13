@@ -194,6 +194,22 @@ class AgentSettings(BaseSettings):
         default=False,
         description="отправлять в облако max(0, баланс); по умолчанию False (отрицательные остатки передаются как есть); настоящий отрицательный остаток остаётся в 1С",
     )
+    agent_lifetime_turnover_enabled: bool = Field(
+        default=False,
+        description="Enable reading cumulative lifetime turnover from ONE register ПродажиПоБонуснымКартам",
+    )
+    agent_one_turnover_register: str = Field(
+        default="ПродажиПоБонуснымКартам",
+        description="1C AccumulationRegister name for sales turnover",
+    )
+    agent_one_turnover_card_dim: str = Field(
+        default="БонуснаяКарта",
+        description="Card dimension name in turnover register",
+    )
+    agent_one_turnover_amount_res: str = Field(
+        default="Сумма",
+        description="Amount resource name in turnover register",
+    )
     one_mapping_path: Path | None = Field(
         default=None,
         description="Path to Stage 0 verified mapping JSON file",

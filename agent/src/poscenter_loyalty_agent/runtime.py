@@ -26,7 +26,12 @@ from poscenter_loyalty_agent.models import (
     HeartbeatPayload,
     TransactionsSyncPayload,
 )
-from poscenter_loyalty_agent.one_cursor import is_cursor_ahead_or_equal
+from poscenter_loyalty_agent.one_cursor import (
+    CardsDoneCursor,
+    CardsPageCursor,
+    decode_cards_cursor,
+    is_cursor_ahead_or_equal,
+)
 from poscenter_loyalty_agent.pos_server import PosServer
 from poscenter_loyalty_agent.process_lock import AgentAlreadyRunningError, ProcessLock
 from poscenter_loyalty_agent.retry import RetryState
@@ -474,6 +479,24 @@ class AgentRuntime:
                     ack.updated,
                     ack.ignored_stale,
                 )
+
+                if ack.ignored_stale > 0:
+                    logger.warning(
+                        "Cards batch had %d stale cards ignored by Cloud. Discarding pending hashes "
+                        "to guarantee redelivery on next cycle when time allows.",
+                        ack.ignored_stale,
+                    )
+                    if hasattr(self.source, "discard_pending_batch"):
+                        self.source.discard_pending_batch(batch)
+                    else:
+                        try:
+                            decoded = decode_cards_cursor(batch.next_cursor)
+                            if isinstance(decoded, CardsPageCursor):
+                                self.state_store.discard_pending_cards(decoded.session_id, decoded.page - 1)
+                            elif isinstance(decoded, CardsDoneCursor):
+                                self.state_store.discard_pending_cards(decoded.session_id)
+                        except Exception:
+                            self.state_store.discard_pending_cards()
 
                 now = datetime.now(UTC)
                 self.state_store.commit_cursor("cards", batch.next_cursor, synced_at=now)
