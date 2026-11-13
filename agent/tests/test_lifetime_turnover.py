@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
+
 import pytest
 from pydantic import ValidationError
 
@@ -161,7 +162,7 @@ def test_one_com_source_query_construction():
     )
     src_off = OneComLoyaltySource(settings=settings_off, state_store=store, mapping_config=cfg)
 
-    with patch.object(src_off, "_get_connection") as mock_conn, \
+    with patch.object(src_off, "_get_connection"), \
          patch.object(src_off, "_execute_query") as mock_exec:
         mock_sel = MagicMock()
         mock_sel.Следующий.return_value = False
@@ -182,7 +183,7 @@ def test_one_com_source_query_construction():
     )
     src_on = OneComLoyaltySource(settings=settings_on, state_store=store, mapping_config=cfg)
 
-    with patch.object(src_on, "_get_connection") as mock_conn, \
+    with patch.object(src_on, "_get_connection"), \
          patch.object(src_on, "_execute_query") as mock_exec:
         mock_sel = MagicMock()
         mock_sel.Следующий.return_value = False
@@ -390,7 +391,7 @@ def test_one_com_source_turnover_data_handling(tmp_path):
         Mock1CRowNoTurnover("ref-5", "200000000005", 30),
     ]
 
-    with patch.object(src, "_get_connection") as mock_conn, \
+    with patch.object(src, "_get_connection"), \
          patch.object(src, "_execute_query", return_value=Mock1CSelection(rows)), \
          patch.object(src, "_get_ref_uuid", side_effect=lambda conn, ref: ref):
 

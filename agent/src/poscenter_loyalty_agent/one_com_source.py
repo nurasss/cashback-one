@@ -15,12 +15,12 @@ from decimal import Decimal
 from typing import Any, TypeVar
 
 from poscenter_loyalty_agent.config import AgentSettings
+from poscenter_loyalty_agent.logging import sanitize_message
 from poscenter_loyalty_agent.models import (
     CardSyncItem,
     SourceBatch,
     TransactionSyncItem,
 )
-from poscenter_loyalty_agent.logging import sanitize_message
 from poscenter_loyalty_agent.one_com import sanitize_connection_string
 from poscenter_loyalty_agent.one_cursor import (
     CardsDoneCursor,
