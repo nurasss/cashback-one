@@ -25,7 +25,7 @@ export const publicRu = {
         tabLabel: 'Карта',
         title: 'Карта и баланс',
         desc: 'Бонусный баланс карты выбранного магазина.',
-        src: '/landing/screen-home.png',
+        src: '/landing/screen-home.232cbaab.png',
         alt: 'Скриншот экрана приложения: Карта и баланс Cashback One',
       },
       {
@@ -33,7 +33,7 @@ export const publicRu = {
         tabLabel: 'QR-код',
         title: 'QR-код',
         desc: 'QR-код карты — на экране телефона.',
-        src: '/landing/screen-qr.png',
+        src: '/landing/screen-qr.29d60c3b.png',
         alt: 'Скриншот экрана приложения: QR-код карты в Cashback One',
       },
       {
@@ -41,7 +41,7 @@ export const publicRu = {
         tabLabel: 'История',
         title: 'История операций',
         desc: 'Начисления и списания по карте.',
-        src: '/landing/screen-history.png',
+        src: '/landing/screen-history.b1fa1ec8.png',
         alt: 'Скриншот экрана приложения: История операций Cashback One',
       },
       {
@@ -49,7 +49,7 @@ export const publicRu = {
         tabLabel: 'Акции',
         title: 'Акции и сообщения',
         desc: 'Предложения и новости магазина.',
-        src: '/landing/screen-promotions.png',
+        src: '/landing/screen-promotions.b234de73.png',
         alt: 'Скриншот экрана приложения: Акции и спецпредложения в Cashback One',
       },
     ],
@@ -126,10 +126,6 @@ export const publicRu = {
         a: 'Каждая карта принадлежит конкретному магазину или розничной сети и действует только там. Список магазинов и правила начисления или списания бонусов определяет сам магазин.',
       },
       {
-        q: 'Есть ли версия для iPhone',
-        a: 'Опубликованной версии для iPhone нет. Сейчас приложение доступно для Android через установку APK-файла.',
-      },
-      {
         q: 'Как подключить магазин',
         a: 'Нужны касса POSCENTER Cash, учётная система POSCENTER ONE и Windows-компьютер с агентом синхронизации. Подключение настраивается с администратором платформы, учётные данные выдаются при настройке.',
       },
@@ -190,7 +186,7 @@ export const publicKk: PublicTranslations = {
         tabLabel: 'Карта',
         title: 'Карта және баланс',
         desc: 'Таңдалған дүкен картасының бонус балансы.',
-        src: '/landing/screen-home.png',
+        src: '/landing/screen-home.232cbaab.png',
         alt: 'Қолданба экранының скриншоты: Cashback One картасы мен балансы',
       },
       {
@@ -198,7 +194,7 @@ export const publicKk: PublicTranslations = {
         tabLabel: 'QR-код',
         title: 'QR-код',
         desc: 'Картаның QR-коды — телефон экранында.',
-        src: '/landing/screen-qr.png',
+        src: '/landing/screen-qr.29d60c3b.png',
         alt: 'Қолданба экранының скриншоты: Cashback One картасының QR-коды',
       },
       {
@@ -206,7 +202,7 @@ export const publicKk: PublicTranslations = {
         tabLabel: 'Тарих',
         title: 'Операциялар тарихы',
         desc: 'Карта бойынша есептеулер мен ұстап қалулар.',
-        src: '/landing/screen-history.png',
+        src: '/landing/screen-history.b1fa1ec8.png',
         alt: 'Қолданба экранының скриншоты: Cashback One операциялар тарихы',
       },
       {
@@ -214,7 +210,7 @@ export const publicKk: PublicTranslations = {
         tabLabel: 'Акциялар',
         title: 'Акциялар мен хабарламалар',
         desc: 'Дүкеннің ұсыныстары мен жаңалықтары.',
-        src: '/landing/screen-promotions.png',
+        src: '/landing/screen-promotions.b234de73.png',
         alt: 'Қолданба экранының скриншоты: Cashback One акциялары мен арнайы ұсыныстары',
       },
     ],
@@ -289,10 +285,6 @@ export const publicKk: PublicTranslations = {
       {
         q: 'Карта қайда жарамды',
         a: 'Әр карта нақты дүкенге немесе бөлшек желіге тиесілі және тек сонда жарамды. Дүкендер тізімін және бонустарды есептеу немесе ұстап қалу ережелерін дүкеннің өзі анықтайды.',
-      },
-      {
-        q: 'iPhone үшін нұсқасы бар ма',
-        a: 'iPhone үшін жарияланған нұсқасы жоқ. Қазір қолданба Android үшін APK файлын орнату арқылы қолжетімді.',
       },
       {
         q: 'Дүкенді қалай қосуға болады',

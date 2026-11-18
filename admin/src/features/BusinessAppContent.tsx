@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, useBusinessAppTexts, useBusinessSplashConfig, useBusinessStores } from '../api/queries';
@@ -12,9 +12,10 @@ import type {
 } from '../api/types';
 import { useAdminSession } from '../auth/provider';
 import { CompactTableToggle, useCompactRows, useTableExpansion } from '../components/CompactTable';
-import { StatusPill } from '../components/Feedback';
+import { ErrorNotice, Pagination, StatusPill } from '../components/Feedback';
 import { NumericInput } from '../components/NumericInput';
 import { DialogFrame } from './AdminMutations';
+import { useClientPagination } from '../utils/usePage';
 import { useLocale } from '../i18n/LocaleContext';
 import { adminErrorMessage, useAdminTranslation } from '../i18n/admin';
 
@@ -468,8 +469,10 @@ export function BusinessStoresSection({
   const queryClient = useQueryClient();
 
   const storesQuery = useBusinessStores(businessId);
+  const storeRows = useMemo(() => storesQuery.data ?? [], [storesQuery.data]);
+  const pagination = useClientPagination(storeRows, businessId, 25);
   const expansion = useTableExpansion();
-  const compact = useCompactRows(storesQuery.data ?? [], expansion);
+  const compact = useCompactRows(pagination.pagedItems, expansion);
 
   const [internalEditingStore, setInternalEditingStore] = useState<BusinessStore | 'new' | null>(null);
   const editingStore = controlledEditingStore !== undefined ? controlledEditingStore : internalEditingStore;
@@ -595,6 +598,7 @@ export function BusinessStoresSection({
             </table>
           </div>
           <CompactTableToggle {...compact} />
+          <Pagination page={pagination.page} onChange={pagination.setPage} />
         </>
       )}
 
@@ -620,8 +624,6 @@ export function BusinessTextsSection({ businessId }: { businessId: string }) {
 
   const textsQuery = useBusinessAppTexts(businessId);
 
-  const [homeRu, setHomeRu] = useState('');
-  const [homeKk, setHomeKk] = useState('');
   const [leadRu, setLeadRu] = useState('');
   const [leadKk, setLeadKk] = useState('');
   const [delayRu, setDelayRu] = useState('');
@@ -632,16 +634,12 @@ export function BusinessTextsSection({ businessId }: { businessId: string }) {
 
   useEffect(() => {
     if (textsQuery.data) {
-      setHomeRu(textsQuery.data.home_text?.ru ?? '');
-      setHomeKk(textsQuery.data.home_text?.kk ?? '');
       setLeadRu(textsQuery.data.home_store_note_lead?.ru ?? '');
       setLeadKk(textsQuery.data.home_store_note_lead?.kk ?? '');
       setDelayRu(textsQuery.data.balance_delay_note?.ru ?? '');
       setDelayKk(textsQuery.data.balance_delay_note?.kk ?? '');
     }
   }, [textsQuery.data]);
-
-  const previewText = locale === 'kk' ? (homeKk || homeRu) : (homeRu || homeKk);
 
   const handleSaveTexts = async (e: FormEvent) => {
     e.preventDefault();
@@ -655,10 +653,6 @@ export function BusinessTextsSection({ businessId }: { businessId: string }) {
         {
           method: 'PUT',
           body: {
-            home_text: {
-              ru: homeRu.trim() || null,
-              kk: homeKk.trim() || null,
-            },
             home_store_note_lead: {
               ru: leadRu.trim() || null,
               kk: leadKk.trim() || null,
@@ -693,61 +687,12 @@ export function BusinessTextsSection({ businessId }: { businessId: string }) {
 
       {textsQuery.isPending ? (
         <p className="loading-copy">{t.appContent.loadingTexts}</p>
+      ) : textsQuery.isError ? (
+        <ErrorNotice error={textsQuery.error} retry={() => { void textsQuery.refetch(); }} />
       ) : (
         <form className="mutation-form app-texts-form" onSubmit={handleSaveTexts}>
           {textsError && <p className="form-error" role="alert">{textsError}</p>}
           {textsSaved && <p className="notice" role="status" style={{ padding: '0.75rem 1rem', marginBottom: '1rem', color: '#15803d', background: '#f0fdf4', borderRadius: '6px' }}>{t.appContent.textsSaved}</p>}
-
-          <fieldset className="app-texts-fieldset">
-            <legend>{t.appContent.homeTextTitle}</legend>
-            <p className="muted-copy" style={{ margin: '0 0 0.75rem', fontSize: '0.875rem' }}>{t.appContent.homeTextHint}</p>
-
-            <label className="form-control" htmlFor="text-home-ru" style={{ marginBottom: '0.75rem' }}>
-              {t.appContent.fieldRu}
-              <textarea
-                id="text-home-ru"
-                className="app-text-textarea"
-                rows={3}
-                maxLength={2000}
-                placeholder={t.appContent.homeTextPlaceholderRu}
-                value={homeRu}
-                onChange={e => setHomeRu(e.target.value)}
-              />
-            </label>
-
-            <label className="form-control" htmlFor="text-home-kk" style={{ marginBottom: '0.75rem' }}>
-              {t.appContent.fieldKk}
-              <textarea
-                id="text-home-kk"
-                className="app-text-textarea"
-                rows={3}
-                maxLength={2000}
-                placeholder={t.appContent.homeTextPlaceholderKk}
-                value={homeKk}
-                onChange={e => setHomeKk(e.target.value)}
-              />
-            </label>
-
-            {previewText.trim() && (
-              <div
-                className="home-text-preview-box"
-                style={{
-                  marginTop: '0.5rem',
-                  padding: '0.75rem 1rem',
-                  borderRadius: '6px',
-                  background: 'var(--bg-card, #f8fafc)',
-                  border: '1px dashed var(--border-color, #cbd5e1)',
-                }}
-              >
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted, #64748b)', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  {t.appContent.homeTextPreviewLabel}
-                </div>
-                <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.9375rem', lineHeight: 1.5 }}>
-                  {previewText}
-                </div>
-              </div>
-            )}
-          </fieldset>
 
           <fieldset className="app-texts-fieldset">
             <legend>{t.appContent.delayNoteTitle}</legend>
@@ -920,7 +865,7 @@ export function BusinessSplashSection({ businessId }: { businessId: string }) {
       </div>
 
       <div className="app-splash-limits-callout">
-        <p className="muted-copy">{t.appContent.splashLimitsHint}</p>
+        <p id="splash-limits-hint" className="muted-copy">{t.appContent.splashLimitsHint}</p>
       </div>
 
       {splashQuery.isLoading ? (
@@ -949,7 +894,8 @@ export function BusinessSplashSection({ businessId }: { businessId: string }) {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".png,.jpg,.jpeg,.webp,.mp4,image/png,image/jpeg,image/webp,video/mp4"
+              accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,image/png,image/jpeg,image/webp,image/gif,video/mp4"
+              aria-describedby="splash-limits-hint"
               style={{ display: 'none' }}
               onChange={handleFileUpload}
               data-testid="splash-file-input"
@@ -994,7 +940,7 @@ export function BusinessSplashSection({ businessId }: { businessId: string }) {
                     )}
                     {fileSize != null && (
                       <span className="meta-size">
-                        {(fileSize / (1024 * 1024)).toFixed(2)} МБ
+                        {(fileSize / (1024 * 1024)).toFixed(2)} МиБ
                       </span>
                     )}
                   </div>
@@ -1008,6 +954,7 @@ export function BusinessSplashSection({ businessId }: { businessId: string }) {
                     <button
                       type="button"
                       className="button button-secondary app-splash-change-btn"
+                      aria-describedby="splash-limits-hint"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={uploading || saving}
                     >
@@ -1029,6 +976,7 @@ export function BusinessSplashSection({ businessId }: { businessId: string }) {
                 <button
                   type="button"
                   className="button button-secondary app-splash-upload-btn"
+                  aria-describedby="splash-limits-hint"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading || saving}
                   data-testid="splash-upload-btn"

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { isRetryableNetworkError, messageForError } from '../api/errors';
 import { useLocale } from '../i18n/LocaleContext';
+import { useAdminTranslation } from '../i18n/admin';
 
 export function LoadingPage({ label }: { label?: string }) {
   const { locale } = useLocale();
@@ -67,14 +68,14 @@ export function PageHeading({
   actions,
 }: {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   actions?: ReactNode;
 }) {
   return (
     <header className="page-heading">
       <div>
         <h1>{title}</h1>
-        <p>{subtitle}</p>
+        {subtitle && <p>{subtitle}</p>}
       </div>
       {actions && <div className="heading-actions">{actions}</div>}
     </header>
@@ -110,14 +111,27 @@ export function Pagination({
   page,
   onChange,
 }: {
-  page: { limit: number; offset: number; has_more: boolean };
+  page: { limit: number; offset: number; has_more: boolean; total?: number | null };
   onChange: (offset: number) => void;
 }) {
-  const { locale } = useLocale();
+  const t = useAdminTranslation();
+  if (page.total === 0 && page.offset === 0) return null;
+
   const pageNum = Math.floor(page.offset / page.limit) + 1;
+  const hasTotal = typeof page.total === 'number' && page.total > 0;
+  const totalPages = hasTotal ? Math.max(1, Math.ceil(page.total! / page.limit)) : null;
+
+  const pageText = totalPages != null
+    ? t.feedback.pageOf(pageNum, totalPages)
+    : t.feedback.pageNum(pageNum);
+
+  const isNextDisabled = totalPages != null
+    ? pageNum >= totalPages || !page.has_more
+    : !page.has_more;
+
   return (
-    <div className="pagination" aria-label={locale === 'kk' ? 'Нәтиже беттері' : 'Страницы результатов'}>
-      <span>{locale === 'kk' ? `Бет ${pageNum}` : `Страница ${pageNum}`}</span>
+    <div className="pagination" aria-label={t.feedback.paginationAria}>
+      <span>{pageText}</span>
       <div className="pagination-actions">
         <button
           className="button button-secondary"
@@ -125,15 +139,15 @@ export function Pagination({
           disabled={page.offset === 0}
           onClick={() => onChange(Math.max(0, page.offset - page.limit))}
         >
-          {locale === 'kk' ? 'Артқа' : 'Назад'}
+          {t.feedback.prevPage}
         </button>
         <button
           className="button button-secondary"
           type="button"
-          disabled={!page.has_more}
+          disabled={isNextDisabled}
           onClick={() => onChange(page.offset + page.limit)}
         >
-          {locale === 'kk' ? 'Келесі' : 'Далее'}
+          {t.feedback.nextPage}
         </button>
       </div>
     </div>

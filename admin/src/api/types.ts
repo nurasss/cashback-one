@@ -1,9 +1,13 @@
 export type AdminRole = 'superadmin' | 'business_manager';
 export type AgentHealth = 'online' | 'stale' | 'never_connected' | 'error' | 'disabled';
-export interface BusinessIdentity { id: string; name: string; status: string; logo_url?: string | null; android_app_id?: string | null }
+export interface BusinessIdentity { id: string; name: string; status: string; logo_url?: string | null; android_app_id?: string | null; created_at?: string | null }
 export interface AdminIdentity { id: string; login: string; role: AdminRole; business: BusinessIdentity | null }
-export interface AdminMe { admin: AdminIdentity; admin_max_stats_period_days: number }
-export interface Page<T> { items: T[]; limit: number; offset: number; has_more: boolean }
+export interface AdminMe {
+  admin: AdminIdentity;
+  admin_stats_unlimited_period?: boolean;
+  admin_max_stats_period_days: number;
+}
+export interface Page<T> { items: T[]; limit: number; offset: number; has_more: boolean; total?: number | null }
 export interface Business {
   id: string; name: string; logo_url: string | null; colors: Record<string, unknown> | null;
   barcode_prefixes: string[] | null; android_app_id?: string | null; status: string;
@@ -73,9 +77,23 @@ export interface Dashboard {
 }
 export interface Card {
   id: string; business_id: string; business_name: string; barcode: string; phone_masked: string | null;
+  full_name?: string | null;
   balance: string; is_blocked: boolean; updated_at: string; bind_method: string | null; bound_at: string | null; hidden_at: string | null;
 }
 export interface CardDetail extends Card { full_name: string | null; owner_language: string | null }
+export interface AdminTransaction {
+  id: string;
+  card_id: string;
+  barcode: string;
+  business_id: string;
+  business_name: string;
+  type: string;
+  amount: string;
+  balance_after: string;
+  occurred_at: string;
+  receipt_ref?: string | null;
+  store?: string | null;
+}
 export interface AdminUser {
   id: string; phone_masked: string | null; language: string; created_at: string; business_cards_count: number;
 }
@@ -153,7 +171,7 @@ export interface LoyaltyTier {
   description_ru: string | null;
   description_kk: string | null;
   image_url: string | null;
-  turnover_period_months: number;
+  turnover_period_months?: number;
   min_turnover: string;
   max_turnover: string | null;
   percent: string;
@@ -169,11 +187,38 @@ export interface LoyaltyTierInput {
   description_ru?: string | null;
   description_kk?: string | null;
   image_url?: string | null;
-  turnover_period_months: number;
+  turnover_period_months?: number;
   min_turnover: number | string;
   max_turnover?: number | string | null;
   percent: number | string;
   is_active?: boolean;
+}
+export interface LoyaltyScaleResponse {
+  business_id: string;
+  version: number;
+  tiers: LoyaltyTier[];
+}
+export interface LoyaltyScaleTierPatch {
+  id: string;
+  min_turnover: string;
+  max_turnover: string | null;
+  percent: string;
+  name_ru?: string;
+  name_kk?: string;
+  description_ru?: string | null;
+  description_kk?: string | null;
+  image_url?: string | null;
+  is_active?: boolean;
+}
+export interface LoyaltyScaleSaveRequest {
+  expected_version: number;
+  tiers: LoyaltyScaleTierPatch[];
+}
+export interface LoyaltyScaleSaveResponse {
+  business_id: string;
+  version: number;
+  changed: boolean;
+  tiers: LoyaltyTier[];
 }
 export interface BusinessSplashConfig {
   business_id: string;

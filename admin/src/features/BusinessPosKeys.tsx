@@ -1,15 +1,16 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { privateKey, usePosKeys } from '../api/queries';
 import type { PosKey, PosKeyDisclosure } from '../api/types';
 import { useAdminSession } from '../auth/provider';
-import { StatusPill } from '../components/Feedback';
+import { Pagination, StatusPill } from '../components/Feedback';
 import { CompactTableToggle, useCompactRows, useTableExpansion } from '../components/CompactTable';
 import { DialogFrame } from './AdminMutations';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 import { formatDate } from '../utils/format';
+import { useClientPagination } from '../utils/usePage';
 
 interface PosKeyCreateDialogProps {
   businessId: string;
@@ -57,9 +58,10 @@ export function PosKeyCreateDialog({
   return (
     <DialogFrame title={t.posKeys.createTitle} onClose={onClose}>
       <form className="mutation-form" onSubmit={handleSubmit}>
-        <label className="field-block">
-          <span className="field-label">{t.posKeys.createNameLabel}</span>
+        <div className="form-control field-block">
+          <label className="field-label" htmlFor="pos-key-name">{t.posKeys.createNameLabel}</label>
           <input
+            id="pos-key-name"
             className="input-text"
             type="text"
             value={name}
@@ -68,7 +70,7 @@ export function PosKeyCreateDialog({
             maxLength={100}
             autoFocus
           />
-        </label>
+        </div>
         {error && <p className="form-error" role="alert">{error}</p>}
         <footer className="mutation-actions">
           <button className="button button-primary" type="submit" disabled={creating}>
@@ -115,19 +117,9 @@ export function PosKeyDialog({ disclosure, onClose }: PosKeyDialogProps) {
           {disclosure.api_key}
         </code>
         {copyError && <p className="form-error" role="alert">{copyError}</p>}
-        <footer className="mutation-actions">
+        <footer className="mutation-actions manager-access-actions">
           <button className="button button-primary" type="button" onClick={() => { void copy(); }}>
             {t.posKeys.copyBtn}
-          </button>
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => {
-              setCopied(false);
-              onClose();
-            }}
-          >
-            {t.posKeys.closeBtn}
           </button>
         </footer>
         {copied && <p className="success-copy" role="status">{t.posKeys.copied}</p>}
@@ -198,7 +190,9 @@ export function BusinessPosKeys({ businessId }: { businessId: string }) {
   const [disclosure, setDisclosure] = useState<PosKeyDisclosure | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<PosKey | null>(null);
   const expansion = useTableExpansion();
-  const compact = useCompactRows(keysQuery.data ?? [], expansion);
+  const posKeyRows = useMemo(() => keysQuery.data ?? [], [keysQuery.data]);
+  const pagination = useClientPagination(posKeyRows, businessId, 25);
+  const compact = useCompactRows(pagination.pagedItems, expansion);
 
   const handleCreated = (newDisclosure: PosKeyDisclosure) => {
     setCreateOpen(false);
@@ -323,6 +317,7 @@ export function BusinessPosKeys({ businessId }: { businessId: string }) {
           </div>
 
           <CompactTableToggle {...compact} />
+          <Pagination page={pagination.page} onChange={pagination.setPage} />
         </>
       )}
 

@@ -1,8 +1,11 @@
 """Atomic, audited administrative mutations for TASK-011B."""
 
+import math
 import re
 import uuid
 from collections.abc import Mapping
+from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
@@ -13,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.admin_deps import AdminScope, scope_for_admin
 from app.core.config import settings
 from app.core.errors import AppError
-from app.core.time import utcnow
+from app.core.time import as_utc, utcnow
 from app.models.admin import AdminSession, AdminUser, AgentCommand
 from app.models.entities import Agent, AuditLog, Business, Card, PosKey, UserCard
 from app.schemas.admin import (
@@ -67,7 +70,19 @@ _KNOWN_ADMIN_ACTIONS: set[str] = {
     "media_uploaded",
     "pos_key_created",
     "pos_key_revoked",
+    "loyalty_scale_updated",
+    "loyalty_tier_created",
+    "loyalty_tier_updated",
+    "loyalty_tier_deleted",
+    "store_created",
+    "store_updated",
+    "store_deleted",
+    "app_texts_updated",
+    "business_splash_updated",
 }
+
+# Legacy name of the app-texts event: projected through the same strict whitelist.
+_ACTION_ALIASES: dict[str, str] = {"business_app_texts_updated": "app_texts_updated"}
 
 _ALLOWED_BUSINESS_STATUSES: set[str] = {"active", "inactive"}
 _ALLOWED_AGENT_STATUSES: set[str] = {"active", "revoked", "suspended", "inactive"}
@@ -137,6 +152,28 @@ def _clean_str(val: Any, *, max_length: int = 255) -> str | None:
     return cleaned
 
 
+def _redact_audit_text(text: str) -> str:
+    """Admin-authored content text kept verbatim, except credential-looking content (fail-closed)."""
+    if _CONTAINS_CREDENTIALS.search(text):
+        return "[REDACTED]"
+    return _SECRET_VALUE.sub("[REDACTED]", text)
+
+
+def _put_audit_text(out: dict[str, Any], key: str, raw: Any, *, max_length: int) -> None:
+    """Project one stored text field of a content event.
+
+    The exact stored string is kept (no strip, no truncation, multi-line preserved). An explicit
+    null means "saved as empty"; a key that is absent in the stored snapshot is never added here.
+    A non-string or an over-limit value is dropped as unknown, never cut.
+    """
+    if raw is None:
+        out[key] = None
+        return
+    if not isinstance(raw, str) or len(raw) > max_length:
+        return
+    out[key] = _redact_audit_text(raw)
+
+
 def _clean_uuid_str(val: Any) -> str | None:
     if isinstance(val, uuid.UUID):
         return str(val)
@@ -190,6 +227,276 @@ def _clean_colors(val: Any) -> dict[str, Any] | None:
     # Safe conversion from historical or raw colors mapping:
     # Colors were configured, but free-form keys and values are stripped fail-closed.
     return {"configured": True}
+
+
+def _clean_decimal_2(val: Any, *, max_value: Decimal) -> str | None:
+    """Existing states hold str(Decimal) (e.g. "2", "100000", "1E+5"); emit a normalized two-decimal string.
+    Only finite non-negative values within `max_value` are accepted; everything else is dropped."""
+    if not isinstance(val, str) or not val.strip() or len(val) > 40:
+        return None
+    try:
+        number = Decimal(val.strip())
+    except InvalidOperation:
+        return None
+    if not number.is_finite() or number < 0 or number > max_value:
+        return None
+    return f"{number.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+
+
+_MONEY_MAX = Decimal("999999999999.99")  # Numeric(14,2)
+_PERCENT_MAX = Decimal(100)
+
+
+def _plain_int(val: Any, lo: int, hi: int) -> int | None:
+    if isinstance(val, int) and not isinstance(val, bool) and lo <= val <= hi:
+        return val
+    return None
+
+
+_ISO_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$"
+)
+
+_APP_TEXT_BLOCKS: tuple[str, ...] = (
+    "home_text",
+    "home_store_note_lead",
+    "balance_delay_note",
+)
+_ALLOWED_APP_TEXT_BLOCKS: set[str] = set(_APP_TEXT_BLOCKS)
+_APP_TEXT_VALUE_MAX = 2000  # same limit as LocalizedAppText
+_PROMOTION_TEXT_LIMITS: tuple[tuple[str, int], ...] = (
+    ("subtitle", 255),
+    ("badge", 40),
+    ("body", 4000),
+)  # same limits as the promotion editor; there is no separate "description" field
+_NOTIFICATION_BODY_MAX = 2000  # same limit as NotificationCreateRequest.body
+_APP_TEXT_LOCALES: tuple[str, ...] = ("ru", "kk")
+_ALLOWED_APP_TEXT_LOCALE_PAIRS: set[str] = {
+    f"{block}.{lang}" for block in _APP_TEXT_BLOCKS for lang in _APP_TEXT_LOCALES
+}
+
+
+def _clean_iso_datetime(val: Any) -> str | None:
+    if not isinstance(val, str):
+        return None
+    trimmed = val.strip()
+    if not trimmed or len(trimmed) > 64 or not _ISO_DATETIME_RE.fullmatch(trimmed):
+        return None
+    try:
+        parsed = datetime.fromisoformat(trimmed)
+        utc_dt = as_utc(parsed)
+    except (ValueError, OverflowError):
+        return None
+    if not (1000 <= parsed.year <= 9999 and 1000 <= utc_dt.year <= 9999):
+        return None
+    return utc_dt.isoformat()
+
+
+def _project_promotion_fields(value: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for id_key in ("promotion_id", "business_id"):
+        cid = _clean_uuid_str(value.get(id_key))
+        if cid:
+            out[id_key] = cid
+    if isinstance(value.get("is_active"), bool):
+        out["is_active"] = value["is_active"]
+    kind = value.get("kind")
+    if isinstance(kind, str) and kind in ("banner", "offer", "info"):
+        out["kind"] = kind
+    title = _clean_str(value.get("title"), max_length=120)
+    if title:
+        out["title"] = title
+    for text_key, text_limit in _PROMOTION_TEXT_LIMITS:
+        if text_key in value:
+            _put_audit_text(out, text_key, value[text_key], max_length=text_limit)
+    sort_order = _plain_int(value.get("sort_order"), -1000, 1000)
+    if sort_order is not None:
+        out["sort_order"] = sort_order
+    for dt_key in ("starts_at", "ends_at"):
+        if dt_key not in value:
+            continue
+        raw_dt = value[dt_key]
+        if raw_dt is None:
+            out[dt_key] = None
+        else:
+            cleaned_dt = _clean_iso_datetime(raw_dt)
+            if cleaned_dt is not None:
+                out[dt_key] = cleaned_dt
+    return out
+
+
+def _project_notification_fields(value: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for id_key in ("notification_id", "business_id"):
+        cid = _clean_uuid_str(value.get(id_key))
+        if cid:
+            out[id_key] = cid
+    if isinstance(value.get("targeted_user"), bool):
+        out["targeted_user"] = value["targeted_user"]
+    for count_key in ("push_devices", "push_delivered"):
+        count = value.get(count_key)
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            out[count_key] = count
+    kind = value.get("kind")
+    if isinstance(kind, str) and kind in ("banner", "offer", "info"):
+        out["kind"] = kind
+    # Personal (targeted) messages never expose their texts in the audit.
+    if value.get("targeted_user") is not True:
+        title = _clean_str(value.get("title"), max_length=120)
+        if title:
+            out["title"] = title
+        if "body" in value:
+            _put_audit_text(out, "body", value["body"], max_length=_NOTIFICATION_BODY_MAX)
+    for dt_key in ("scheduled_at", "push_sent_at"):
+        if dt_key not in value:
+            continue
+        raw_dt = value[dt_key]
+        if raw_dt is None:
+            out[dt_key] = None
+        else:
+            cleaned_dt = _clean_iso_datetime(raw_dt)
+            if cleaned_dt is not None:
+                out[dt_key] = cleaned_dt
+    return out
+
+
+def _project_app_texts_state(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Strict whitelist for app_texts_updated: boolean presence flags, changed identifiers and, for
+    changed block/locale pairs only, the stored text values (`texts`). No other keys pass."""
+    out: dict[str, Any] = {}
+    for block in _APP_TEXT_BLOCKS:
+        raw_block = value.get(block)
+        if not isinstance(raw_block, Mapping):
+            continue
+        flags: dict[str, bool] = {}
+        for lang in _APP_TEXT_LOCALES:
+            flag = raw_block.get(lang)
+            if isinstance(flag, bool):
+                flags[lang] = flag
+        if flags:
+            out[block] = flags
+    for list_key, allowed in (
+        ("configured_fields", _ALLOWED_APP_TEXT_BLOCKS),
+        ("changed_fields", _ALLOWED_APP_TEXT_BLOCKS),
+        ("changed_locales", _ALLOWED_APP_TEXT_LOCALE_PAIRS),
+    ):
+        raw_items = value.get(list_key)
+        if isinstance(raw_items, (list, tuple)):
+            out[list_key] = sorted(
+                {item for item in raw_items[:256] if isinstance(item, str) and item in allowed}
+            )
+    raw_texts = value.get("texts")
+    if isinstance(raw_texts, Mapping):
+        texts_out: dict[str, dict[str, str | None]] = {}
+        for block in _APP_TEXT_BLOCKS:
+            raw_block_texts = raw_texts.get(block)
+            if not isinstance(raw_block_texts, Mapping):
+                continue
+            per_lang: dict[str, str | None] = {}
+            for lang in _APP_TEXT_LOCALES:
+                if lang in raw_block_texts:
+                    _put_audit_text(per_lang, lang, raw_block_texts[lang], max_length=_APP_TEXT_VALUE_MAX)
+            if per_lang:
+                texts_out[block] = per_lang
+        if texts_out:
+            out["texts"] = texts_out
+    return out
+
+
+_SPLASH_MEDIA_TYPES: set[str] = {"image", "video"}
+
+
+def _project_splash_state(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Strict whitelist for business_splash_updated: flags and technical media metadata only.
+
+    Never passes media_url, file path, version token, raw config or media contents. A value of an
+    unexpected type is dropped (fail-closed); a key that is absent stays absent.
+    """
+    out: dict[str, Any] = {}
+    for flag in ("configured", "enabled", "has_media", "media_changed"):
+        if isinstance(value.get(flag), bool):
+            out[flag] = value[flag]
+    if "media_type" in value:
+        media_type = value["media_type"]
+        if media_type is None:
+            out["media_type"] = None
+        elif isinstance(media_type, str) and media_type in _SPLASH_MEDIA_TYPES:
+            out["media_type"] = media_type
+    for dim in ("width", "height"):
+        if dim in value:
+            if value[dim] is None:
+                out[dim] = None
+            else:
+                clean_dim = _plain_int(value[dim], 0, 100_000)
+                if clean_dim is not None:
+                    out[dim] = clean_dim
+    if "file_size" in value:
+        if value["file_size"] is None:
+            out["file_size"] = None
+        else:
+            clean_size = _plain_int(value["file_size"], 0, 2_147_483_647)
+            if clean_size is not None:
+                out["file_size"] = clean_size
+    if "duration_seconds" in value:
+        duration = value["duration_seconds"]
+        if duration is None:
+            out["duration_seconds"] = None
+        elif (
+            isinstance(duration, (int, float))
+            and not isinstance(duration, bool)
+            and math.isfinite(duration)
+            and 0 <= duration <= 86_400
+        ):
+            out["duration_seconds"] = float(duration)
+    return out
+
+
+def _project_tier_fields(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Strict whitelist of an existing loyalty tier state. A key that is absent stays absent;
+    an explicit null is kept ONLY for max_turnover (it means "no upper bound")."""
+    out: dict[str, Any] = {}
+    tid = _clean_uuid_str(value.get("tier_id"))
+    if tid:
+        out["tier_id"] = tid
+    for key, lo, hi in (("level", 1, 100), ("priority", 1, 1000)):
+        number = _plain_int(value.get(key), lo, hi)
+        if number is not None:
+            out[key] = number
+    for key in ("name_ru", "name_kk"):
+        text = _clean_str(value.get(key), max_length=120)
+        if text:
+            out[key] = text
+    for key in ("min_turnover", "max_turnover", "percent"):
+        if key not in value:
+            continue
+        raw = value[key]
+        if raw is None and key == "max_turnover":
+            out[key] = None
+        else:
+            cleaned = _clean_decimal_2(raw, max_value=_PERCENT_MAX if key == "percent" else _MONEY_MAX)
+            if cleaned is not None:
+                out[key] = cleaned
+    if isinstance(value.get("is_active"), bool):
+        out["is_active"] = value["is_active"]
+    return out
+
+
+def _project_store_fields(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Strict whitelist of an existing store state: public title/address only, no map URL/coordinates."""
+    out: dict[str, Any] = {}
+    sid = _clean_uuid_str(value.get("store_id"))
+    if sid:
+        out["store_id"] = sid
+    for key, limit in (("title_ru", 160), ("title_kk", 160), ("address_ru", 255), ("address_kk", 255)):
+        text = _clean_str(value.get(key), max_length=limit)
+        if text:
+            out[key] = text
+    order = _plain_int(value.get("sort_order"), -1000, 1000)
+    if order is not None:
+        out["sort_order"] = order
+    if isinstance(value.get("is_active"), bool):
+        out["is_active"] = value["is_active"]
+    return out
 
 
 def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -336,23 +643,14 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
         "promotion_created",
         "promotion_updated",
         "promotion_deleted",
+    ):
+        projected.update(_project_promotion_fields(value))
+
+    elif action in (
         "notification_created",
         "notification_deleted",
     ):
-        for k, v in value.items():
-            if k in ("promotion_id", "notification_id", "business_id"):
-                cid = _clean_uuid_str(v)
-                if cid:
-                    projected[k] = cid
-            elif k in ("is_active", "targeted_user"):
-                if isinstance(v, bool):
-                    projected[k] = v
-            elif k in ("push_devices", "push_delivered"):
-                if isinstance(v, int) and v >= 0:
-                    projected[k] = v
-            elif k == "kind":
-                if isinstance(v, str) and v in ("banner", "offer", "info"):
-                    projected[k] = v
+        projected.update(_project_notification_fields(value))
 
     elif action in ("business_manager_created", "business_manager_password_reset"):
         for k, v in value.items():
@@ -414,6 +712,38 @@ def _project_action_snapshot(action: str, value: Mapping[str, Any]) -> dict[str,
                 if crev:
                     projected["revoked_at"] = crev
 
+    elif action == "loyalty_scale_updated":
+        # Numbers, ids and activity only: no names/descriptions/image URLs.
+        version = value.get("version")
+        if isinstance(version, int) and not isinstance(version, bool):
+            projected["version"] = version
+        tiers = value.get("tiers")
+        if isinstance(tiers, (list, tuple)):
+            rows: list[dict[str, Any]] = []
+            for row in tiers[:100]:
+                if not isinstance(row, Mapping):
+                    continue
+                item = _project_tier_fields(row)
+                item.pop("priority", None)
+                item.pop("name_ru", None)
+                item.pop("name_kk", None)
+                if item:
+                    rows.append(item)
+            if rows:
+                projected["tiers"] = rows
+
+    elif action in ("loyalty_tier_created", "loyalty_tier_updated", "loyalty_tier_deleted"):
+        projected.update(_project_tier_fields(value))
+
+    elif action in ("store_created", "store_updated", "store_deleted"):
+        projected.update(_project_store_fields(value))
+
+    elif action == "app_texts_updated":
+        projected.update(_project_app_texts_state(value))
+
+    elif action == "business_splash_updated":
+        projected.update(_project_splash_state(value))
+
     if not projected:
         return None
     return projected
@@ -438,6 +768,8 @@ def safe_audit_snapshot(
     """
     if value is None or not isinstance(value, Mapping):
         return None
+    if action:
+        action = _ACTION_ALIASES.get(action, action)
     if not action or action not in _KNOWN_ADMIN_ACTIONS:
         return None
     if admin_user_id is None:

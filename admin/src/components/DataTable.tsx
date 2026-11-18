@@ -22,7 +22,7 @@ export function DataTable<T>({
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T) => string;
-  page: { limit: number; offset: number; has_more: boolean };
+  page: { limit: number; offset: number; has_more: boolean; total?: number | null };
   onPage: (offset: number) => void;
   expansion?: TableExpansion;
   disableCompacting?: boolean;
@@ -65,11 +65,14 @@ export function DataTable<T>({
       </div>
       <CompactTableToggle {...compact} />
       {rows.length === 0 ? (
-        <p className="table-empty">
-          {locale === 'kk'
-            ? 'Берілген шарттар бойынша жазбалар табылмады.'
-            : 'По заданным условиям записей не найдено.'}
-        </p>
+        <>
+          <p className="table-empty">
+            {locale === 'kk'
+              ? 'Берілген шарттар бойынша жазбалар табылмады.'
+              : 'По заданным условиям записей не найдено.'}
+          </p>
+          {page.offset > 0 && <Pagination page={page} onChange={onPage} />}
+        </>
       ) : (
         compact.showPagination && <Pagination page={page} onChange={onPage} />
       )}

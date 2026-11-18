@@ -110,7 +110,7 @@ async def request_redemption(
     try:
         await sender.send_text(
             phone,
-            f"Код для списания {_amount_text(body.amount)} баллов в «{business_name}»: {code}\n"
+            f"Код для списания {_amount_text(body.amount)} бонусов в «{business_name}»: {code}\n"
             "Назовите его кассиру, только если вы сейчас оплачиваете покупку.",
         )
     except AppError:

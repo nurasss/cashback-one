@@ -140,6 +140,25 @@ class NotificationsResponse(BaseModel):
     unread_count: int
 
 
+class NotificationMarkReadRequest(BaseModel):
+    """Exact-ID mark-read request.
+
+    `ids` has 1..100 entries (the raw list length is limited, so a 101-entry list is rejected
+    even if it contains duplicates); duplicates are then collapsed, order of first occurrence.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+
+
+class NotificationMarkReadResponse(BaseModel):
+    read: list[uuid.UUID]
+    already_read: list[uuid.UUID]
+    ignored: list[uuid.UUID]
+    unread_count: int
+
+
 class BadgesResponse(BaseModel):
     promotions_new: bool
     notifications_unread: int

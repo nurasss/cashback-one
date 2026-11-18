@@ -485,6 +485,24 @@ class Notification(Base, UUIDPrimaryKey):
     )
 
 
+class NotificationRead(Base):
+    """Per-user "read" receipt for exactly one notification.
+
+    A receipt only adds "read"; it never moves User.notifications_seen_at (the legacy
+    baseline written by POST /me/notifications/read). Deliberately has no timestamp column.
+    """
+
+    __tablename__ = "notification_reads"
+    __table_args__ = (Index("ix_notification_reads_notification_id", "notification_id"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    notification_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("notifications.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
 class BusinessStore(Base, UUIDPrimaryKey, Timestamps):
     """Physical store location of a business."""
 

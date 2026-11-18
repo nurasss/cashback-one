@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { BroadcastPushResult } from '../api/types';
 import { useAdminSession } from '../auth/provider';
-import { useBusinesses } from '../api/queries';
+import { useAllBusinesses } from '../api/queries';
+import { BusinessSelect } from '../components/BusinessSelect';
 import { PageHeading } from '../components/Feedback';
 import { NotificationsTable, NotificationDialog } from './ContentPage';
 import { useAdminTranslation } from '../i18n/admin';
@@ -23,10 +24,7 @@ export function NotificationsPage() {
   const [noticeOpen, setNoticeOpen] = useState(searchParams.get('create') === '1');
   const [noticeFeedback, setNoticeFeedback] = useState<string | null>(null);
 
-  const businesses = useBusinesses(
-    { limit: 100, offset: 0 },
-    isSuperadmin,
-  );
+  const businesses = useAllBusinesses(isSuperadmin);
 
   useEffect(() => {
     setNoticeOpen(searchParams.get('create') === '1');
@@ -80,21 +78,16 @@ export function NotificationsPage() {
       {isSuperadmin && (
         <section className="filter-panel">
           <div className="filter-controls">
-            <label className="form-control business-select" htmlFor="notice-business-filter">
-              {t.content.businessFilterLabel}
-              <select
+            <div className="form-control business-select">
+              <label htmlFor="notice-business-filter">{t.content.businessFilterLabel}</label>
+              <BusinessSelect
                 id="notice-business-filter"
                 value={businessFilter}
-                onChange={event => setBusinessFilter(event.target.value)}
-              >
-                <option value={GLOBAL}>{t.content.allRecords}</option>
-                {businesses.data?.items.map(item => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+                onChange={setBusinessFilter}
+                allowAllLabel={t.content.allRecords}
+                businesses={businesses}
+              />
+            </div>
           </div>
         </section>
       )}

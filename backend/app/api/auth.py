@@ -267,7 +267,8 @@ async def refresh_tokens(
             status_code=401,
         )
 
-    if as_utc(auth_session.expires_at) <= utcnow():
+    now = utcnow()
+    if as_utc(auth_session.expires_at) <= now:
         raise AppError(
             code="REFRESH_TOKEN_EXPIRED",
             message="Refresh token has expired",
@@ -285,7 +286,8 @@ async def refresh_tokens(
     # Rotate refresh token
     new_raw_refresh = generate_refresh_token()
     auth_session.refresh_token_hash = hash_refresh_token(new_raw_refresh)
-    auth_session.last_rotated_at = utcnow()
+    auth_session.last_rotated_at = now
+    auth_session.expires_at = now + timedelta(seconds=settings.refresh_token_ttl_seconds)
 
     new_access_jwt = create_access_token(
         user_id=auth_session.user_id,

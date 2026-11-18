@@ -5,7 +5,12 @@ import type { AdminAccessToken, AdminIdentity, AdminMe } from '../api/types';
 export type SessionView =
   | { status: 'loading' | 'authenticating' | 'signing_out' }
   | { status: 'anonymous' }
-  | { status: 'authenticated'; admin: AdminIdentity; adminMaxStatsPeriodDays: number }
+  | {
+      status: 'authenticated';
+      admin: AdminIdentity;
+      adminMaxStatsPeriodDays: number;
+      adminStatsUnlimitedPeriod: boolean;
+    }
   | { status: 'error' | 'logout_error'; error: ApiError };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -25,6 +30,10 @@ function parseMe(value: unknown): AdminMe {
     || typeof value.admin_max_stats_period_days !== 'number'
     || !Number.isInteger(value.admin_max_stats_period_days)
     || value.admin_max_stats_period_days < 1) throw new ApiError('INVALID_RESPONSE');
+  if (value.admin_stats_unlimited_period !== undefined && typeof value.admin_stats_unlimited_period !== 'boolean') {
+    throw new ApiError('INVALID_RESPONSE');
+  }
+  const admin_stats_unlimited_period = value.admin_stats_unlimited_period === true;
   const admin = value.admin;
   if (typeof admin.id !== 'string' || typeof admin.login !== 'string'
     || (admin.role !== 'superadmin' && admin.role !== 'business_manager')) throw new ApiError('INVALID_RESPONSE');
@@ -32,6 +41,7 @@ function parseMe(value: unknown): AdminMe {
     if (admin.business !== null) throw new ApiError('INVALID_RESPONSE');
     return {
       admin: { id: admin.id, login: admin.login, role: admin.role, business: null },
+      admin_stats_unlimited_period,
       admin_max_stats_period_days: value.admin_max_stats_period_days,
     };
   }
@@ -48,8 +58,10 @@ function parseMe(value: unknown): AdminMe {
         status: admin.business.status,
         logo_url: typeof admin.business.logo_url === 'string' ? admin.business.logo_url : null,
         android_app_id: typeof admin.business.android_app_id === 'string' ? admin.business.android_app_id : null,
+        created_at: typeof admin.business.created_at === 'string' ? admin.business.created_at : null,
       },
     },
+    admin_stats_unlimited_period,
     admin_max_stats_period_days: value.admin_max_stats_period_days,
   };
 }
@@ -85,6 +97,25 @@ export class AdminSession {
     for (const listener of this.listeners) listener();
   }
 
+  syncBusiness(updated: { id: string; name: string; status: string; logo_url: string | null; android_app_id?: string | null; created_at?: string | null }): void {
+    if (this.currentView.status !== 'authenticated' || !this.currentView.admin.business) return;
+    if (this.currentView.admin.business.id !== updated.id) return;
+    this.publish({
+      ...this.currentView,
+      admin: {
+        ...this.currentView.admin,
+        business: {
+          ...this.currentView.admin.business,
+          name: updated.name,
+          status: updated.status,
+          logo_url: updated.logo_url,
+          android_app_id: updated.android_app_id ?? null,
+          created_at: updated.created_at !== undefined ? updated.created_at : (this.currentView.admin.business.created_at ?? null),
+        },
+      },
+    });
+  }
+
   bootstrap(): Promise<void> {
     if (this.bootstrapFlight) return this.bootstrapFlight;
     const flight = this.restoreSession();
@@ -112,6 +143,7 @@ export class AdminSession {
         status: 'authenticated',
         admin: me.admin,
         adminMaxStatsPeriodDays: me.admin_max_stats_period_days,
+        adminStatsUnlimitedPeriod: me.admin_stats_unlimited_period === true,
       });
     } catch (error) {
       if (generation !== this.epoch) return;
@@ -151,6 +183,7 @@ export class AdminSession {
         status: 'authenticated',
         admin: me.admin,
         adminMaxStatsPeriodDays: me.admin_max_stats_period_days,
+        adminStatsUnlimitedPeriod: me.admin_stats_unlimited_period === true,
       });
     } catch (error) {
       if (generation === this.epoch) {

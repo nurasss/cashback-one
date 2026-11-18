@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, time, timedelta, timezone
 from typing import Any, TypeVar, cast
 
 from sqlalchemy import case, func, or_, select, true
@@ -14,6 +14,7 @@ from app.core.time import as_utc, utcnow
 from app.models.admin import AdminUser
 from app.models.entities import Agent, AuditLog, Business, Card, PosKey, Transaction, User, UserCard
 from app.schemas.admin import (
+    AdminTransactionItem,
     AgentHealth,
     AgentHealthCounts,
     AgentItem,
@@ -22,8 +23,10 @@ from app.schemas.admin import (
     BusinessListItem,
     CardDetail,
     CardListItem,
+    CardPage,
     DashboardResponse,
     Page,
+    TransactionPage,
     UserDetail,
     UserListItem,
     UserSearchRequest,
@@ -32,6 +35,7 @@ from app.services.admin_mutations import safe_audit_snapshot
 from app.services.admin_security import mask_phone, sanitize_agent_error
 
 T = TypeVar("T")
+ASTANA_TIMEZONE = timezone(timedelta(hours=5))
 
 async def admin_identity(db: AsyncSession, admin: AdminUser) -> dict[str, Any]:
     business_data: dict[str, Any] | None = None
@@ -43,7 +47,9 @@ async def admin_identity(db: AsyncSession, admin: AdminUser) -> dict[str, Any]:
             "id": business.id,
             "name": business.name,
             "status": business.status,
+            "logo_url": business.logo_url,
             "android_app_id": business.android_app_id,
+            "created_at": as_utc(business.created_at),
         }
     return {
         "id": admin.id,
@@ -116,12 +122,32 @@ def _card_item(row: Any) -> CardListItem:
         business_name=business.name,
         barcode=card.barcode,
         phone_masked=mask_phone(card.phone),
+        full_name=card.full_name,
         balance=f"{card.balance:.4f}",
         is_blocked=card.is_blocked,
         updated_at=as_utc(card.updated_at),
         bind_method=user_card.bind_method if user_card else None,
         bound_at=as_utc(user_card.bound_at) if user_card else None,
         hidden_at=as_utc(user_card.hidden_at) if user_card and user_card.hidden_at else None,
+    )
+
+
+def _transaction_item(row: Any) -> AdminTransactionItem:
+    tx: Transaction = row[0]
+    card: Card = row[1]
+    business: Business = row[2]
+    return AdminTransactionItem(
+        id=tx.id,
+        card_id=card.id,
+        barcode=card.barcode,
+        business_id=business.id,
+        business_name=business.name,
+        type=tx.type,
+        amount=f"{tx.amount:.4f}",
+        balance_after=f"{tx.balance_after:.4f}",
+        occurred_at=as_utc(tx.occurred_at),
+        receipt_ref=tx.receipt_ref,
+        store=tx.store,
     )
 
 
@@ -136,23 +162,59 @@ def _user_item(row: Any) -> UserListItem:
     )
 
 
-def _validate_period(start: datetime | None, end: datetime | None) -> tuple[datetime, datetime, int]:
-    end_utc = as_utc(end) if end is not None else utcnow()
-    start_utc = as_utc(start) if start is not None else end_utc - timedelta(days=30)
+def _period_error(reason: str, message: str, **extra: Any) -> AppError:
+    """Stable, localizable 422. `code` stays ADMIN_INVALID_PERIOD (old clients keep working);
+    `reason` and the optional ISO-date bounds are the new machine-readable details."""
+    return AppError("ADMIN_INVALID_PERIOD", message, 422, extra={"reason": reason, **extra})
+
+
+def _validate_period(
+    start: datetime | None,
+    end: datetime | None,
+    *,
+    business_created_at: datetime | None = None,
+    now: datetime | None = None,
+) -> tuple[datetime, datetime, int]:
+    """Calendar-day bounds in UTC+5: both dates end at today, inclusive.
+
+    Registration affects the default start date only.
+    No limit on the length of the period. An explicit bad range is never
+    silently corrected; only a missing range is defaulted (and clamped to the business bounds)."""
+    now_utc = as_utc(now) if now is not None else utcnow()
+    today = now_utc.astimezone(ASTANA_TIMEZONE).date()
+    min_day = as_utc(business_created_at).astimezone(ASTANA_TIMEZONE).date() if business_created_at else None
+    bounds: dict[str, Any] = {"period_max": today.isoformat()}
+
     if start is not None and start.tzinfo is None:
-        raise AppError("ADMIN_INVALID_PERIOD", "Dates must include a timezone", 422)
+        raise _period_error("PERIOD_TIMEZONE_REQUIRED", "Dates must include a timezone", **bounds)
     if end is not None and end.tzinfo is None:
-        raise AppError("ADMIN_INVALID_PERIOD", "Dates must include a timezone", 422)
-    if start_utc > end_utc:
-        raise AppError("ADMIN_INVALID_PERIOD", "Start date must not be after end date", 422)
-    seconds = (end_utc - start_utc).total_seconds()
-    if seconds > settings.admin_max_stats_period_days * 86400:
-        raise AppError(
-            "ADMIN_PERIOD_TOO_LARGE",
-            f"Choose a period of {settings.admin_max_stats_period_days} days or less",
-            422,
+        raise _period_error("PERIOD_TIMEZONE_REQUIRED", "Dates must include a timezone", **bounds)
+
+    if end is not None:
+        end_instant = as_utc(end)
+        end_day = end_instant.astimezone(ASTANA_TIMEZONE).date()
+    else:
+        end_instant = now_utc
+        end_day = today
+    if start is not None:
+        start_instant = as_utc(start)
+        start_day = start_instant.astimezone(ASTANA_TIMEZONE).date()
+    else:
+        start_instant = None
+        start_day = end_day - timedelta(days=30)
+        if min_day is not None and start_day < min_day:
+            start_day = min(min_day, end_day)  # new business opens at once, no silent fix of explicit input
+
+    if end_day > today or start_day > today:
+        raise _period_error(
+            "PERIOD_AFTER_REPORT_DATE", "Period must not end after the report date", **bounds
         )
-    return start_utc, end_utc, max(1, (int(seconds) + 86399) // 86400)
+    if start_day > end_day or (start_instant is not None and end is not None and start_instant > end_instant):
+        raise _period_error("PERIOD_START_AFTER_END", "Start date must not be after end date", **bounds)
+    period_days = (end_day - start_day).days + 1
+    start_utc = datetime.combine(start_day, time.min, ASTANA_TIMEZONE).astimezone(UTC)
+    end_utc = datetime.combine(end_day, time.max, ASTANA_TIMEZONE).astimezone(UTC)
+    return start_utc, end_utc, period_days
 
 
 async def dashboard(
@@ -162,15 +224,19 @@ async def dashboard(
     start: datetime | None,
     end: datetime | None,
 ) -> DashboardResponse:
-    start_utc, end_utc, period_days = _validate_period(start, end)
     business_filter = scope.business_id_for(business_id)
+    registered_at: datetime | None = None
     if business_filter is not None:
         business = await db.scalar(select(Business).where(Business.id == business_filter))
         if business is None:
             raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
         business_name = business.name
+        registered_at = business.created_at
     else:
         business_name = None
+    start_utc, end_utc, period_days = _validate_period(
+        start, end, business_created_at=registered_at, now=utcnow()
+    )
     business_predicate = (
         Card.business_id == business_filter if business_filter is not None else true()
     )
@@ -299,24 +365,45 @@ async def get_agent(
     return _agent_item((row[0], row[1]), row[2])
 
 
+async def _count_cards(db: AsyncSession, conditions: list[Any]) -> int:
+    """Exact number of cards for the very same conditions as the page query.
+
+    `user_cards.card_id` is UNIQUE, so the outer join of the page query never multiplies a card and counting
+    `cards` joined to `businesses` gives the same set. Not a stable snapshot: it is read in its own statement.
+    """
+    stmt = (
+        select(func.count(Card.id))
+        .select_from(Card)
+        .join(Business, Business.id == Card.business_id)
+        .where(*conditions)
+    )
+    return int(await db.scalar(stmt) or 0)
+
+
+def _card_page(rows: list[Any], limit: int, offset: int, total: int) -> CardPage:
+    page = _page(rows, limit, offset, _card_item)
+    return CardPage(**page.model_dump(), total=total)
+
+
 async def list_cards(
     db: AsyncSession,
     scope: AdminScope,
     business_id: uuid.UUID | None,
     limit: int,
     offset: int,
-) -> Page[CardListItem]:
+) -> CardPage:
+    conditions = [scope.predicate(Card.business_id, business_id)]
     query = (
         select(Card, Business, UserCard)
         .join(Business, Business.id == Card.business_id)
         .outerjoin(UserCard, UserCard.card_id == Card.id)
-        .where(scope.predicate(Card.business_id, business_id))
+        .where(*conditions)
         .order_by(Card.updated_at.desc(), Card.id.desc())
         .limit(limit + 1)
         .offset(offset)
     )
     rows = (await db.execute(query)).all()
-    return _page(list(rows), limit, offset, _card_item)
+    return _card_page(list(rows), limit, offset, await _count_cards(db, conditions))
 
 
 async def search_cards(
@@ -327,35 +414,35 @@ async def search_cards(
     business_id: uuid.UUID | None,
     limit: int,
     offset: int,
-) -> Page[CardListItem]:
+) -> CardPage:
     from app.schemas.admin import CardSearchRequest
 
     # Re-apply the validated DTO even for service callers outside FastAPI.
     filters = CardSearchRequest(barcode=barcode, phone=phone, business_id=business_id)
+    conditions: list[Any] = [scope.predicate(Card.business_id, filters.business_id)]
+    match_clauses: list[Any] = []
+    if filters.barcode is not None:
+        match_clauses.append(Card.barcode == filters.barcode)
+        match_clauses.append(Card.barcode.endswith(filters.barcode))
+    if filters.phone is not None:
+        match_clauses.append(Card.phone == filters.phone)
+        match_clauses.append(Card.phone.endswith(filters.phone))
+        if filters.phone.startswith("+7") and len(filters.phone) == 12:
+            sub_digits = filters.phone[2:]
+            match_clauses.append(Card.phone.endswith(sub_digits))
+            match_clauses.append(Card.barcode.endswith(sub_digits))
+    if match_clauses:
+        conditions.append(or_(*match_clauses))
     query = (
         select(Card, Business, UserCard)
         .join(Business, Business.id == Card.business_id)
         .outerjoin(UserCard, UserCard.card_id == Card.id)
-        .where(scope.predicate(Card.business_id, filters.business_id))
+        .where(*conditions)
     )
-    if filters.barcode is not None:
-        query = query.where(
-            or_(
-                Card.barcode == filters.barcode,
-                Card.barcode.endswith(filters.barcode),
-            )
-        )
-    if filters.phone is not None:
-        query = query.where(
-            or_(
-                Card.phone == filters.phone,
-                Card.phone.endswith(filters.phone),
-            )
-        )
     rows = (
         await db.execute(query.order_by(Card.updated_at.desc(), Card.id.desc()).limit(limit + 1).offset(offset))
     ).all()
-    return _page(list(rows), limit, offset, _card_item)
+    return _card_page(list(rows), limit, offset, await _count_cards(db, conditions))
 
 
 async def get_card_detail(
@@ -373,13 +460,48 @@ async def get_card_detail(
     if row is None:
         raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
     result = _card_item((row[0], row[1], row[2])).model_dump()
-    card: Card = row[0]
     user: User | None = row[3]
     return CardDetail(
         **result,
-        full_name=card.full_name,
         owner_language=user.language if user and user.deleted_at is None else None,
     )
+
+
+async def list_card_transactions(
+    db: AsyncSession,
+    scope: AdminScope,
+    card_id: uuid.UUID,
+    limit: int,
+    offset: int,
+) -> TransactionPage:
+    card_row = (
+        await db.execute(
+            select(Card, Business)
+            .join(Business, Business.id == Card.business_id)
+            .where(Card.id == card_id, scope.predicate(Card.business_id))
+        )
+    ).first()
+    if card_row is None:
+        raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
+    card: Card = card_row[0]
+    business: Business = card_row[1]
+    tx_rows = (
+        await db.scalars(
+            select(Transaction)
+            .where(Transaction.card_id == card.id)
+            .order_by(Transaction.occurred_at.desc(), Transaction.id.desc())
+            .limit(limit + 1)
+            .offset(offset)
+        )
+    ).all()
+    total = int(await db.scalar(select(func.count(Transaction.id)).where(Transaction.card_id == card.id)) or 0)
+    page = _page(
+        [(tx, card, business) for tx in tx_rows],
+        limit,
+        offset,
+        _transaction_item,
+    )
+    return TransactionPage(**page.model_dump(), total=total)
 
 
 async def list_users(
@@ -516,6 +638,62 @@ async def get_user_detail(
         created_at=as_utc(user.created_at),
         cards=page,
     )
+
+
+async def list_user_transactions(
+    db: AsyncSession,
+    scope: AdminScope,
+    user_id: uuid.UUID,
+    business_id: uuid.UUID | None,
+    limit: int,
+    offset: int,
+) -> TransactionPage:
+    resolved_business_id = scope.business_id_for(business_id)
+    scoped_card_ids = (
+        select(Card.id)
+        .join(UserCard, UserCard.card_id == Card.id)
+        .where(scope.predicate(Card.business_id, resolved_business_id))
+    )
+    user = await db.scalar(
+        select(User).where(
+            User.id == user_id,
+            User.deleted_at.is_(None),
+            select(UserCard.id)
+            .where(UserCard.user_id == User.id, UserCard.card_id.in_(scoped_card_ids))
+            .exists(),
+        )
+    )
+    if user is None:
+        raise AppError("ADMIN_RESOURCE_NOT_FOUND", "Resource not found", 404)
+
+    tx_conditions = [
+        UserCard.user_id == user.id,
+        scope.predicate(Card.business_id, business_id),
+    ]
+    rows = (
+        await db.execute(
+            select(Transaction, Card, Business)
+            .join(Card, Card.id == Transaction.card_id)
+            .join(UserCard, UserCard.card_id == Card.id)
+            .join(Business, Business.id == Card.business_id)
+            .where(*tx_conditions)
+            .order_by(Transaction.occurred_at.desc(), Transaction.id.desc())
+            .limit(limit + 1)
+            .offset(offset)
+        )
+    ).all()
+    total = int(
+        await db.scalar(
+            select(func.count(Transaction.id))
+            .select_from(Transaction)
+            .join(Card, Card.id == Transaction.card_id)
+            .join(UserCard, UserCard.card_id == Card.id)
+            .where(*tx_conditions)
+        )
+        or 0
+    )
+    page = _page(list(rows), limit, offset, _transaction_item)
+    return TransactionPage(**page.model_dump(), total=total)
 
 
 async def list_audit_logs(

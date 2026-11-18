@@ -249,7 +249,7 @@ def apple_pass_json(card: Card, business: Business) -> dict[str, Any]:
                 },
                 {
                     "key": "redeem",
-                    "label": "Списание баллов",
+                    "label": "Списание бонусов",
                     "value": "Списание подтверждается кодом, который приходит вам в WhatsApp.",
                 },
             ],

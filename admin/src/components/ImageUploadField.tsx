@@ -13,6 +13,7 @@ export interface ImageUploadFieldProps {
   onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
   placeholder?: string;
+  hint?: string;
 }
 
 const MAX_CLIENT_BYTES = 10 * 1024 * 1024;
@@ -26,6 +27,7 @@ export function ImageUploadField({
   onUploadingChange,
   disabled = false,
   placeholder,
+  hint,
 }: ImageUploadFieldProps) {
   const { session } = useAdminSession();
   const { locale } = useLocale();
@@ -88,6 +90,7 @@ export function ImageUploadField({
   };
 
   const hasValue = Boolean(value && value.trim());
+  const hintId = hint ? `${id}-hint` : undefined;
 
   return (
     <div className="image-upload-field">
@@ -98,6 +101,7 @@ export function ImageUploadField({
           value={value}
           maxLength={1024}
           placeholder={placeholder ?? t.imageUpload.urlPlaceholder}
+          aria-describedby={hintId}
           onChange={e => {
             onChange(e.target.value);
             setPreviewError(false);
@@ -117,6 +121,7 @@ export function ImageUploadField({
         <button
           type="button"
           className="button button-secondary image-upload-btn"
+          aria-describedby={hintId}
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled || uploading}
           data-testid={`${id}-upload-button`}
@@ -125,6 +130,11 @@ export function ImageUploadField({
           <span>{uploading ? t.imageUpload.uploading : hasValue ? t.imageUpload.change : t.imageUpload.button}</span>
         </button>
       </div>
+      {hint && (
+        <p id={hintId} className="muted-copy image-upload-hint">
+          {hint}
+        </p>
+      )}
 
       {hasValue && (
         <div className="image-upload-preview-card" data-testid={`${id}-preview-card`}>

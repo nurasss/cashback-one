@@ -1,12 +1,19 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { type PropsWithChildren, useEffect, useRef, useState } from 'react';
 import { useAdminSession } from '../auth/provider';
-import { useActiveBusiness, isKeremetBusiness } from '../context/ActiveBusinessContext';
+import { useActiveBusiness } from '../context/ActiveBusinessContext';
 import { Navigation } from '../features/Navigation';
 import { IconBuilding, IconLogout } from '../components/Icons';
 import { LanguageSwitcher } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 import { resolveBusinessLogoSource } from '../utils/businessLogo';
+
+function setDocumentFaviconHref(href: string): void {
+  const link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+  if (link && link.getAttribute('href') !== href) {
+    link.setAttribute('href', href);
+  }
+}
 
 export function AdminLayout({ children }: PropsWithChildren) {
   const { session, view } = useAdminSession();
@@ -87,22 +94,54 @@ export function AdminLayout({ children }: PropsWithChildren) {
   const effectiveBusiness = view.status === 'authenticated' && view.admin.role === 'business_manager'
     ? view.admin.business
     : activeBusiness;
+  const effectiveLogoUrl = view.status === 'authenticated' ? effectiveBusiness?.logo_url ?? null : null;
 
-  // Dynamic Favicon: use Keremet client icon for Keremet, revert to Poscenter on switch, logout, or unmount
+  // Dynamic Favicon: bound to the same safe business logo_url as AccountAvatar; fallback /brand-mark.png
   useEffect(() => {
-    const isKeremet = isKeremetBusiness(effectiveBusiness);
-    const target = isKeremet ? '/keremet-favicon.png' : '/brand-mark.png';
-    const link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
-    if (link && link.getAttribute('href') !== target) {
-      link.setAttribute('href', target);
+    if (view.status !== 'authenticated') {
+      setDocumentFaviconHref('/brand-mark.png');
+      return () => setDocumentFaviconHref('/brand-mark.png');
     }
-    return () => {
-      const l = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
-      if (l && l.getAttribute('href') !== '/brand-mark.png') {
-        l.setAttribute('href', '/brand-mark.png');
+
+    const source = resolveBusinessLogoSource(effectiveLogoUrl);
+    if (!source.ok) {
+      setDocumentFaviconHref('/brand-mark.png');
+      return () => setDocumentFaviconHref('/brand-mark.png');
+    }
+
+    let cancelled = false;
+    const targetSrc = source.src;
+    setDocumentFaviconHref('/brand-mark.png');
+
+    if (typeof Image === 'undefined') {
+      setDocumentFaviconHref(targetSrc);
+      return () => {
+        cancelled = true;
+        setDocumentFaviconHref('/brand-mark.png');
+      };
+    }
+
+    const probe = new Image();
+    probe.referrerPolicy = 'no-referrer';
+    probe.onload = () => {
+      if (!cancelled) {
+        setDocumentFaviconHref(targetSrc);
       }
     };
-  }, [effectiveBusiness]);
+    probe.onerror = () => {
+      if (!cancelled) {
+        setDocumentFaviconHref('/brand-mark.png');
+      }
+    };
+    probe.src = targetSrc;
+
+    return () => {
+      cancelled = true;
+      probe.onload = null;
+      probe.onerror = null;
+      setDocumentFaviconHref('/brand-mark.png');
+    };
+  }, [view.status, effectiveLogoUrl]);
 
   if (view.status !== 'authenticated') return null;
   const { admin } = view;

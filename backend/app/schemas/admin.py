@@ -241,7 +241,10 @@ class AdminBusinessIdentity(BaseModel):
     id: uuid.UUID
     name: str
     status: str
+    logo_url: str | None = None
     android_app_id: str | None = None
+    # Business registration instant (UTC). Lower bound of the dashboard period (UTC+5 calendar day).
+    created_at: datetime | None = None
 
 
 class AdminIdentity(BaseModel):
@@ -253,6 +256,10 @@ class AdminIdentity(BaseModel):
 
 class AdminMeResponse(BaseModel):
     admin: AdminIdentity
+    admin_stats_unlimited_period: bool = True
+    # Deprecated legacy compatibility field required by existing frontends (positive int >= 1).
+    # In unlimited mode (admin_stats_unlimited_period=True), /admin/dashboard enforces no day-count cap.
+    admin_max_stats_period_days: int = Field(ge=1, le=365)
 
 
 class LogoutResponse(BaseModel):
@@ -444,6 +451,7 @@ class CardListItem(BaseModel):
     business_name: str
     barcode: str
     phone_masked: str | None
+    full_name: str | None = None
     balance: str
     is_blocked: bool
     updated_at: datetime
@@ -452,9 +460,32 @@ class CardListItem(BaseModel):
     hidden_at: datetime | None
 
 
+class CardPage(Page[CardListItem]):
+    """Card list page. `total` is the exact number of cards matching the same scope, business filter and search as `items`."""
+
+    total: int = Field(ge=0)
+
+
 class CardDetail(CardListItem):
-    full_name: str | None
     owner_language: str | None
+
+
+class AdminTransactionItem(BaseModel):
+    id: uuid.UUID
+    card_id: uuid.UUID
+    barcode: str
+    business_id: uuid.UUID
+    business_name: str
+    type: str
+    amount: str
+    balance_after: str
+    occurred_at: datetime
+    receipt_ref: str | None = None
+    store: str | None = None
+
+
+class TransactionPage(Page[AdminTransactionItem]):
+    total: int = Field(ge=0)
 
 
 class UserSearchRequest(BaseModel):

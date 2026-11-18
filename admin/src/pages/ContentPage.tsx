@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { messageForError } from '../api/errors';
-import { privateKey, useAppNotifications, useBusinesses, usePromotions } from '../api/queries';
+import { ApiError, messageForError } from '../api/errors';
+import { privateKey, useAllBusinesses, useAppNotifications, usePromotions } from '../api/queries';
 import type { AppNotification, BroadcastPushResult, BusinessStore, Promotion, PromotionKind } from '../api/types';
 import { useAdminSession } from '../auth/provider';
+import { useActiveBusiness } from '../context/ActiveBusinessContext';
+import { BusinessSelect } from '../components/BusinessSelect';
 import { DataTable } from '../components/DataTable';
 import { useTableExpansion } from '../components/CompactTable';
 import { ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
@@ -26,18 +28,24 @@ function useIsSuperadmin() {
 }
 
 function BusinessPicker({ id, value, onChange, allowAll }: { id: string; value: string; onChange: (value: string) => void; allowAll: string }) {
-  const businesses = useBusinesses({ limit: 100, offset: 0 });
+  const superadmin = useIsSuperadmin();
+  const businesses = useAllBusinesses(superadmin);
   return (
-    <select id={id} value={value} onChange={event => onChange(event.target.value)}>
-      <option value={GLOBAL}>{allowAll}</option>
-      {businesses.data?.items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-    </select>
+    <BusinessSelect
+      id={id}
+      value={value}
+      onChange={onChange}
+      allowAllLabel={allowAll}
+      businesses={businesses}
+    />
   );
 }
 
 export function ContentPage() {
   const superadmin = useIsSuperadmin();
   const { view } = useAdminSession();
+  const { setActiveBusiness } = useActiveBusiness();
+  const businessesQuery = useAllBusinesses(superadmin);
   const t = useAdminTranslation();
   const [adminTab, setAdminTab] = useState<SuperadminTab>('promotions');
   const [clientTab, setClientTab] = useState<ClientTab>('banners');
@@ -46,6 +54,19 @@ export function ContentPage() {
   const [editingStore, setEditingStore] = useState<BusinessStore | 'new' | null>(null);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [noticeFeedback, setNoticeFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!superadmin) return;
+    const selected = businessFilter ? businessesQuery.items.find(b => b.id === businessFilter) : null;
+    setActiveBusiness(selected ? {
+      id: selected.id,
+      name: selected.name,
+      logo_url: selected.logo_url,
+      android_app_id: selected.android_app_id,
+    } : null);
+  }, [superadmin, businessFilter, businessesQuery.items, setActiveBusiness]);
+
+  useEffect(() => () => setActiveBusiness(null), [setActiveBusiness]);
 
   const handleNoticeCreated = (push?: BroadcastPushResult | null, scheduledAt?: string | null) => {
     if (scheduledAt) {
@@ -208,10 +229,10 @@ export function ContentPage() {
         </div>
         {superadmin && (
           <div className="filter-controls">
-            <label className="form-control business-select" htmlFor="content-business">
-              {t.content.businessFilterLabel}
+            <div className="form-control business-select">
+              <label htmlFor="content-business">{t.content.businessFilterLabel}</label>
               <BusinessPicker id="content-business" value={businessFilter} onChange={setBusinessFilter} allowAll={t.content.allRecords} />
-            </label>
+            </div>
           </div>
         )}
       </section>
@@ -312,8 +333,7 @@ export function PromotionsTable({
 }) {
   const expansion = useTableExpansion();
   const t = useAdminTranslation();
-  const pageSize = kind !== undefined ? 7 : 25;
-  const [page, setPage] = usePage(pageSize);
+  const [page, setPage] = usePage(25);
 
   useEffect(() => {
     setPage(0);
@@ -406,7 +426,7 @@ export function PromotionsTable({
   return (
     <>
       {remove.error && <ErrorNotice error={remove.error} />}
-      {query.data.items.length === 0 && emptyMessage ? (
+      {query.data.items.length === 0 && page.offset === 0 && emptyMessage ? (
         <section className="surface-card">
           <p className="table-empty">{emptyMessage}</p>
         </section>
@@ -418,7 +438,6 @@ export function PromotionsTable({
           rows={query.data.items}
           rowKey={item => item.id}
           columns={columns}
-          disableCompacting={kind !== undefined}
         />
       )}
     </>
@@ -430,6 +449,9 @@ export function NotificationsTable({ businessId }: { businessId?: string }) {
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const [page, setPage] = usePage();
+  useEffect(() => {
+    setPage(0);
+  }, [businessId, setPage]);
   const query = useAppNotifications(businessId, page);
   const remove = useRemove('notifications');
 
@@ -556,13 +578,43 @@ export function PromotionDialog({
     sort_order: String(promotion?.sort_order ?? 0),
     is_active: promotion?.is_active ?? true,
   });
+  const [startNow, setStartNow] = useState<boolean>(() => (promotion ? promotion.starts_at === null : true));
+  const [startNowDisplay, setStartNowDisplay] = useState<string>(() => getAstanaNowLocal());
+  const [noEndDate, setNoEndDate] = useState<boolean>(() => (promotion ? promotion.ends_at === null : true));
+  const [startsDirty, setStartsDirty] = useState(false);
+  const [endsDirty, setEndsDirty] = useState(false);
   const [error, setError] = useState('');
-  const [fieldErrors, setFieldErrors] = useState({ sort_order: '', starts_at: '', ends_at: '' });
+  const [fieldErrors, setFieldErrors] = useState({
+    title: '',
+    image_url: '',
+    sort_order: '',
+    starts_at: '',
+    ends_at: '',
+  });
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  useEffect(() => {
+    if (!startNow) return;
+    const refreshDisplay = () => {
+      setStartNowDisplay(getAstanaNowLocal());
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refreshDisplay();
+    };
+    window.addEventListener('focus', refreshDisplay);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', refreshDisplay);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [startNow]);
+
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) => {
     setForm(current => ({ ...current, [key]: event.target.value }));
-    if (key === 'sort_order' || key === 'starts_at' || key === 'ends_at') {
+    if (key === 'starts_at') setStartsDirty(true);
+    if (key === 'ends_at') setEndsDirty(true);
+    if (key === 'title' || key === 'image_url' || key === 'sort_order' || key === 'starts_at' || key === 'ends_at') {
       setFieldErrors(current => ({ ...current, [key]: '' }));
     }
   };
@@ -570,40 +622,72 @@ export function PromotionDialog({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
+    const nextFieldErrors = {
+      title: '',
+      image_url: '',
+      sort_order: '',
+      starts_at: '',
+      ends_at: '',
+    };
+
     if (!form.title.trim()) {
-      setError(t.content.promoErrTitle);
-      return;
+      nextFieldErrors.title = t.content.promoErrTitle;
     }
     if (form.image_url.trim() && !form.image_url.trim().startsWith('https://')) {
-      setError(t.content.promoErrImage);
-      return;
+      nextFieldErrors.image_url = t.content.promoErrImage;
     }
     const sort = Number(form.sort_order);
-    const nextFieldErrors = { sort_order: '', starts_at: '', ends_at: '' };
     if (!form.sort_order.trim() || !Number.isInteger(sort) || Math.abs(sort) > 1000) {
       nextFieldErrors.sort_order = t.content.promoErrSort;
     }
 
-    // Date validations in Astana time
-    if (form.starts_at.trim() && !isValidAstanaDateTimeLocal(form.starts_at.trim())) {
-      nextFieldErrors.starts_at = t.content.promoErrInvalidDate;
+    const startRaw = startNow ? '' : form.starts_at.trim();
+    const endRaw = noEndDate ? '' : form.ends_at.trim();
+
+    if (!startNow) {
+      if (!startRaw) {
+        nextFieldErrors.starts_at = t.content.promoErrStartRequired;
+      } else if (!isValidAstanaDateTimeLocal(startRaw)) {
+        nextFieldErrors.starts_at = t.content.promoErrInvalidDate;
+      }
     }
-    if (form.ends_at.trim() && !isValidAstanaDateTimeLocal(form.ends_at.trim())) {
-      nextFieldErrors.ends_at = t.content.promoErrInvalidDate;
+
+    if (!noEndDate) {
+      if (!endRaw) {
+        nextFieldErrors.ends_at = t.content.promoErrEndRequired;
+      } else if (!isValidAstanaDateTimeLocal(endRaw)) {
+        nextFieldErrors.ends_at = t.content.promoErrInvalidDate;
+      }
     }
-    if (!promotion && form.starts_at.trim()) {
-      const startUtc = astanaLocalToUtcIso(form.starts_at.trim());
-      if (startUtc && new Date(startUtc).getTime() < Date.now() - 5 * 60 * 1000) {
+
+    const resolvedStartIso = startNow
+      ? null
+      : promotion && !startsDirty && promotion.starts_at
+        ? promotion.starts_at
+        : startRaw
+          ? astanaLocalToUtcIso(startRaw)
+          : null;
+
+    const resolvedEndIso = noEndDate
+      ? null
+      : promotion && !endsDirty && promotion.ends_at
+        ? promotion.ends_at
+        : endRaw
+          ? astanaLocalToUtcIso(endRaw)
+          : null;
+
+    if (!startNow && resolvedStartIso && (!promotion || startsDirty)) {
+      if (new Date(resolvedStartIso).getTime() < Date.now() - 15_000) {
         nextFieldErrors.starts_at = t.content.promoErrStartPast;
       }
     }
-    if (form.starts_at.trim() && form.ends_at.trim()) {
-      const startUtc = astanaLocalToUtcIso(form.starts_at.trim());
-      const endUtc = astanaLocalToUtcIso(form.ends_at.trim());
-      if (startUtc && endUtc && new Date(endUtc).getTime() <= new Date(startUtc).getTime()) {
+
+    if (resolvedStartIso && resolvedEndIso) {
+      if (new Date(resolvedEndIso).getTime() <= new Date(resolvedStartIso).getTime()) {
         nextFieldErrors.ends_at = t.content.promoErrEndAfterStart;
       }
     }
+
     setFieldErrors(nextFieldErrors);
     if (Object.values(nextFieldErrors).some(Boolean)) return;
 
@@ -614,8 +698,8 @@ export function PromotionDialog({
       badge: form.badge.trim() || null,
       body: form.body.trim() || null,
       image_url: form.image_url.trim() || null,
-      starts_at: form.starts_at.trim() ? astanaLocalToUtcIso(form.starts_at.trim()) : null,
-      ends_at: form.ends_at.trim() ? astanaLocalToUtcIso(form.ends_at.trim()) : null,
+      starts_at: resolvedStartIso,
+      ends_at: resolvedEndIso,
       sort_order: sort,
       is_active: form.is_active,
     };
@@ -635,7 +719,32 @@ export function PromotionDialog({
       await queryClient.invalidateQueries({ queryKey: [...privateKey, 'promotions'] });
       onClose();
     } catch (saveError) {
-      setError(messageForError(saveError, locale));
+      const msg = messageForError(saveError, locale);
+      if (saveError instanceof ApiError && saveError.code === 'VALIDATION_ERROR') {
+        const fields = saveError.detail?.fields ?? [];
+        const hint = saveError.detail?.validationHint;
+        const mapped = {
+          title: fields.includes('title') ? t.content.promoErrTitle : '',
+          image_url: fields.includes('image_url') ? t.content.promoErrImage : '',
+          sort_order: fields.includes('sort_order') ? t.content.promoErrSort : '',
+          starts_at:
+            hint === 'starts_at_past'
+              ? t.content.promoErrStartPast
+              : fields.includes('starts_at')
+                ? msg
+                : '',
+          ends_at:
+            hint === 'ends_at_order'
+              ? t.content.promoErrEndAfterStart
+              : fields.includes('ends_at')
+                ? msg
+                : '',
+        };
+        setFieldErrors(mapped);
+        setError(msg);
+      } else {
+        setError(msg);
+      }
     } finally {
       setSaving(false);
     }
@@ -651,107 +760,182 @@ export function PromotionDialog({
         : t.content.offerDialogTitleNew;
 
   return (
-    <DialogFrame title={dialogTitle} onClose={onClose} className="mutation-dialog--wide">
+    <DialogFrame title={dialogTitle} onClose={onClose} className="mutation-dialog--wide promo-dialog">
       <form className="mutation-form" noValidate onSubmit={event => { void submit(event); }}>
         {superadmin && !promotion && (
-          <>
-            <label htmlFor="promo-business">{t.content.promoFieldAudience}</label>
-            <BusinessPicker
-              id="promo-business"
-              value={form.business_id}
-              onChange={value => setForm(current => ({ ...current, business_id: value }))}
-              allowAll={t.content.promoAllClients}
-            />
-          </>
+          <div className="mutation-form-row--two-col">
+            <div className="form-control">
+              <label htmlFor="promo-business">{t.content.promoFieldAudience}</label>
+              <BusinessPicker
+                id="promo-business"
+                value={form.business_id}
+                onChange={value => setForm(current => ({ ...current, business_id: value }))}
+                allowAll={t.content.promoAllClients}
+              />
+            </div>
+            <div className="form-control">
+              <label htmlFor="promo-kind">{t.content.promoFieldKind}</label>
+              <select id="promo-kind" value={form.kind} onChange={set('kind')}>
+                <option value="offer">{t.content.promoKindOfferOption}</option>
+                <option value="banner">{t.content.promoKindBannerOption}</option>
+              </select>
+            </div>
+          </div>
         )}
-        {superadmin && (
-          <>
+        {superadmin && promotion && (
+          <div className="form-control">
             <label htmlFor="promo-kind">{t.content.promoFieldKind}</label>
             <select id="promo-kind" value={form.kind} onChange={set('kind')}>
               <option value="offer">{t.content.promoKindOfferOption}</option>
               <option value="banner">{t.content.promoKindBannerOption}</option>
             </select>
-          </>
+          </div>
         )}
-        <label htmlFor="promo-title">{t.content.promoFieldTitle}</label>
-        <input id="promo-title" value={form.title} maxLength={120} onChange={set('title')} required autoFocus />
-        <label htmlFor="promo-badge">{t.content.promoFieldBadge}</label>
-        <input id="promo-badge" value={form.badge} maxLength={40} onChange={set('badge')} />
-        <label htmlFor="promo-subtitle">{t.content.promoFieldSubtitle}</label>
-        <input id="promo-subtitle" value={form.subtitle} maxLength={255} onChange={set('subtitle')} />
-        <label htmlFor="promo-body">{t.content.promoFieldBody}</label>
-        <textarea id="promo-body" rows={4} value={form.body} maxLength={4000} onChange={set('body')} />
-        <label htmlFor="promo-image">{t.content.promoFieldImage}</label>
-        <ImageUploadField
-          id="promo-image"
-          value={form.image_url}
-          onChange={url => setForm(current => ({ ...current, image_url: url }))}
-          purpose="promotion"
-          onUploadingChange={setUploadingImage}
-          disabled={saving}
-        />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label htmlFor="promo-start" style={{ margin: 0 }}>{t.content.promoFieldStart}</label>
-            <button
-              type="button"
-              className="link-button"
-              style={{ fontSize: '0.8125rem' }}
-              onClick={() => setForm(c => ({ ...c, starts_at: getAstanaNowLocal() }))}
-            >
-              {t.content.startNowBtn}
-            </button>
-          </div>
+        {/* Full-width Title */}
+        <div className="form-control">
+          <label htmlFor="promo-title">{t.content.promoFieldTitle}</label>
           <input
-            id="promo-start"
-            type="datetime-local"
-            value={form.starts_at}
-            min={promotion ? undefined : getAstanaNowLocal()}
-            aria-invalid={Boolean(fieldErrors.starts_at)}
-            onChange={set('starts_at')}
+            id="promo-title"
+            value={form.title}
+            maxLength={120}
+            aria-invalid={Boolean(fieldErrors.title)}
+            onChange={set('title')}
+            required
+            autoFocus
           />
-          {fieldErrors.starts_at && <p className="form-error">{fieldErrors.starts_at}</p>}
+          {fieldErrors.title && <p className="form-error">{fieldErrors.title}</p>}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label htmlFor="promo-end" style={{ margin: 0 }}>{t.content.promoFieldEnd}</label>
-            <button
-              type="button"
-              className="link-button"
-              style={{ fontSize: '0.8125rem' }}
-              onClick={() => setForm(c => ({ ...c, ends_at: '' }))}
-            >
-              {t.content.noEndDateBtn}
-            </button>
-          </div>
-          <input
-            id="promo-end"
-            type="datetime-local"
-            value={form.ends_at}
-            min={form.starts_at || getAstanaNowLocal()}
-            aria-invalid={Boolean(fieldErrors.ends_at)}
-            onChange={set('ends_at')}
-          />
-          {fieldErrors.ends_at && <p className="form-error">{fieldErrors.ends_at}</p>}
+        {/* Full-width Subtitle */}
+        <div className="form-control">
+          <label htmlFor="promo-subtitle">{t.content.promoFieldSubtitle}</label>
+          <input id="promo-subtitle" value={form.subtitle} maxLength={255} onChange={set('subtitle')} />
         </div>
 
-        <label htmlFor="promo-sort">{t.content.promoFieldSort}</label>
-        <NumericInput id="promo-sort" min={-1000} max={1000} allowNegative value={form.sort_order} aria-invalid={Boolean(fieldErrors.sort_order)} onChange={set('sort_order')} />
-        {fieldErrors.sort_order && <p className="form-error">{fieldErrors.sort_order}</p>}
-        <label htmlFor="promo-active">
+        {/* Full-width Description */}
+        <div className="form-control">
+          <label htmlFor="promo-body">{t.content.promoFieldBody}</label>
+          <textarea id="promo-body" rows={3} value={form.body} maxLength={4000} onChange={set('body')} />
+        </div>
+
+        {/* 2 columns: Плашка | Сортировка */}
+        <div className="mutation-form-row--two-col">
+          <div className="form-control">
+            <label htmlFor="promo-badge">{t.content.promoFieldBadge}</label>
+            <input id="promo-badge" value={form.badge} maxLength={40} onChange={set('badge')} />
+          </div>
+
+          <div className="form-control">
+            <label htmlFor="promo-sort" title={t.content.promoFieldSort}>
+              {t.content.promoFieldSortLabel}
+            </label>
+            <NumericInput
+              id="promo-sort"
+              min={-1000}
+              max={1000}
+              allowNegative
+              value={form.sort_order}
+              aria-invalid={Boolean(fieldErrors.sort_order)}
+              onChange={set('sort_order')}
+            />
+            {fieldErrors.sort_order && <p className="form-error">{fieldErrors.sort_order}</p>}
+          </div>
+        </div>
+
+        {/* 2 columns: Начало показа | Конец показа */}
+        <div className="mutation-form-row--two-col">
+          <div className="form-control promo-date-col">
+            <label htmlFor="promo-start">{t.content.promoFieldStart}</label>
+            <input
+              id="promo-start"
+              type="datetime-local"
+              value={startNow ? startNowDisplay : form.starts_at}
+              min={!startNow && (!promotion || startsDirty) ? getAstanaNowLocal() : undefined}
+              disabled={startNow}
+              aria-invalid={Boolean(fieldErrors.starts_at)}
+              onChange={set('starts_at')}
+            />
+            <label className="checkbox-row promo-mode-checkbox" htmlFor="promo-start-now">
+              <input
+                id="promo-start-now"
+                type="checkbox"
+                checked={startNow}
+                onChange={event => {
+                  const checked = event.target.checked;
+                  setStartNow(checked);
+                  if (checked) {
+                    setStartNowDisplay(getAstanaNowLocal());
+                  }
+                  setFieldErrors(current => ({ ...current, starts_at: '' }));
+                }}
+              />
+              <span>{t.content.startNowBtn}</span>
+            </label>
+            {fieldErrors.starts_at && <p className="form-error">{fieldErrors.starts_at}</p>}
+          </div>
+
+          <div className="form-control promo-date-col">
+            <label htmlFor="promo-end">{t.content.promoFieldEnd}</label>
+            <input
+              id="promo-end"
+              type="datetime-local"
+              value={noEndDate ? '' : form.ends_at}
+              min={(!startNow && form.starts_at) || getAstanaNowLocal()}
+              disabled={noEndDate}
+              aria-invalid={Boolean(fieldErrors.ends_at)}
+              onChange={set('ends_at')}
+            />
+            <label className="checkbox-row promo-mode-checkbox" htmlFor="promo-end-now">
+              <input
+                id="promo-end-now"
+                type="checkbox"
+                checked={noEndDate}
+                onChange={event => {
+                  const checked = event.target.checked;
+                  setNoEndDate(checked);
+                  setFieldErrors(current => ({ ...current, ends_at: '' }));
+                }}
+              />
+              <span>{t.content.noEndDateBtn}</span>
+            </label>
+            {fieldErrors.ends_at && <p className="form-error">{fieldErrors.ends_at}</p>}
+          </div>
+        </div>
+
+        {/* Attachment */}
+        <div className="form-control promo-attachment-row">
+          <label htmlFor="promo-image">{t.content.promoFieldImage}</label>
+          <ImageUploadField
+            id="promo-image"
+            value={form.image_url}
+            onChange={url => {
+              setForm(current => ({ ...current, image_url: url }));
+              setFieldErrors(current => ({ ...current, image_url: '' }));
+            }}
+            purpose="promotion"
+            hint={form.kind === 'banner' ? t.content.promoImageHintBanner : t.content.promoImageHintOffer}
+            onUploadingChange={setUploadingImage}
+            disabled={saving}
+          />
+          {fieldErrors.image_url && <p className="form-error">{fieldErrors.image_url}</p>}
+        </div>
+
+        {/* Checkbox: Показывать в приложении */}
+        <label className="checkbox-row" htmlFor="promo-active">
           <input
             id="promo-active"
             type="checkbox"
             checked={form.is_active}
-            style={{ width: 'auto', minHeight: 0, marginRight: 8 }}
             onChange={event => setForm(current => ({ ...current, is_active: event.target.checked }))}
           />
-          {t.content.promoFieldActive}
+          <span>{t.content.promoFieldActive}</span>
         </label>
+
         {error && <p className="form-error" role="alert">{error}</p>}
-        <footer className="mutation-actions">
+
+        {/* Actions: Left-aligned buttons */}
+        <footer className="dialog-actions dialog-actions--left">
           <button className="button button-primary" type="submit" disabled={saving || uploadingImage}>
             {saving ? t.content.savingBtn : t.content.saveBtn}
           </button>

@@ -3,7 +3,9 @@ import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import Uuid, and_, exists, func, literal, or_, select, true
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
@@ -13,6 +15,7 @@ from app.models.entities import (
     Business,
     Card,
     Notification,
+    NotificationRead,
     Promotion,
     RedemptionCode,
     User,
@@ -21,6 +24,7 @@ from app.models.entities import (
 from app.schemas.customer_app import (
     BadgesResponse,
     NotificationItem,
+    NotificationMarkReadResponse,
     NotificationsResponse,
     PromotionItem,
     PromotionsResponse,
@@ -180,17 +184,22 @@ def _notification_effective_time() -> ColumnElement[datetime]:
     return func.coalesce(Notification.scheduled_at, Notification.created_at)
 
 
-async def list_notifications(
-    session: AsyncSession, user: User, business_id: uuid.UUID | None = None
-) -> NotificationsResponse:
+async def _notification_visibility(
+    session: AsyncSession, user: User, business_id: uuid.UUID | None
+) -> ColumnElement[bool] | None:
+    """The single visibility predicate shared by GET, unread counting and exact-ID mark-read.
+
+    Returns None when nothing can be visible (business_id given but not an active business).
+    Another customer's personal notifications and not-yet-due scheduled ones are never visible.
+    """
     now = utcnow()
     eff_time = _notification_effective_time()
     time_filter = or_(Notification.scheduled_at.is_(None), Notification.scheduled_at <= now)
 
     if business_id is not None:
         if not await _is_active_business(session, business_id):
-            return NotificationsResponse(items=[], unread_count=0)
-        visible = and_(
+            return None
+        return and_(
             Notification.business_id == business_id,
             time_filter,
             or_(
@@ -198,29 +207,61 @@ async def list_notifications(
                 and_(Notification.user_id.is_(None), eff_time >= user.created_at),
             ),
         )
-    else:
-        business_ids = await customer_business_ids(session, user.id)
-        visible = and_(
-            _visible_notifications(user.id, business_ids),
-            time_filter,
-            or_(Notification.user_id == user.id, eff_time >= user.created_at),
-        )
+    business_ids = await customer_business_ids(session, user.id)
+    return and_(
+        _visible_notifications(user.id, business_ids),
+        time_filter,
+        or_(Notification.user_id == user.id, eff_time >= user.created_at),
+    )
+
+
+def _notification_baseline_unread(user: User) -> ColumnElement[bool]:
+    """Not covered by the legacy baseline (User.notifications_seen_at)."""
+    if user.notifications_seen_at is None:
+        return true()
+    return _notification_effective_time() > user.notifications_seen_at
+
+
+def _notification_unread(user: User) -> ColumnElement[bool]:
+    """Unread = after the legacy baseline AND no per-user receipt for this notification."""
+    no_receipt = ~exists().where(
+        NotificationRead.user_id == user.id,
+        NotificationRead.notification_id == Notification.id,
+    )
+    return and_(_notification_baseline_unread(user), no_receipt)
+
+
+async def list_notifications(
+    session: AsyncSession, user: User, business_id: uuid.UUID | None = None
+) -> NotificationsResponse:
+    now = utcnow()
+    eff_time = _notification_effective_time()
+    visible = await _notification_visibility(session, user, business_id)
+    if visible is None:
+        return NotificationsResponse(items=[], unread_count=0)
 
     rows = (
         await session.execute(
-            select(Notification, RedemptionCode, Business)
+            select(Notification, RedemptionCode, Business, NotificationRead.notification_id)
             .outerjoin(RedemptionCode, RedemptionCode.id == Notification.redemption_id)
             .outerjoin(Business, Business.id == Notification.business_id)
+            .outerjoin(
+                NotificationRead,
+                and_(
+                    NotificationRead.user_id == user.id,
+                    NotificationRead.notification_id == Notification.id,
+                ),
+            )
             .where(visible)
             .order_by(eff_time.desc(), Notification.id.desc())
             .limit(NOTIFICATIONS_PAGE_LIMIT)
         )
     ).all()
     items = []
-    for notif, redemption, business in rows:
+    for notif, redemption, business, receipt_id in rows:
         item = NotificationItem.model_validate(notif)
         effective_at = notif.scheduled_at if notif.scheduled_at is not None else notif.created_at
-        item.is_unread = _is_new(effective_at, user.notifications_seen_at)
+        item.is_unread = _is_new(effective_at, user.notifications_seen_at) and receipt_id is None
         if notif.redemption_id is not None and redemption is not None:
             is_pending_and_valid = (
                 redemption.status == "pending"
@@ -243,29 +284,13 @@ async def _unread_notifications(
     business_ids: list[uuid.UUID] | None = None,
     business_id: uuid.UUID | None = None,
 ) -> int:
-    now = utcnow()
-    eff_time = _notification_effective_time()
-    time_filter = or_(Notification.scheduled_at.is_(None), Notification.scheduled_at <= now)
-
-    if business_id is not None:
-        if not await _is_active_business(session, business_id):
-            return 0
-        conditions = [
-            Notification.business_id == business_id,
-            time_filter,
-            or_(Notification.user_id == user.id, eff_time >= user.created_at),
-        ]
-    else:
-        if business_ids is None:
-            business_ids = await customer_business_ids(session, user.id)
-        conditions = [
-            _visible_notifications(user.id, business_ids),
-            time_filter,
-            or_(Notification.user_id == user.id, eff_time >= user.created_at),
-        ]
-    if user.notifications_seen_at is not None:
-        conditions.append(eff_time > user.notifications_seen_at)
-    count = await session.scalar(select(func.count(Notification.id)).where(*conditions))
+    # `business_ids` is accepted for call compatibility; the shared predicate resolves it itself.
+    visible = await _notification_visibility(session, user, business_id)
+    if visible is None:
+        return 0
+    count = await session.scalar(
+        select(func.count(Notification.id)).where(visible, _notification_unread(user))
+    )
     return int(count or 0)
 
 
@@ -308,8 +333,66 @@ async def mark_promotions_seen(
 async def mark_notifications_read(
     session: AsyncSession, user: User, business_id: uuid.UUID | None = None
 ) -> None:
+    """LEGACY: moves the per-user baseline (all business modes alike; `business_id` is ignored).
+
+    Kept unchanged for old app versions. Known limit: it still marks everything older than "now"
+    as read for the whole user, including items the client never showed and other businesses.
+    The exact-ID endpoint does not have this problem and never moves this baseline.
+    """
     user.notifications_seen_at = utcnow()
     await session.commit()
+
+
+async def mark_notifications_read_by_ids(
+    session: AsyncSession,
+    user: User,
+    ids: list[uuid.UUID],
+    business_id: uuid.UUID | None = None,
+) -> NotificationMarkReadResponse:
+    """Mark exactly the given notifications as read for this user (idempotent, race-safe).
+
+    Duplicates are collapsed (first occurrence order). An id is "visible" iff the shared GET
+    predicate shows it for the same `business_id` mode; everything else (unknown, foreign,
+    another customer's personal, other business, not yet due, inactive business) lands in
+    `ignored` without revealing why. Receipts are inserted by a single
+    INSERT..SELECT..ON CONFLICT DO NOTHING RETURNING, so concurrent identical requests never
+    duplicate and exactly one of them reports an id as `read`. The baseline is never touched.
+    """
+    requested = list(dict.fromkeys(ids))
+    visibility = await _notification_visibility(session, user, business_id)
+    if visibility is None:
+        return NotificationMarkReadResponse(
+            read=[], already_read=[], ignored=requested, unread_count=0
+        )
+    visible = set(
+        (
+            await session.execute(
+                select(Notification.id).where(visibility, Notification.id.in_(requested))
+            )
+        ).scalars()
+    )
+    select_new = select(literal(user.id, type_=Uuid()), Notification.id).where(
+        visibility,
+        Notification.id.in_(requested),
+        _notification_baseline_unread(user),
+    )
+    is_postgres = session.get_bind().dialect.name == "postgresql"
+    dialect_insert = pg_insert if is_postgres else sqlite_insert
+    stmt = (
+        dialect_insert(NotificationRead)
+        .from_select(["user_id", "notification_id"], select_new)
+        .on_conflict_do_nothing(index_elements=["user_id", "notification_id"])
+        .returning(NotificationRead.notification_id)
+    )
+    inserted = set((await session.execute(stmt)).scalars())
+    await session.commit()
+    unread = await _unread_notifications(session, user, business_id=business_id)
+    return NotificationMarkReadResponse(
+        read=[i for i in requested if i in inserted],
+        already_read=[i for i in requested if i in visible and i not in inserted],
+        ignored=[i for i in requested if i not in visible],
+        unread_count=unread,
+    )
 
 
 def _amount_text(amount: Decimal) -> str:
@@ -326,8 +409,8 @@ def redemption_confirmed_text(amount: Decimal, business_name: str) -> str:
         return "Списание подтверждено на кассе."
     amount_str = _amount_text(amount)
     if business_name:
-        return f"Списание {amount_str} баллов в «{business_name}» подтверждено на кассе."
-    return f"Списание {amount_str} баллов подтверждено на кассе."
+        return f"Списание {amount_str} бонусов в «{business_name}» подтверждено на кассе."
+    return f"Списание {amount_str} бонусов подтверждено на кассе."
 
 
 def redemption_inactive_text(amount: Decimal, business_name: str) -> str:
@@ -337,8 +420,8 @@ def redemption_inactive_text(amount: Decimal, business_name: str) -> str:
         return "Код больше не действует."
     amount_str = _amount_text(amount)
     if business_name:
-        return f"Код для списания {amount_str} баллов в «{business_name}» больше не действует."
-    return f"Код для списания {amount_str} баллов больше не действует."
+        return f"Код для списания {amount_str} бонусов в «{business_name}» больше не действует."
+    return f"Код для списания {amount_str} бонусов больше не действует."
 
 
 def transaction_notification(
@@ -350,9 +433,9 @@ def transaction_notification(
 ) -> Notification | None:
     """Notification for a fresh accrual / redemption mirrored from ONE."""
     if tx_type == "accrual":
-        title = f"Начислено {_amount_text(amount)} баллов"
+        title = f"Начислено {_amount_text(amount)} бонусов"
     elif tx_type == "redemption":
-        title = f"Списано {_amount_text(amount)} баллов"
+        title = f"Списано {_amount_text(amount)} бонусов"
     else:
         return None
     return Notification(
@@ -360,7 +443,7 @@ def transaction_notification(
         user_id=user_id,
         kind=tx_type,
         title=title,
-        body=f"{business.name}. Баланс: {_amount_text(balance_after)} баллов.",
+        body=f"{business.name}. Баланс: {_amount_text(balance_after)} бонусов.",
     )
 
 

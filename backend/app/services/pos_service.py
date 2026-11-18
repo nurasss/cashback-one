@@ -93,9 +93,9 @@ async def request_pos_redemption(
         await session.scalar(select(Business.name).where(Business.id == pos_key.business_id))
     ) or ""
     amount_text = _amount_text(body.amount)
-    title = "Код для списания баллов"
+    title = "Код для списания бонусов"
     text = (
-        f"Код {code} для списания {amount_text} баллов в «{business_name}». "
+        f"Код {code} для списания {amount_text} бонусов в «{business_name}». "
         "Назовите его кассиру, только если сейчас оплачиваете покупку."
     )
     data = {"type": "redemption_code", "redemption_id": str(record_id)}

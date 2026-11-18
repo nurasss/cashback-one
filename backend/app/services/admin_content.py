@@ -5,6 +5,7 @@ manage only their own business. Every mutation is audited.
 """
 import logging
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -39,6 +40,9 @@ from app.schemas.admin_content import (
     BusinessStoreCreateRequest,
     BusinessStoreUpdateRequest,
     LocalizedAppText,
+    LoyaltyScaleResponse,
+    LoyaltyScaleSaveRequest,
+    LoyaltyScaleSaveResponse,
     NotificationAdminItem,
     NotificationCreateRequest,
     PromotionAdminItem,
@@ -117,11 +121,38 @@ async def list_promotions(
     return _page(list(rows), limit, offset, PromotionAdminItem)
 
 
+def _normalize_promotion_dt(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        utc_dt = as_utc(value)
+    except (ValueError, OverflowError) as exc:
+        raise AppError(
+            "VALIDATION_ERROR",
+            "Год должен состоять ровно из четырёх цифр",
+            422,
+        ) from exc
+    if not (1000 <= value.year <= 9999 and 1000 <= utc_dt.year <= 9999):
+        raise AppError(
+            "VALIDATION_ERROR",
+            "Год должен состоять ровно из четырёх цифр",
+            422,
+        )
+    return utc_dt
+
+
 def _promotion_state(promo: Promotion) -> dict[str, Any]:
     return {
         "promotion_id": str(promo.id),
         "business_id": str(promo.business_id) if promo.business_id else None,
         "kind": promo.kind,
+        "title": promo.title,
+        "subtitle": promo.subtitle,
+        "badge": promo.badge,
+        "body": promo.body,
+        "starts_at": as_utc(promo.starts_at).isoformat() if promo.starts_at else None,
+        "ends_at": as_utc(promo.ends_at).isoformat() if promo.ends_at else None,
+        "sort_order": promo.sort_order,
         "is_active": promo.is_active,
     }
 
@@ -132,7 +163,10 @@ async def create_promotion(
     scope = scope_for_admin(admin)
     business_id = _owner_business(scope, body.business_id)
     await _require_business(db, business_id)
-    promo = Promotion(**body.model_dump(exclude={"business_id"}), business_id=business_id)
+    payload = body.model_dump(exclude={"business_id"})
+    payload["starts_at"] = _normalize_promotion_dt(payload.get("starts_at"))
+    payload["ends_at"] = _normalize_promotion_dt(payload.get("ends_at"))
+    promo = Promotion(**payload, business_id=business_id)
     db.add(promo)
     await db.flush()
     _audit(db, admin, business_id, "promotion_created", "promotion", None, _promotion_state(promo))
@@ -166,16 +200,26 @@ async def update_promotion(
     settings: Settings | None = None,
 ) -> PromotionAdminItem:
     promo = await _load_promotion(db, scope_for_admin(admin), promotion_id)
+    normalized_starts_at = (
+        _normalize_promotion_dt(body.starts_at)
+        if "starts_at" in body.model_fields_set
+        else promo.starts_at
+    )
+    normalized_ends_at = (
+        _normalize_promotion_dt(body.ends_at)
+        if "ends_at" in body.model_fields_set
+        else promo.ends_at
+    )
     before = _promotion_state(promo)
     old_image_url = promo.image_url
 
     starts_at_changed = (
         "starts_at" in body.model_fields_set
-        and _dates_differ(promo.starts_at, body.starts_at)
+        and _dates_differ(promo.starts_at, normalized_starts_at)
     )
     ends_at_changed = (
         "ends_at" in body.model_fields_set
-        and _dates_differ(promo.ends_at, body.ends_at)
+        and _dates_differ(promo.ends_at, normalized_ends_at)
     )
 
     now = utcnow()
@@ -183,14 +227,14 @@ async def update_promotion(
     # If starts_at changed to a new non-null date, it cannot be in the past (15s tolerance)
     if (
         starts_at_changed
-        and body.starts_at is not None
-        and as_utc(body.starts_at) < now - timedelta(seconds=15)
+        and normalized_starts_at is not None
+        and normalized_starts_at < now - timedelta(seconds=15)
     ):
         raise AppError("VALIDATION_ERROR", "starts_at cannot be in the past", 422)
 
     # Compute merged window
-    merged_starts_at = body.starts_at if "starts_at" in body.model_fields_set else promo.starts_at
-    merged_ends_at = body.ends_at if "ends_at" in body.model_fields_set else promo.ends_at
+    merged_starts_at = normalized_starts_at
+    merged_ends_at = normalized_ends_at
 
     # If dates changed, validate merged window
     if (starts_at_changed or ends_at_changed) and merged_ends_at is not None:
@@ -201,6 +245,10 @@ async def update_promotion(
             raise AppError("VALIDATION_ERROR", "ends_at must be after starts_at", 422)
 
     for field, value in body.model_dump(exclude_unset=True).items():
+        if field == "starts_at":
+            value = normalized_starts_at
+        elif field == "ends_at":
+            value = normalized_ends_at
         setattr(promo, field, value)
 
     await db.flush()
@@ -261,9 +309,11 @@ def _notification_state(
         "notification_id": str(note.id),
         "business_id": str(note.business_id) if note.business_id else None,
         "kind": note.kind,
+        "title": note.title,
+        "body": note.body,
         "targeted_user": note.user_id is not None,
-        "scheduled_at": note.scheduled_at.isoformat() if note.scheduled_at else None,
-        "push_sent_at": note.push_sent_at.isoformat() if note.push_sent_at else None,
+        "scheduled_at": as_utc(note.scheduled_at).isoformat() if note.scheduled_at else None,
+        "push_sent_at": as_utc(note.push_sent_at).isoformat() if note.push_sent_at else None,
     }
     if push_devices is not None:
         state["push_devices"] = push_devices
@@ -502,6 +552,86 @@ async def get_app_texts(
     )
 
 
+_APP_TEXT_BLOCKS: tuple[str, ...] = (
+    "home_text",
+    "home_store_note_lead",
+    "balance_delay_note",
+)
+_APP_TEXT_LOCALES: tuple[str, ...] = ("ru", "kk")
+
+
+def _extract_app_text_values(
+    raw: Mapping[str, Any] | None,
+) -> dict[str, dict[str, str | None]]:
+    out: dict[str, dict[str, str | None]] = {}
+    for block in _APP_TEXT_BLOCKS:
+        entry = raw.get(block) if isinstance(raw, Mapping) else None
+        per_lang: dict[str, str | None] = {}
+        for lang in _APP_TEXT_LOCALES:
+            val = entry.get(lang) if isinstance(entry, Mapping) else None
+            if isinstance(val, str):
+                stripped = val.strip()
+                per_lang[lang] = stripped if stripped else None
+            else:
+                per_lang[lang] = None
+        out[block] = per_lang
+    return out
+
+
+def _app_texts_meta(
+    values: Mapping[str, Mapping[str, str | None]],
+) -> dict[str, Any]:
+    configured_fields: list[str] = []
+    meta: dict[str, Any] = {}
+    for block in _APP_TEXT_BLOCKS:
+        langs = values.get(block) or {}
+        ru_present = bool(langs.get("ru"))
+        kk_present = bool(langs.get("kk"))
+        if ru_present or kk_present:
+            configured_fields.append(block)
+        meta[block] = {"ru": ru_present, "kk": kk_present}
+    meta["configured_fields"] = sorted(configured_fields)
+    return meta
+
+
+def _app_texts_audit_pair(
+    before_raw: Mapping[str, Any] | None,
+    after_raw: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    before_values = _extract_app_text_values(before_raw)
+    after_values = _extract_app_text_values(after_raw)
+
+    changed_fields: list[str] = []
+    changed_locales: list[str] = []
+    for block in _APP_TEXT_BLOCKS:
+        b_langs = before_values[block]
+        a_langs = after_values[block]
+        block_changed = False
+        for lang in _APP_TEXT_LOCALES:
+            if b_langs[lang] != a_langs[lang]:
+                changed_locales.append(f"{block}.{lang}")
+                block_changed = True
+        if block_changed:
+            changed_fields.append(block)
+
+    before_meta = _app_texts_meta(before_values)
+    after_meta = _app_texts_meta(after_values)
+    after_meta["changed_fields"] = sorted(changed_fields)
+    after_meta["changed_locales"] = sorted(changed_locales)
+    if changed_locales:
+        # Stored values for the changed block/locale pairs only. None = saved as empty
+        # (cleared / never filled); an unchanged pair is not copied. A no-op carries no `texts`.
+        before_texts: dict[str, dict[str, str | None]] = {}
+        after_texts: dict[str, dict[str, str | None]] = {}
+        for pair in changed_locales:
+            block, lang = pair.split(".", 1)
+            before_texts.setdefault(block, {})[lang] = before_values[block][lang]
+            after_texts.setdefault(block, {})[lang] = after_values[block][lang]
+        before_meta["texts"] = before_texts
+        after_meta["texts"] = after_texts
+    return before_meta, after_meta
+
+
 async def update_app_texts(
     db: AsyncSession,
     admin: AdminUser,
@@ -515,20 +645,21 @@ async def update_app_texts(
     )
     if biz is None:
         raise _not_found()
-    before = biz.app_texts
+    before_raw = dict(biz.app_texts) if isinstance(biz.app_texts, Mapping) else None
     current_texts = dict(biz.app_texts or {})
     for key, val in body.model_dump(exclude_unset=True).items():
         current_texts[key] = val
     biz.app_texts = current_texts
     await db.flush()
+    before_audit, after_audit = _app_texts_audit_pair(before_raw, biz.app_texts)
     _audit(
         db,
         admin,
         business_id,
         "app_texts_updated",
         "business_app_texts",
-        before,
-        biz.app_texts,
+        before_audit,
+        after_audit,
     )
     await db.commit()
     await db.refresh(biz)
@@ -564,6 +695,36 @@ async def get_splash_config(
         file_size=raw.get("file_size"),
         version=raw.get("version"),
     )
+
+
+def _splash_audit_state(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Safe audit state of a splash config: flags and technical media metadata, never the URL.
+
+    `configured=False` is the explicit "settings never saved" state of a NEW event; it differs
+    from a historical null snapshot (written before this projection existed), which is not rebuilt.
+    """
+    if not isinstance(config, Mapping):
+        return {
+            "configured": False,
+            "enabled": False,
+            "has_media": False,
+            "media_type": None,
+            "width": None,
+            "height": None,
+            "duration_seconds": None,
+            "file_size": None,
+        }
+    has_media = bool(config.get("media_url"))
+    return {
+        "configured": True,
+        "enabled": bool(config.get("enabled", False)),
+        "has_media": has_media,
+        "media_type": config.get("media_type") if has_media else None,
+        "width": config.get("width") if has_media else None,
+        "height": config.get("height") if has_media else None,
+        "duration_seconds": config.get("duration_seconds") if has_media else None,
+        "file_size": config.get("file_size") if has_media else None,
+    }
 
 
 async def update_splash_config(
@@ -639,14 +800,19 @@ async def update_splash_config(
     biz.updated_at = utcnow()
     await db.flush()
 
+    # media_changed compares the stored URLs (never logged). `version` changes on every Save and
+    # is deliberately not evidence of a replaced file.
+    new_url = new_config.get("media_url") or None
+    media_changed = (old_url or None) != new_url
+    audit_after = {**_splash_audit_state(new_config), "media_changed": media_changed}
     _audit(
         db,
         admin,
         business_id,
         "business_splash_updated",
         "business_splash",
-        before,
-        new_config,
+        _splash_audit_state(before if isinstance(before, Mapping) else None),
+        audit_after,
     )
     await db.commit()
     await db.refresh(biz)
@@ -711,6 +877,10 @@ async def list_loyalty_tiers(
     return [BusinessLoyaltyTierAdminItem.model_validate(row) for row in rows]
 
 
+# Stored in the NOT NULL legacy column when a tier is created without a turnover period.
+LEGACY_TURNOVER_PERIOD_PLACEHOLDER = 1
+
+
 def _intervals_overlap(
     min_a: Decimal,
     max_a: Decimal | None,
@@ -720,6 +890,43 @@ def _intervals_overlap(
     if max_a is not None and max_a <= min_b:
         return False
     return not (max_b is not None and max_b <= min_a)
+
+
+def _overlap_conflict(
+    new_min: Decimal,
+    new_max: Decimal | None,
+    others: list[BusinessLoyaltyTier],
+) -> AppError | None:
+    """Additive, machine-readable 409 for a turnover-range overlap on single-row create/PATCH.
+
+    HTTP status, ``error.code`` (``CONFLICT``) and the English ``message`` are unchanged for old
+    clients; ``reason``/``fields``/``conflicts`` are new optional keys.
+    """
+    hits = [o for o in others if _intervals_overlap(new_min, new_max, o.min_turnover, o.max_turnover)]
+    if not hits:
+        return None
+    first = hits[0]
+    return AppError(
+        "CONFLICT",
+        f"Turnover range [{new_min}; {new_max or '∞'}) overlaps with tier '{first.name_ru}' "
+        f"[{first.min_turnover}; {first.max_turnover or '∞'})",
+        409,
+        extra={
+            "reason": "LOYALTY_TIER_RANGE_OVERLAP",
+            "fields": ["min_turnover", "max_turnover"],
+            "conflicts": [
+                {
+                    "tier_id": str(o.id),
+                    "level": o.level,
+                    "name_ru": o.name_ru,
+                    "name_kk": o.name_kk,
+                    "min_turnover": f"{o.min_turnover:.2f}",
+                    "max_turnover": f"{o.max_turnover:.2f}" if o.max_turnover is not None else None,
+                }
+                for o in hits
+            ],
+        },
+    )
 
 
 async def _verify_scoped_tier_image(
@@ -786,7 +993,12 @@ async def create_loyalty_tier(
     scope = scope_for_admin(admin)
     _check_business_scope(scope, business_id)
     await _require_business(db, business_id)
-    biz = await db.get(Business, business_id)
+    biz = await db.scalar(
+        select(Business)
+        .where(Business.id == business_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if biz is None:
         raise _not_found()
 
@@ -812,25 +1024,25 @@ async def create_loyalty_tier(
         chosen_priority = _allocate_priority(existing_priorities, preferred=body.level)
 
     if body.is_active:
-        active_same_period = (
+        # Lifetime turnover: ranges of all active tiers of the business must not overlap, whatever the
+        # historical period value of the other rows is.
+        active_tiers = (
             await db.scalars(
                 select(BusinessLoyaltyTier).where(
                     BusinessLoyaltyTier.business_id == business_id,
-                    BusinessLoyaltyTier.turnover_period_months == body.turnover_period_months,
                     BusinessLoyaltyTier.is_active.is_(True),
                 )
             )
         ).all()
-        for other in active_same_period:
-            if _intervals_overlap(body.min_turnover, body.max_turnover, other.min_turnover, other.max_turnover):
-                raise AppError(
-                    "CONFLICT",
-                    f"Turnover range [{body.min_turnover}; {body.max_turnover or '∞'}) overlaps with tier '{other.name_ru}' [{other.min_turnover}; {other.max_turnover or '∞'}) for period {body.turnover_period_months} months",
-                    409,
-                )
+        conflict = _overlap_conflict(body.min_turnover, body.max_turnover, list(active_tiers))
+        if conflict is not None:
+            raise conflict
 
     tier_data = body.model_dump()
     tier_data["priority"] = chosen_priority
+    if tier_data.get("turnover_period_months") is None:
+        # Column is NOT NULL (no migration yet): neutral placeholder, never used in calculations.
+        tier_data["turnover_period_months"] = LEGACY_TURNOVER_PERIOD_PLACEHOLDER
     tier = BusinessLoyaltyTier(business_id=business_id, **tier_data)
     db.add(tier)
     biz.loyalty_tiers_version = (biz.loyalty_tiers_version or 1) + 1
@@ -855,7 +1067,12 @@ async def update_loyalty_tier(
     scope = scope_for_admin(admin)
     _check_business_scope(scope, business_id)
     await _require_business(db, business_id)
-    biz = await db.get(Business, business_id)
+    biz = await db.scalar(
+        select(Business)
+        .where(Business.id == business_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if biz is None:
         raise _not_found()
     tier = await db.scalar(
@@ -908,25 +1125,28 @@ async def update_loyalty_tier(
         raise AppError("VALIDATION_ERROR", "max_turnover must be greater than min_turnover", 422)
 
     new_active = dumped.get("is_active", tier.is_active)
-    new_period = dumped.get("turnover_period_months", tier.turnover_period_months)
+    unchanged_active_range = (
+        tier.is_active
+        and new_min == tier.min_turnover
+        and new_max == tier.max_turnover
+    )
     if new_active:
-        active_same_period = (
+        active_tiers = (
             await db.scalars(
                 select(BusinessLoyaltyTier).where(
                     BusinessLoyaltyTier.business_id == business_id,
                     BusinessLoyaltyTier.id != tier_id,
-                    BusinessLoyaltyTier.turnover_period_months == new_period,
                     BusinessLoyaltyTier.is_active.is_(True),
                 )
             )
         ).all()
-        for other in active_same_period:
-            if _intervals_overlap(new_min, new_max, other.min_turnover, other.max_turnover):
-                raise AppError(
-                    "CONFLICT",
-                    f"Turnover range [{new_min}; {new_max or '∞'}) overlaps with tier '{other.name_ru}' [{other.min_turnover}; {other.max_turnover or '∞'}) for period {new_period} months",
-                    409,
-                )
+        # Pre-existing legacy active overlaps (e.g. Keremet [0, 200k) vs [100k, 200k)) remain
+        # editable when their turnover bounds stay unchanged; any range edit or re-activation
+        # introducing/shifting an overlap is still rejected with 409 CONFLICT.
+        if not unchanged_active_range:
+            conflict = _overlap_conflict(new_min, new_max, list(active_tiers))
+            if conflict is not None:
+                raise conflict
 
     before = _tier_state(tier)
     for field, value in dumped.items():
@@ -947,7 +1167,12 @@ async def delete_loyalty_tier(
     scope = scope_for_admin(admin)
     _check_business_scope(scope, business_id)
     await _require_business(db, business_id)
-    biz = await db.get(Business, business_id)
+    biz = await db.scalar(
+        select(Business)
+        .where(Business.id == business_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if biz is None:
         raise _not_found()
     tier = await db.scalar(
@@ -964,3 +1189,241 @@ async def delete_loyalty_tier(
     await db.flush()
     _audit(db, admin, business_id, "loyalty_tier_deleted", "business_loyalty_tier", before, None)
     await db.commit()
+
+
+# --------------------------------------------------------------------------- atomic scale save
+
+_SCALE_EDITABLE_TEXT = ("name_ru", "name_kk", "description_ru", "description_kk")
+
+
+def _scale_response(biz: Business, tiers: list[BusinessLoyaltyTier]) -> dict[str, Any]:
+    ordered = sorted(tiers, key=lambda t: (t.level, t.priority, str(t.id)))
+    return {
+        "business_id": biz.id,
+        "version": biz.loyalty_tiers_version or 1,
+        "tiers": [BusinessLoyaltyTierAdminItem.model_validate(t) for t in ordered],
+    }
+
+
+def _scale_audit_state(version: int, tiers: list[BusinessLoyaltyTier]) -> dict[str, Any]:
+    ordered = sorted(tiers, key=lambda t: (t.level, t.priority, str(t.id)))
+    return {
+        "version": version,
+        "tiers": [
+            {
+                "tier_id": str(t.id),
+                "level": t.level,
+                "min_turnover": f"{t.min_turnover:.2f}",
+                "max_turnover": f"{t.max_turnover:.2f}" if t.max_turnover is not None else None,
+                "percent": f"{t.percent:.2f}",
+                "is_active": t.is_active,
+            }
+            for t in ordered
+        ],
+    }
+
+
+async def get_loyalty_scale(
+    db: AsyncSession, admin: AdminUser, business_id: uuid.UUID
+) -> LoyaltyScaleResponse:
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    biz = await db.scalar(
+        select(Business).where(Business.id == business_id).execution_options(populate_existing=True)
+    )
+    if biz is None:
+        raise _not_found()
+    rows = (
+        await db.scalars(
+            select(BusinessLoyaltyTier)
+            .where(BusinessLoyaltyTier.business_id == business_id)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    return LoyaltyScaleResponse(**_scale_response(biz, list(rows)))
+
+
+def _scale_error(
+    code: str, message: str, status: int, reason: str, **extra: Any
+) -> AppError:
+    return AppError(code, message, status, extra={"reason": reason, **extra})
+
+
+async def save_loyalty_scale(
+    db: AsyncSession,
+    admin: AdminUser,
+    business_id: uuid.UUID,
+    body: LoyaltyScaleSaveRequest,
+    settings: Settings | None = None,
+) -> LoyaltyScaleSaveResponse:
+    """Replace the financial bounds/percent (and optional text/image/activity) of EVERY existing tier
+    in one transaction. The final scale is validated, never the intermediate states.
+
+    Lock order: business row, then tier rows (ordered by id). Single-row create/PATCH/DELETE take the
+    business row first too, so version bumps are serialized and monotonic.
+    """
+    if settings is None:
+        settings = get_settings()
+    scope = scope_for_admin(admin)
+    _check_business_scope(scope, business_id)
+    biz = await db.scalar(
+        select(Business)
+        .where(Business.id == business_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if biz is None:
+        raise _not_found()
+
+    current_version = biz.loyalty_tiers_version or 1
+    if body.expected_version != current_version:
+        raise _scale_error(
+            "CONFLICT",
+            "Loyalty scale was changed by someone else; reload it and retry",
+            409,
+            "LOYALTY_SCALE_VERSION_CONFLICT",
+            current_version=current_version,
+        )
+
+    stored = (
+        await db.scalars(
+            select(BusinessLoyaltyTier)
+            .where(BusinessLoyaltyTier.business_id == business_id)
+            .order_by(BusinessLoyaltyTier.id.asc())
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    by_id = {t.id: t for t in stored}
+
+    seen: set[uuid.UUID] = set()
+    duplicates: list[str] = []
+    unknown: list[str] = []
+    for row in body.tiers:
+        if row.id in seen:
+            duplicates.append(str(row.id))
+        seen.add(row.id)
+        if row.id not in by_id:
+            unknown.append(str(row.id))
+    if duplicates:
+        raise _scale_error(
+            "VALIDATION_ERROR", "Duplicate tier ids in the scale", 422,
+            "LOYALTY_SCALE_DUPLICATE_TIER", tier_ids=sorted(set(duplicates)),
+        )
+    if unknown:
+        raise _scale_error(
+            "VALIDATION_ERROR", "Unknown tier ids for this business", 422,
+            "LOYALTY_SCALE_UNKNOWN_TIER", tier_ids=sorted(unknown),
+        )
+    missing = sorted(str(t.id) for t in stored if t.id not in seen)
+    if missing:
+        raise _scale_error(
+            "VALIDATION_ERROR", "The scale must include every existing tier", 422,
+            "LOYALTY_SCALE_INCOMPLETE", tier_ids=missing,
+        )
+
+    # Final state per tier (omitted optional fields keep the stored value).
+    final: dict[uuid.UUID, dict[str, Any]] = {}
+    for index, row in enumerate(body.tiers):
+        tier = by_id[row.id]
+        if row.max_turnover is not None and row.max_turnover <= row.min_turnover:
+            raise _scale_error(
+                "VALIDATION_ERROR", "max_turnover must be greater than min_turnover", 422,
+                "LOYALTY_SCALE_INVALID_RANGE",
+                tier_id=str(row.id), fields=[f"tiers[{index}].max_turnover"],
+            )
+        state: dict[str, Any] = {
+            "min_turnover": row.min_turnover,
+            "max_turnover": row.max_turnover,
+            "percent": row.percent,
+        }
+        for name in (*_SCALE_EDITABLE_TEXT, "image_url", "is_active"):
+            if name in row.model_fields_set:
+                state[name] = getattr(row, name)
+            else:
+                state[name] = getattr(tier, name)
+        final[row.id] = state
+
+    # Overlap check on the FINAL active set. A pair is tolerated only if both rows are active before and
+    # after with unchanged bounds (a legacy overlap that this save does not touch).
+    def untouched(tier: BusinessLoyaltyTier) -> bool:
+        st = final[tier.id]
+        return (
+            tier.is_active
+            and st["is_active"]
+            and st["min_turnover"] == tier.min_turnover
+            and st["max_turnover"] == tier.max_turnover
+        )
+
+    index_of = {row.id: i for i, row in enumerate(body.tiers)}
+    active = sorted(
+        (t for t in stored if final[t.id]["is_active"]),
+        key=lambda t: (t.level, t.priority, str(t.id)),
+    )  # deterministic pair order: lower level first
+    pairs: list[dict[str, Any]] = []
+    for a_pos, a in enumerate(active):
+        for b in active[a_pos + 1:]:
+            sa, sb = final[a.id], final[b.id]
+            if _intervals_overlap(sa["min_turnover"], sa["max_turnover"], sb["min_turnover"], sb["max_turnover"]):
+                if untouched(a) and untouched(b):
+                    continue
+                pairs.append(
+                    {
+                        "tier_id": str(a.id),
+                        "other_tier_id": str(b.id),
+                        "levels": [a.level, b.level],
+                        "fields": [
+                            f"tiers[{index_of[a.id]}].min_turnover",
+                            f"tiers[{index_of[a.id]}].max_turnover",
+                            f"tiers[{index_of[b.id]}].min_turnover",
+                            f"tiers[{index_of[b.id]}].max_turnover",
+                        ],
+                    }
+                )
+    if pairs:
+        raise _scale_error(
+            "CONFLICT", "Turnover ranges of active tiers overlap", 409,
+            "LOYALTY_SCALE_RANGE_OVERLAP", conflicts=pairs,
+        )
+
+    changed_tiers = [
+        t for t in stored
+        if any(getattr(t, field) != value for field, value in final[t.id].items())
+    ]
+    if not changed_tiers:
+        return LoyaltyScaleSaveResponse(**_scale_response(biz, list(stored)), changed=False)
+
+    before = _scale_audit_state(current_version, list(stored))
+    try:
+        for t in changed_tiers:
+            image_url = final[t.id]["image_url"]
+            if image_url is not None and image_url != t.image_url:
+                await _verify_scoped_tier_image(db, settings, business_id, image_url)
+        now = utcnow()
+        for t in changed_tiers:
+            for field, value in final[t.id].items():
+                setattr(t, field, value)
+            t.updated_at = now
+        biz.loyalty_tiers_version = current_version + 1
+        biz.updated_at = now
+        await db.flush()
+        _audit(
+            db, admin, business_id, "loyalty_scale_updated", "business_loyalty_scale",
+            before, _scale_audit_state(biz.loyalty_tiers_version, list(stored)),
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    biz = await db.scalar(
+        select(Business).where(Business.id == business_id).execution_options(populate_existing=True)
+    )
+    rows = (
+        await db.scalars(
+            select(BusinessLoyaltyTier)
+            .where(BusinessLoyaltyTier.business_id == business_id)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    assert biz is not None
+    return LoyaltyScaleSaveResponse(**_scale_response(biz, list(rows)), changed=True)

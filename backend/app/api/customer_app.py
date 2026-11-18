@@ -32,6 +32,8 @@ from app.schemas.customer_app import (
     CustomerAppSplashConfig,
     CustomerAppTexts,
     CustomerLocalizedText,
+    NotificationMarkReadRequest,
+    NotificationMarkReadResponse,
     NotificationsResponse,
     ProfileResponse,
     ProfileUpdateRequest,
@@ -237,6 +239,18 @@ async def notifications_read(
         session, current_user, business_id=business_id
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/notifications/mark-read", response_model=NotificationMarkReadResponse)
+async def notifications_mark_read(
+    body: NotificationMarkReadRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    business_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> NotificationMarkReadResponse:
+    return await content_service.mark_notifications_read_by_ids(
+        session, current_user, body.ids, business_id=business_id
+    )
 
 
 @router.get("/badges", response_model=BadgesResponse)

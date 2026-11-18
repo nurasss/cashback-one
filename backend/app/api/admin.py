@@ -32,8 +32,8 @@ from app.schemas.admin import (
     BusinessListItem,
     BusinessUpdateRequest,
     CardDetail,
-    CardListItem,
     CardListPaginationParams,
+    CardPage,
     CardSearchRequest,
     CardUnbindResponse,
     CardUnbindStatus,
@@ -44,6 +44,7 @@ from app.schemas.admin import (
     PosKeyCreateRequest,
     PosKeyCreateResponse,
     PosKeyItem,
+    TransactionPage,
     UserDetail,
     UserListItem,
     UserSearchRequest,
@@ -60,6 +61,9 @@ from app.schemas.admin_content import (
     BusinessStoreCreateRequest,
     BusinessStoreUpdateRequest,
     ImageUploadResponse,
+    LoyaltyScaleResponse,
+    LoyaltyScaleSaveRequest,
+    LoyaltyScaleSaveResponse,
     NotificationAdminItem,
     NotificationCreateRequest,
     PromotionAdminItem,
@@ -95,8 +99,10 @@ from app.services.admin_queries import (
     list_agents,
     list_audit_logs,
     list_businesses,
+    list_card_transactions,
     list_cards,
     list_pos_keys,
+    list_user_transactions,
     list_users,
     search_cards,
     search_users,
@@ -114,8 +120,13 @@ router = APIRouter(dependencies=[Depends(require_admin_origin)])
 async def admin_me(
     admin: Annotated[AdminUser, Depends(authenticate_admin)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> AdminMeResponse:
-    return AdminMeResponse(admin=AdminIdentity.model_validate(await admin_identity(db, admin)))
+    return AdminMeResponse(
+        admin=AdminIdentity.model_validate(await admin_identity(db, admin)),
+        admin_stats_unlimited_period=True,
+        admin_max_stats_period_days=settings.admin_max_stats_period_days,
+    )
 
 
 @router.get("/dashboard", response_model=DashboardResponse)
@@ -127,9 +138,13 @@ async def admin_dashboard(
     end: Annotated[datetime | None, Query(alias="to")] = None,
 ) -> DashboardResponse:
     if start is not None and not (1000 <= start.year <= 9999):
-        raise AppError("ADMIN_INVALID_PERIOD", "Start year must be 4 digits", 422)
+        raise AppError(
+            "ADMIN_INVALID_PERIOD", "Start year must be 4 digits", 422, extra={"reason": "PERIOD_YEAR_INVALID"}
+        )
     if end is not None and not (1000 <= end.year <= 9999):
-        raise AppError("ADMIN_INVALID_PERIOD", "End year must be 4 digits", 422)
+        raise AppError(
+            "ADMIN_INVALID_PERIOD", "End year must be 4 digits", 422, extra={"reason": "PERIOD_YEAR_INVALID"}
+        )
     return await dashboard(db, scope, business_id, start, end)
 
 
@@ -281,6 +296,32 @@ async def admin_list_loyalty_tiers(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[BusinessLoyaltyTierAdminItem]:
     return await admin_content.list_loyalty_tiers(db, admin, business_id)
+
+
+@router.get(
+    "/businesses/{business_id}/loyalty-tiers/scale",
+    response_model=LoyaltyScaleResponse,
+)
+async def admin_get_loyalty_scale(
+    business_id: uuid.UUID,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> LoyaltyScaleResponse:
+    return await admin_content.get_loyalty_scale(db, admin, business_id)
+
+
+@router.put(
+    "/businesses/{business_id}/loyalty-tiers/scale",
+    response_model=LoyaltyScaleSaveResponse,
+)
+async def admin_save_loyalty_scale(
+    business_id: uuid.UUID,
+    body: LoyaltyScaleSaveRequest,
+    admin: Annotated[AdminUser, Depends(authenticate_admin)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> LoyaltyScaleSaveResponse:
+    return await admin_content.save_loyalty_scale(db, admin, business_id, body, settings=settings)
 
 
 @router.post(
@@ -452,23 +493,23 @@ async def admin_revoke_pos_key(
     return PosKeyItem.model_validate(pos_key)
 
 
-@router.get("/cards", response_model=Page[CardListItem])
+@router.get("/cards", response_model=CardPage)
 async def admin_cards(
     scope: Annotated[AdminScope, Depends(get_admin_scope)],
     db: Annotated[AsyncSession, Depends(get_session)],
     page: Annotated[CardListPaginationParams, Depends()],
     business_id: uuid.UUID | None = None,
-) -> Page[CardListItem]:
+) -> CardPage:
     return await list_cards(db, scope, business_id, page.limit, page.offset)
 
 
-@router.post("/cards/search", response_model=Page[CardListItem])
+@router.post("/cards/search", response_model=CardPage)
 async def admin_search_cards(
     body: CardSearchRequest,
     scope: Annotated[AdminScope, Depends(get_admin_scope)],
     db: Annotated[AsyncSession, Depends(get_session)],
     page: Annotated[PaginationParams, Depends()],
-) -> Page[CardListItem]:
+) -> CardPage:
     return await search_cards(
         db, scope, body.barcode, body.phone, body.business_id, page.limit, page.offset
     )
@@ -481,6 +522,16 @@ async def admin_card_detail(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> CardDetail:
     return await get_card_detail(db, scope, card_id)
+
+
+@router.get("/cards/{card_id}/transactions", response_model=TransactionPage)
+async def admin_card_transactions(
+    card_id: uuid.UUID,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    page: Annotated[PaginationParams, Depends()],
+) -> TransactionPage:
+    return await list_card_transactions(db, scope, card_id, page.limit, page.offset)
 
 
 @router.post("/cards/{card_id}/unbind", response_model=CardUnbindResponse)
@@ -523,6 +574,17 @@ async def admin_user_detail(
     business_id: uuid.UUID | None = None,
 ) -> UserDetail:
     return await get_user_detail(db, scope, user_id, business_id, page.limit, page.offset)
+
+
+@router.get("/users/{user_id}/transactions", response_model=TransactionPage)
+async def admin_user_transactions(
+    user_id: uuid.UUID,
+    scope: Annotated[AdminScope, Depends(get_admin_scope)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    page: Annotated[PaginationParams, Depends()],
+    business_id: uuid.UUID | None = None,
+) -> TransactionPage:
+    return await list_user_transactions(db, scope, user_id, business_id, page.limit, page.offset)
 
 
 @router.get("/audit", response_model=Page[AuditItem])

@@ -4,11 +4,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { messageForError } from '../api/errors';
 import { useAdminSession } from '../auth/provider';
 import { useActiveBusiness } from '../context/ActiveBusinessContext';
-import { privateKey, useBusinesses, useCard, useCards, useCardSearch, useUser, useUsers, useUserSearch } from '../api/queries';
-import type { AdminUser, Card, CardUnbindResult, PageQuery } from '../api/types';
+import { privateKey, useAllBusinesses, useCard, useCards, useCardSearch, useCardTransactions, useUser, useUserTransactions } from '../api/queries';
+import type { AdminTransaction, Card, CardUnbindResult, Page, PageQuery } from '../api/types';
+import { BusinessSelect } from '../components/BusinessSelect';
 import { DataTable } from '../components/DataTable';
 import { CompactTableToggle, useCompactRows, useTableExpansion, type TableExpansion } from '../components/CompactTable';
-import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
+import { EmptyState, ErrorNotice, LoadingPage, PageHeading, Pagination, StatusPill } from '../components/Feedback';
 import { formatBalance, formatDate } from '../utils/format';
 import { usePage } from '../utils/usePage';
 import { useLocale } from '../i18n/LocaleContext';
@@ -19,19 +20,14 @@ export function OperationsPage() {
   const { setActiveBusiness } = useActiveBusiness();
   const { locale } = useLocale();
   const t = useAdminTranslation();
-  const [mode, setMode] = useState<'barcode' | 'phone'>('barcode');
   const [raw, setRaw] = useState('');
   const [businessId, setBusinessId] = useState('');
   const [criteria, setCriteria] = useState<{ barcode?: string; phone?: string; business_id?: string } | null>(null);
   const [cardListPage, setCardListPage] = usePage(25);
   const [cardSearchPage, setCardSearchPage] = usePage(25);
-  const [userListPage, setUserListPage] = usePage(25);
-  const [userPage, setUserPage] = usePage(25);
   const cardExpansion = useTableExpansion();
-  const userExpansion = useTableExpansion();
 
-  const businesses = useBusinesses(
-    { limit: 100, offset: 0 },
+  const businesses = useAllBusinesses(
     view.status === 'authenticated' && view.admin.role === 'superadmin',
   );
 
@@ -39,14 +35,14 @@ export function OperationsPage() {
 
   useEffect(() => {
     if (view.status !== 'authenticated' || adminRole !== 'superadmin') return;
-    const selected = businessId ? businesses.data?.items.find(b => b.id === businessId) : null;
+    const selected = businessId ? businesses.items.find(b => b.id === businessId) : null;
     setActiveBusiness(selected ? {
       id: selected.id,
       name: selected.name,
       logo_url: selected.logo_url,
       android_app_id: selected.android_app_id,
     } : null);
-  }, [businessId, businesses.data?.items, view.status, adminRole, setActiveBusiness]);
+  }, [businessId, businesses.items, view.status, adminRole, setActiveBusiness]);
 
   useEffect(() => {
     return () => {
@@ -55,8 +51,7 @@ export function OperationsPage() {
   }, [setActiveBusiness]);
 
   const isSearchActive = criteria !== null;
-  const isCardListActive = !isSearchActive && mode === 'barcode';
-  const isUserListActive = !isSearchActive && mode === 'phone';
+  const isCardListActive = !isSearchActive;
 
   const cardList = useCards(
     businessId || undefined,
@@ -64,72 +59,71 @@ export function OperationsPage() {
     isCardListActive,
   );
 
-  const userList = useUsers(
-    businessId || undefined,
-    userListPage,
-    isUserListActive,
-  );
-
   const cardSearch = useCardSearch(
     criteria ?? {},
     cardSearchPage,
-    isSearchActive && mode === 'barcode',
+    isSearchActive,
   );
 
-  const userSearch = useUserSearch(
-    { phone: criteria?.phone ?? '', ...(criteria?.business_id ? { business_id: criteria.business_id } : {}) },
-    userPage,
-    isSearchActive && mode === 'phone',
-  );
+  useEffect(() => {
+    const total = cardList.data?.total;
+    if (total != null) {
+      if (total === 0 && cardListPage.offset > 0) {
+        setCardListPage(0);
+      } else if (total > 0 && cardListPage.offset >= total) {
+        const maxOffset = Math.floor((total - 1) / cardListPage.limit) * cardListPage.limit;
+        setCardListPage(maxOffset);
+      }
+    }
+  }, [cardList.data?.total, cardListPage.offset, cardListPage.limit, setCardListPage]);
+
+  useEffect(() => {
+    const total = cardSearch.data?.total;
+    if (total != null) {
+      if (total === 0 && cardSearchPage.offset > 0) {
+        setCardSearchPage(0);
+      } else if (total > 0 && cardSearchPage.offset >= total) {
+        const maxOffset = Math.floor((total - 1) / cardSearchPage.limit) * cardSearchPage.limit;
+        setCardSearchPage(maxOffset);
+      }
+    }
+  }, [cardSearch.data?.total, cardSearchPage.offset, cardSearchPage.limit, setCardSearchPage]);
 
   const search = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const term = raw.trim();
     if (!term) return;
-    if (mode === 'barcode' && !/^[0-9]{4,13}$/.test(term)) return;
-    if (mode === 'phone' && term.replace(/\D/g, '').length < 4) return;
+    if (!/^[0-9+\s()-]+$/.test(term)) return;
+    const digits = term.replace(/\D/g, '');
+    if (digits.length < 4 || digits.length > 13) return;
+    const isPureBarcode = /^[0-9]{4,13}$/.test(term);
     const next = {
-      ...(mode === 'barcode' ? { barcode: term } : { phone: term }),
+      barcode: isPureBarcode ? term : digits,
+      phone: term,
       ...(businessId ? { business_id: businessId } : {}),
     };
     setCriteria(next);
     setCardSearchPage(0);
-    setUserPage(0);
   };
 
   const handleReset = () => {
-    setMode('barcode');
     setRaw('');
     setCriteria(null);
     setCardListPage(0);
     setCardSearchPage(0);
-    setUserListPage(0);
-    setUserPage(0);
   };
 
   const handleBusinessChange = (newBusId: string) => {
     setBusinessId(newBusId);
     setCardListPage(0);
     setCardSearchPage(0);
-    setUserListPage(0);
-    setUserPage(0);
     if (criteria !== null) {
       setCriteria(prev => (prev ? { ...prev, business_id: newBusId || undefined } : null));
     }
   };
 
-  const handleTabChange = (newMode: 'barcode' | 'phone') => {
-    setMode(newMode);
-    setRaw('');
-    setCriteria(null);
-    setCardListPage(0);
-    setCardSearchPage(0);
-    setUserListPage(0);
-    setUserPage(0);
-  };
-
-  const isSearching = isSearchActive && (mode === 'barcode' ? cardSearch.isFetching : userSearch.isFetching);
-  const searchError = isSearchActive ? (mode === 'barcode' ? cardSearch.error : userSearch.error) : null;
+  const isSearching = isSearchActive && cardSearch.isFetching;
+  const searchError = isSearchActive ? cardSearch.error : null;
 
   return (
     <div className="page-stack">
@@ -142,56 +136,32 @@ export function OperationsPage() {
         }
       />
       <section className="search-panel surface-card">
-        <div className="search-tabs" role="tablist" aria-label={t.operations.title}>
-          <button
-            className={mode === 'barcode' ? 'search-tab selected' : 'search-tab'}
-            type="button"
-            role="tab"
-            aria-selected={mode === 'barcode'}
-            onClick={() => handleTabChange('barcode')}
-          >
-            {t.operations.tabBarcode}
-          </button>
-          <button
-            className={mode === 'phone' ? 'search-tab selected' : 'search-tab'}
-            type="button"
-            role="tab"
-            aria-selected={mode === 'phone'}
-            onClick={() => handleTabChange('phone')}
-          >
-            {t.operations.tabPhone}
-          </button>
-        </div>
         <form className="search-form" onSubmit={search}>
           <label className="form-control search-input">
-            <span>{mode === 'barcode' ? t.operations.labelBarcode : t.operations.labelPhone}</span>
+            <span>{t.operations.labelBarcode}</span>
             <input
-              aria-label={mode === 'barcode' ? t.operations.searchBarcodeAria : t.operations.searchPhoneAria}
+              aria-label={t.operations.searchBarcodeAria}
               autoComplete="off"
               spellCheck={false}
-              inputMode={mode === 'barcode' ? 'numeric' : 'tel'}
-              maxLength={mode === 'barcode' ? 64 : 32}
+              inputMode="tel"
+              maxLength={64}
               value={raw}
               onChange={event => setRaw(event.target.value)}
-              placeholder={mode === 'barcode' ? t.operations.placeholderBarcode : t.operations.placeholderPhone}
+              placeholder={t.operations.placeholderBarcode}
             />
           </label>
           {view.status === 'authenticated' && view.admin.role === 'superadmin' && (
-            <label className="form-control">
-              <span>{t.operations.businessLabel}</span>
-              <select
-                aria-label={t.operations.searchBusinessAria}
+            <div className="form-control business-select">
+              <label htmlFor="operations-business">{t.operations.businessLabel}</label>
+              <BusinessSelect
+                id="operations-business"
+                ariaLabel={t.operations.searchBusinessAria}
                 value={businessId}
-                onChange={event => handleBusinessChange(event.target.value)}
-              >
-                <option value="">{t.operations.allBusinesses}</option>
-                {businesses.data?.items.map(business => (
-                  <option key={business.id} value={business.id}>
-                    {business.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+                onChange={handleBusinessChange}
+                allowAllLabel={t.operations.allBusinesses}
+                businesses={businesses}
+              />
+            </div>
           )}
           <button className="button button-primary" type="submit" disabled={isSearching || !raw.trim()}>
             {isSearching ? t.operations.searchingBtn : t.operations.searchBtn}
@@ -214,86 +184,49 @@ export function OperationsPage() {
             <ErrorNotice
               error={searchError}
               retry={() => {
-                if (mode === 'barcode') void cardSearch.refetch();
-                else void userSearch.refetch();
+                void cardSearch.refetch();
               }}
             />
           )}
-          {mode === 'barcode' ? (
-            cardSearch.isPending ? (
-              <LoadingPage label={t.operations.loadingCards} />
-            ) : cardSearch.data?.items.length === 0 && cardSearchPage.offset === 0 ? (
-              <EmptyState title={t.operations.emptyCardsSearchTitle} detail={t.operations.emptyCardsSearchDetail} />
-            ) : cardSearch.data ? (
-              <CardResults
-                expansion={cardExpansion}
-                page={cardSearchPage}
-                setPage={setCardSearchPage}
-                rows={cardSearch.data.items}
-                hasMore={cardSearch.data.has_more}
-                locale={locale}
-                t={t}
-              />
-            ) : null
-          ) : (
-            userSearch.isPending ? (
-              <LoadingPage label={t.operations.loadingUsers} />
-            ) : userSearch.data?.items.length === 0 && userPage.offset === 0 ? (
-              <EmptyState title={t.operations.emptyUsersSearchTitle} detail={t.operations.emptyUsersSearchDetail} />
-            ) : userSearch.data ? (
-              <UserResults
-                expansion={userExpansion}
-                page={userPage}
-                setPage={setUserPage}
-                rows={userSearch.data.items}
-                hasMore={userSearch.data.has_more}
-                locale={locale}
-                t={t}
-              />
-            ) : null
-          )}
+          {cardSearch.isPending ? (
+            <LoadingPage label={t.operations.loadingCards} />
+          ) : cardSearch.data?.items.length === 0 && cardSearchPage.offset === 0 ? (
+            <EmptyState title={t.operations.emptyCardsSearchTitle} detail={t.operations.emptyCardsSearchDetail} />
+          ) : cardSearch.data ? (
+            <CardResults
+              expansion={cardExpansion}
+              page={cardSearchPage}
+              setPage={setCardSearchPage}
+              rows={cardSearch.data.items}
+              hasMore={cardSearch.data.has_more}
+              total={cardSearch.data.total}
+              locale={locale}
+              t={t}
+            />
+          ) : null}
         </>
       )}
 
-      {/* NO SEARCH ACTIVE: GENERAL CARDS LIST (or PHONE PROMPT) */}
+      {/* NO SEARCH ACTIVE: GENERAL CARDS LIST */}
       {!isSearchActive && (
-        mode === 'barcode' ? (
-          cardList.isPending ? (
-            <LoadingPage label={t.operations.loadingCards} />
-          ) : cardList.isError ? (
-            <ErrorNotice error={cardList.error} retry={() => { void cardList.refetch(); }} />
-          ) : cardList.data?.items.length === 0 && cardListPage.offset === 0 ? (
-            <EmptyState title={t.operations.emptyCardsListTitle} detail={t.operations.emptyCardsListDetail} />
-          ) : cardList.data ? (
-            <CardResults
-              expansion={cardExpansion}
-              page={cardListPage}
-              setPage={setCardListPage}
-              rows={cardList.data.items}
-              hasMore={cardList.data.has_more}
-              locale={locale}
-              t={t}
-            />
-          ) : null
-        ) : (
-          userList.isPending ? (
-            <LoadingPage label={t.operations.loadingUsers} />
-          ) : userList.isError ? (
-            <ErrorNotice error={userList.error} retry={() => { void userList.refetch(); }} />
-          ) : userList.data?.items.length === 0 && userListPage.offset === 0 ? (
-            <EmptyState title={t.operations.emptyUsersSearchTitle} detail={t.operations.emptyUsersSearchDetail} />
-          ) : userList.data ? (
-            <UserResults
-              expansion={userExpansion}
-              page={userListPage}
-              setPage={setUserListPage}
-              rows={userList.data.items}
-              hasMore={userList.data.has_more}
-              locale={locale}
-              t={t}
-            />
-          ) : null
-        )
+        cardList.isPending ? (
+          <LoadingPage label={t.operations.loadingCards} />
+        ) : cardList.isError ? (
+          <ErrorNotice error={cardList.error} retry={() => { void cardList.refetch(); }} />
+        ) : cardList.data?.items.length === 0 && cardListPage.offset === 0 ? (
+          <EmptyState title={t.operations.emptyCardsListTitle} detail={t.operations.emptyCardsListDetail} />
+        ) : cardList.data ? (
+          <CardResults
+            expansion={cardExpansion}
+            page={cardListPage}
+            setPage={setCardListPage}
+            rows={cardList.data.items}
+            hasMore={cardList.data.has_more}
+            total={cardList.data.total}
+            locale={locale}
+            t={t}
+          />
+        ) : null
       )}
     </div>
   );
@@ -305,6 +238,7 @@ function CardResults({
   setPage,
   rows,
   hasMore,
+  total,
   locale,
   t,
 }: {
@@ -313,26 +247,32 @@ function CardResults({
   setPage: (offset: number) => void;
   rows: Card[];
   hasMore: boolean;
+  total?: number | null;
   locale: 'ru' | 'kk';
   t: ReturnType<typeof useAdminTranslation>;
 }) {
   return (
     <DataTable<Card>
       expansion={expansion}
-      page={{ ...page, has_more: hasMore }}
+      page={{ ...page, has_more: hasMore, total }}
       onPage={setPage}
       rows={rows}
       rowKey={row => row.id}
       columns={[
         {
           key: 'barcode',
-          title: t.operations.colCard,
-          render: row => (
-            <Link className="table-name mono-value" to={`/admin/cards/${encodeURIComponent(row.id)}`}>
-              {row.barcode}
-              <span>{row.business_name}</span>
-            </Link>
-          ),
+          title: t.operations.colCardAndOwner,
+          render: row => {
+            const ownerParts = [row.phone_masked, row.full_name].filter(Boolean);
+            const ownerText = ownerParts.length > 0 ? ownerParts.join(' · ') : t.operations.notBound;
+            return (
+              <Link className="table-name mono-value" to={`/admin/cards/${encodeURIComponent(row.id)}`}>
+                {row.barcode}
+                <span>{ownerText}</span>
+                <span>{row.business_name}</span>
+              </Link>
+            );
+          },
         },
         {
           key: 'balance',
@@ -350,70 +290,9 @@ function CardResults({
           ),
         },
         {
-          key: 'owner',
-          title: t.operations.colOwner,
-          render: row =>
-            row.bind_method && row.phone_masked ? (
-              <span>{row.phone_masked}</span>
-            ) : (
-              <span className="muted-copy">{t.operations.notBound}</span>
-            ),
-        },
-        {
           key: 'updated',
           title: t.operations.colCardUpdated,
           render: row => <time dateTime={row.updated_at}>{formatDate(row.updated_at, locale)}</time>,
-        },
-      ]}
-    />
-  );
-}
-
-function UserResults({
-  expansion,
-  page,
-  setPage,
-  rows,
-  hasMore,
-  locale,
-  t,
-}: {
-  expansion: TableExpansion;
-  page: PageQuery;
-  setPage: (offset: number) => void;
-  rows: AdminUser[];
-  hasMore: boolean;
-  locale: 'ru' | 'kk';
-  t: ReturnType<typeof useAdminTranslation>;
-}) {
-  return (
-    <DataTable<AdminUser>
-      expansion={expansion}
-      page={{ ...page, has_more: hasMore }}
-      onPage={setPage}
-      rows={rows}
-      rowKey={row => row.id}
-      columns={[
-        {
-          key: 'phone',
-          title: t.operations.colUser,
-          render: row => (
-            <Link className="table-name" to={`/admin/users/${encodeURIComponent(row.id)}`}>
-              {row.phone_masked ?? t.operations.notSpecified}
-              <span>{t.operations.colUserLanguage(row.language)}</span>
-            </Link>
-          ),
-        },
-        {
-          key: 'cards',
-          title: t.operations.colCardsInBiz,
-          render: row => <span className="numeric-value">{row.business_cards_count}</span>,
-          align: 'right',
-        },
-        {
-          key: 'created',
-          title: t.operations.colRegistered,
-          render: row => <time dateTime={row.created_at}>{formatDate(row.created_at, locale)}</time>,
         },
       ]}
     />
@@ -426,7 +305,9 @@ export function CardDetailPage() {
   const t = useAdminTranslation();
   const queryClient = useQueryClient();
   const { cardId = '' } = useParams<{ cardId: string }>();
+  const [txPage, setTxPage] = usePage(25);
   const query = useCard(cardId);
+  const txQuery = useCardTransactions(cardId, txPage);
   const [unbindBusy, setUnbindBusy] = useState(false);
   const [unbindError, setUnbindError] = useState('');
   const [unbindResult, setUnbindResult] = useState<CardUnbindResult['status'] | null>(null);
@@ -458,7 +339,9 @@ export function CardDetailPage() {
       setUnbindResult(result.status);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'card', card.id] }),
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'card-transactions', card.id] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'user'] }),
+        queryClient.invalidateQueries({ queryKey: [...privateKey, 'user-transactions'] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'card-search'] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'cards'] }),
         queryClient.invalidateQueries({ queryKey: [...privateKey, 'user-search'] }),
@@ -517,19 +400,19 @@ export function CardDetailPage() {
           <Detail label={t.operations.cardPhone}>{card.phone_masked ?? t.operations.notSpecified}</Detail>
           <Detail label={t.operations.cardCustomer}>{card.full_name ?? t.operations.notSpecified}</Detail>
           <Detail label={t.operations.cardOwnerLang}>{card.owner_language ?? t.operations.noActiveProfile}</Detail>
-          <Detail label={t.operations.cardBindMethod}>{card.bind_method ?? t.operations.notBound}</Detail>
-          <Detail label={t.operations.cardBoundAt}>
-            {card.bound_at ? formatDate(card.bound_at, locale) : '—'}
-          </Detail>
-          <Detail label={t.operations.cardHidden}>
-            {card.hidden_at ? formatDate(card.hidden_at, locale) : t.operations.no}
-          </Detail>
           <Detail label={t.operations.cardDataSource}>POSCENTER Cloud mirror</Detail>
           <Detail label={t.operations.cardUpdated}>
             <time dateTime={card.updated_at}>{formatDate(card.updated_at, locale)}</time>
           </Detail>
         </dl>
       </section>
+      <TransactionsSection
+        query={txQuery}
+        page={txPage}
+        setPage={setTxPage}
+        locale={locale}
+        t={t}
+      />
     </div>
   );
 }
@@ -540,6 +423,7 @@ export function UserDetailPage() {
   const { locale } = useLocale();
   const t = useAdminTranslation();
   const [page, setPage] = usePage();
+  const [txPage, setTxPage] = usePage(25);
   const businessId =
     view.status === 'authenticated' && view.admin.role === 'superadmin'
       ? undefined
@@ -547,7 +431,8 @@ export function UserDetailPage() {
       ? view.admin.business?.id
       : undefined;
   const query = useUser(userId, businessId, page);
-  const compact = useCompactRows(query.data?.cards.items ?? []);
+  const txQuery = useUserTransactions(userId, businessId, txPage);
+  const compact = useCompactRows(query.data?.cards?.items ?? []);
 
   if (query.isPending) return <LoadingPage label={t.operations.loadingUsers} />;
   if (query.isError || !query.data) {
@@ -563,7 +448,6 @@ export function UserDetailPage() {
     <div className="page-stack">
       <PageHeading
         title={user.phone ?? t.operations.colUser}
-        subtitle={t.operations.userDetailSubtitle}
         actions={
           <Link className="button button-secondary" to="/admin/operations">
             {t.operations.backToSearch}
@@ -583,45 +467,50 @@ export function UserDetailPage() {
         <div className="section-heading">
           <h2>{t.operations.cardsInScope}</h2>
         </div>
-        {user.cards.items.length === 0 ? (
+        {(user.cards?.items?.length ?? 0) === 0 ? (
           <p className="table-empty">{t.operations.userCardsEmpty}</p>
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>{t.operations.colCard}</th>
+                  <th>{t.operations.colCardAndOwner}</th>
                   <th>{t.businesses.colName}</th>
                   <th>{t.operations.colBalance}</th>
-                  <th>{t.operations.cardBindMethod}</th>
                   <th>{t.operations.colStatus}</th>
                 </tr>
               </thead>
               <tbody id={compact.bodyId}>
-                {compact.visibleRows.map(card => (
-                  <tr key={card.id}>
-                    <td>
-                      <Link className="text-link mono-value" to={`/admin/cards/${encodeURIComponent(card.id)}`}>
-                        {card.barcode}
-                      </Link>
-                    </td>
-                    <td>{card.business_name}</td>
-                    <td>{formatBalance(card.balance)}</td>
-                    <td>{card.bind_method ?? '—'}</td>
-                    <td>{card.is_blocked ? t.operations.blocked : t.operations.unblocked}</td>
-                  </tr>
-                ))}
+                {compact.visibleRows.map(card => {
+                  const ownerParts = [card.phone_masked, card.full_name].filter(Boolean);
+                  return (
+                    <tr key={card.id}>
+                      <td>
+                        <Link className="text-link mono-value" to={`/admin/cards/${encodeURIComponent(card.id)}`}>
+                          {card.barcode}
+                        </Link>
+                        {ownerParts.length > 0 && (
+                          <span className="cell-secondary">{ownerParts.join(' · ')}</span>
+                        )}
+                      </td>
+                      <td>{card.business_name}</td>
+                      <td>{formatBalance(card.balance)}</td>
+                      <td>{card.is_blocked ? t.operations.blocked : t.operations.unblocked}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
         <CompactTableToggle {...compact} />
-        {user.cards.items.length > 0 && compact.showPagination && (
+        {((user.cards?.items?.length ?? 0) > 0 || page.offset > 0) && compact.showPagination && (
           <div className="pagination">
             <span>{t.operations.userCardsPaged}</span>
             <div className="pagination-actions">
               <button
                 className="button button-secondary"
+                type="button"
                 disabled={page.offset === 0}
                 onClick={() => setPage(Math.max(0, page.offset - page.limit))}
               >
@@ -629,7 +518,8 @@ export function UserDetailPage() {
               </button>
               <button
                 className="button button-secondary"
-                disabled={!user.cards.has_more}
+                type="button"
+                disabled={!user.cards?.has_more}
                 onClick={() => setPage(page.offset + page.limit)}
               >
                 {t.feedback.nextPage}
@@ -638,7 +528,125 @@ export function UserDetailPage() {
           </div>
         )}
       </section>
+      <TransactionsSection
+        query={txQuery}
+        page={txPage}
+        setPage={setTxPage}
+        showCardColumn
+        locale={locale}
+        t={t}
+      />
     </div>
+  );
+}
+
+function TransactionsSection({
+  query,
+  page,
+  setPage,
+  showCardColumn = false,
+  locale,
+  t,
+}: {
+  query: {
+    isPending: boolean;
+    isError: boolean;
+    error: unknown;
+    data?: Page<AdminTransaction>;
+    refetch: () => Promise<unknown>;
+  };
+  page: PageQuery;
+  setPage: (offset: number) => void;
+  showCardColumn?: boolean;
+  locale: 'ru' | 'kk';
+  t: ReturnType<typeof useAdminTranslation>;
+}) {
+  const items = Array.isArray(query.data?.items) ? query.data.items : [];
+  const hasMore = Boolean(query.data?.has_more);
+  const compact = useCompactRows(items);
+
+  return (
+    <section className="surface-card">
+      <div className="section-heading">
+        <h2>{t.operations.transactionsTitle}</h2>
+      </div>
+      {query.isPending ? (
+        <p className="table-empty">{t.operations.loadingTransactions}</p>
+      ) : query.isError ? (
+        <ErrorNotice error={query.error} retry={() => { void query.refetch(); }} />
+      ) : items.length === 0 ? (
+        <p className="table-empty">{t.operations.transactionsEmpty}</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t.operations.colTxDate}</th>
+                {showCardColumn && <th>{t.operations.colCard}</th>}
+                <th>{t.operations.colTxType}</th>
+                <th className="align-right">{t.operations.colTxAmount}</th>
+                <th className="align-right">{t.operations.colTxBalanceAfter}</th>
+              </tr>
+            </thead>
+            <tbody id={compact.bodyId}>
+              {compact.visibleRows.map(tx => {
+                const isAccrual = tx.type === 'accrual';
+                const isRedemption = tx.type === 'redemption';
+                const tone = isAccrual ? 'positive' : isRedemption ? 'negative' : 'neutral';
+                const typeLabel = isAccrual
+                  ? t.operations.txTypeAccrual
+                  : isRedemption
+                  ? t.operations.txTypeRedemption
+                  : tx.type;
+                const cleanAmount = formatBalance(tx.amount.replace(/^[+-]/, ''));
+                const sign = isAccrual
+                  ? '+'
+                  : isRedemption
+                  ? '−'
+                  : tx.amount.startsWith('-')
+                  ? '−'
+                  : '';
+                return (
+                  <tr key={tx.id}>
+                    <td>
+                      <time dateTime={tx.occurred_at}>{formatDate(tx.occurred_at, locale)}</time>
+                    </td>
+                    {showCardColumn && (
+                      <td>
+                        <Link className="table-name mono-value" to={`/admin/cards/${encodeURIComponent(tx.card_id)}`}>
+                          {tx.barcode}
+                          <span>{tx.business_name}</span>
+                        </Link>
+                      </td>
+                    )}
+                    <td>
+                      <StatusPill tone={tone}>{typeLabel}</StatusPill>
+                    </td>
+                    <td className="align-right">
+                      <span className="numeric-value">{`${sign}${cleanAmount}`}</span>
+                    </td>
+                    <td className="align-right">
+                      <span className="numeric-value">{formatBalance(tx.balance_after)}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <CompactTableToggle {...compact} />
+      {(items.length > 0 || page.offset > 0) && compact.showPagination && (
+        <Pagination
+          page={{
+            ...page,
+            has_more: hasMore,
+            total: query.data?.total ?? (!hasMore && items.length > 0 ? page.offset + items.length : undefined),
+          }}
+          onChange={setPage}
+        />
+      )}
+    </section>
   );
 }
 

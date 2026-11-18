@@ -1,6 +1,6 @@
 """Admin schemas for customer app content: promotions, notifications, stores, and app texts."""
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -16,6 +16,13 @@ PromotionKind = Literal["banner", "offer"]
 def _strip_optional(value: object) -> object:
     if isinstance(value, str):
         return value.strip() or None
+    return value
+
+
+def _reject_bool(value: object) -> object:
+    """JSON `true`/`false` must not be silently read as 1/0 in a numeric field."""
+    if isinstance(value, bool):
+        raise ValueError("a boolean is not a valid number")  # noqa: TRY004 - pydantic turns only ValueError into a 422
     return value
 
 
@@ -67,7 +74,13 @@ class _PromotionFields(BaseModel):
     @field_validator("starts_at", "ends_at")
     @classmethod
     def validate_4_digit_year(cls, value: datetime | None) -> datetime | None:
-        if value is not None and not (1000 <= value.year <= 9999):
+        if value is None:
+            return None
+        try:
+            utc_dt = as_utc(value)
+        except (ValueError, OverflowError) as exc:
+            raise ValueError("Год должен состоять ровно из четырёх цифр") from exc
+        if not (1000 <= value.year <= 9999 and 1000 <= utc_dt.year <= 9999):
             raise ValueError("Год должен состоять ровно из четырёх цифр")
         return value
 
@@ -163,14 +176,13 @@ class NotificationCreateRequest(BaseModel):
     def validate_scheduled_at(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return None
-        if not (1000 <= value.year <= 9999):
+        try:
+            val_utc = as_utc(value)
+        except (ValueError, OverflowError) as exc:
+            raise ValueError("Год должен состоять ровно из четырёх цифр") from exc
+        if not (1000 <= value.year <= 9999 and 1000 <= val_utc.year <= 9999):
             raise ValueError("Год должен состоять ровно из четырёх цифр")
         now = utcnow()
-        val_utc = (
-            value.astimezone(UTC)
-            if value.tzinfo is not None
-            else value.replace(tzinfo=UTC)
-        )
         if val_utc <= now:
             raise ValueError("Время отправки не может быть в прошлом")
         if val_utc > now + timedelta(days=30):
@@ -461,19 +473,27 @@ class BusinessLoyaltyTierCreateRequest(BaseModel):
     description_ru: str | None = Field(default=None, max_length=2000)
     description_kk: str | None = Field(default=None, max_length=2000)
     image_url: str | None = Field(default=None, max_length=1024)
-    turnover_period_months: int = Field(ge=1, le=36)
-    min_turnover: Decimal = Field(ge=0)
-    max_turnover: Decimal | None = None
-    percent: Decimal = Field(ge=0, le=100)
+    # Lifetime turnover: the period is no longer a business rule. Optional for compatibility with old clients;
+    # when given it is stored as a historical value and is never used in any calculation.
+    turnover_period_months: int | None = Field(default=None, ge=1, le=36)
+    # Numeric(14,2) / Numeric(5,2): a value that does not fit is refused, never rounded or cut in silence.
+    min_turnover: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    max_turnover: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    percent: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2)
     is_active: bool = True
 
     _name_ru = field_validator("name_ru", mode="before")(_strip_required)
     _name_kk = field_validator("name_kk", mode="before")(_strip_required)
     _desc_ru = field_validator("description_ru", mode="before")(_strip_optional)
     _desc_kk = field_validator("description_kk", mode="before")(_strip_optional)
+    _numbers = field_validator(
+        "level", "priority", "turnover_period_months", "min_turnover", "max_turnover", "percent", mode="before"
+    )(_reject_bool)
 
     @model_validator(mode="after")
     def validate_bounds(self) -> "BusinessLoyaltyTierCreateRequest":
+        if "turnover_period_months" in self.model_fields_set and self.turnover_period_months is None:
+            raise ValueError("turnover_period_months must be omitted or a number, not null")
         if self.max_turnover is not None and self.max_turnover <= self.min_turnover:
             raise ValueError("max_turnover must be greater than min_turnover")
         return self
@@ -490,15 +510,18 @@ class BusinessLoyaltyTierUpdateRequest(BaseModel):
     description_kk: str | None = Field(default=None, max_length=2000)
     image_url: str | None = Field(default=None, max_length=1024)
     turnover_period_months: int | None = Field(default=None, ge=1, le=36)
-    min_turnover: Decimal | None = Field(default=None, ge=0)
-    max_turnover: Decimal | None = None
-    percent: Decimal | None = Field(default=None, ge=0, le=100)
+    min_turnover: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    max_turnover: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    percent: Decimal | None = Field(default=None, ge=0, le=100, max_digits=5, decimal_places=2)
     is_active: bool | None = None
 
     _name_ru = field_validator("name_ru", mode="before")(_strip_required)
     _name_kk = field_validator("name_kk", mode="before")(_strip_required)
     _desc_ru = field_validator("description_ru", mode="before")(_strip_optional)
     _desc_kk = field_validator("description_kk", mode="before")(_strip_optional)
+    _numbers = field_validator(
+        "level", "priority", "turnover_period_months", "min_turnover", "max_turnover", "percent", mode="before"
+    )(_reject_bool)
 
     @model_validator(mode="after")
     def require_fields(self) -> "BusinessLoyaltyTierUpdateRequest":
@@ -509,3 +532,55 @@ class BusinessLoyaltyTierUpdateRequest(BaseModel):
                 raise ValueError(f"{required} cannot be null")
         return self
 
+
+class LoyaltyScaleTierRequest(BaseModel):
+    """One existing tier row inside an atomic scale save.
+
+    `id`, `min_turnover`, `max_turnover` (explicit null = no upper bound) and `percent` are mandatory so
+    the request always states the final financial values of every row. Optional text/image/activity
+    fields are left untouched when omitted. `level`, `priority` and the legacy period are not editable
+    here (unknown fields are refused), which removes unique-constraint swaps and keeps ordering stable.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    min_turnover: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    max_turnover: Decimal | None = Field(ge=0, max_digits=14, decimal_places=2)
+    percent: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2)
+    name_ru: str | None = Field(default=None, min_length=1, max_length=120)
+    name_kk: str | None = Field(default=None, min_length=1, max_length=120)
+    description_ru: str | None = Field(default=None, max_length=2000)
+    description_kk: str | None = Field(default=None, max_length=2000)
+    image_url: str | None = Field(default=None, max_length=1024)
+    is_active: bool | None = None
+
+    _name_ru = field_validator("name_ru", mode="before")(_strip_required)
+    _name_kk = field_validator("name_kk", mode="before")(_strip_required)
+    _desc_ru = field_validator("description_ru", mode="before")(_strip_optional)
+    _desc_kk = field_validator("description_kk", mode="before")(_strip_optional)
+    _numbers = field_validator("min_turnover", "max_turnover", "percent", mode="before")(_reject_bool)
+
+    @model_validator(mode="after")
+    def no_null_required_text(self) -> "LoyaltyScaleTierRequest":
+        for required in ("name_ru", "name_kk", "is_active"):
+            if required in self.model_fields_set and getattr(self, required) is None:
+                raise ValueError(f"{required} cannot be null")
+        return self
+
+
+class LoyaltyScaleSaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    tiers: list[LoyaltyScaleTierRequest] = Field(min_length=1, max_length=100)
+
+
+class LoyaltyScaleResponse(BaseModel):
+    business_id: uuid.UUID
+    version: int
+    tiers: list[BusinessLoyaltyTierAdminItem]
+
+
+class LoyaltyScaleSaveResponse(LoyaltyScaleResponse):
+    changed: bool

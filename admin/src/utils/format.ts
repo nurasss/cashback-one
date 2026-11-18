@@ -62,6 +62,52 @@ export function calendarDaysInclusive(from: string, to: string): number {
   return Math.floor((end - start) / 86400_000) + 1;
 }
 
+export function shiftAstanaDay(day: string, deltaDays: number): string {
+  if (!isValidDateOnly(day)) return day;
+  const ms = Date.parse(`${day}T00:00:00.000Z`) + deltaDays * 86400_000;
+  const d = new Date(ms);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dayNum = String(d.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${dayNum}`;
+}
+
+export function isoToAstanaDay(value: string | null | undefined): string | null {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return isValidDateOnly(trimmed) ? trimmed : null;
+  }
+  const hasTz = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+  const normalized = !hasTz && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(trimmed)
+    ? `${trimmed.replace(' ', 'T')}Z`
+    : trimmed;
+  const d = new Date(normalized);
+  if (Number.isNaN(d.getTime())) return null;
+  return localDate(d);
+}
+
+export function clampDefaultPeriodDays(
+  fromDay: string,
+  toDay: string,
+  minDay: string | null,
+  maxDay: string,
+): { from: string; to: string } {
+  let clampedTo = toDay > maxDay ? maxDay : toDay;
+  if (minDay && clampedTo < minDay) {
+    clampedTo = minDay;
+  }
+  let clampedFrom = fromDay > clampedTo ? clampedTo : fromDay;
+  if (minDay && clampedFrom < minDay) {
+    clampedFrom = minDay;
+  }
+  if (clampedFrom > clampedTo) {
+    clampedFrom = clampedTo;
+  }
+  return { from: clampedFrom, to: clampedTo };
+}
+
 export function formatAstanaSchedule(value: string): string {
   const date = new Date(value);
   if (isNaN(date.getTime())) return '';

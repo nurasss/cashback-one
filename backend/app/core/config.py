@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     admin_login_ip_limit: int = Field(default=20, ge=1, le=200)
     admin_login_rate_window_seconds: int = Field(default=300, ge=30, le=3600)
     admin_agent_stale_seconds: int = Field(default=900, ge=60, le=86400)
+    # Deprecated: no longer enforced as a duration cap on /admin/dashboard when unlimited mode is active;
+    # retained only for backward compatibility with older /admin/me frontends and existing env configs.
     admin_max_stats_period_days: int = Field(default=90, ge=1, le=365)
     admin_allow_insecure_http: bool = False
     admin_public_url: str = Field(
@@ -180,7 +182,7 @@ class Settings(BaseSettings):
     # Window to exchange a confirmed challenge for tokens, counted from confirmation time
     challenge_exchange_ttl_seconds: int = 300  # 5 minutes
     access_token_ttl_seconds: int = 900  # 15 minutes
-    refresh_token_ttl_seconds: int = 14 * 86400  # customer session is remembered for 14 days
+    refresh_token_ttl_seconds: int = 365 * 86400  # sliding customer session, renewed on refresh
 
     auth_challenge_device_limit: int = 5
     auth_challenge_ip_limit: int = 20

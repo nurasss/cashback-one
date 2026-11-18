@@ -2,11 +2,13 @@ import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdminSession } from '../auth/provider';
 import { useActiveBusiness } from '../context/ActiveBusinessContext';
-import { useBusinesses, useDashboard } from '../api/queries';
+import { useAllBusinesses, useDashboard } from '../api/queries';
+import { BusinessSelect } from '../components/BusinessSelect';
 import { EmptyState, ErrorNotice, LoadingPage, PageHeading, StatusPill } from '../components/Feedback';
 import { IconCards, IconCheckShield, IconTrendUp, IconUsers } from '../components/Icons';
+import { ApiError, messageForError } from '../api/errors';
 import type { AgentHealth } from '../api/types';
-import { calendarDaysInclusive, formatDate, formatNumber, localDate, dayBoundary, isValidDateOnly } from '../utils/format';
+import { calendarDaysInclusive, clampDefaultPeriodDays, dayBoundary, formatDate, formatNumber, isoToAstanaDay, isValidDateOnly, localDate, shiftAstanaDay } from '../utils/format';
 import { useLocale } from '../i18n/LocaleContext';
 import { useAdminTranslation } from '../i18n/admin';
 
@@ -20,6 +22,10 @@ const healthTone: Record<AgentHealth, 'neutral' | 'positive' | 'warning' | 'nega
 
 function periodBoundary(day: string, end: boolean): string {
   return dayBoundary(day, end);
+}
+
+function defaultPeriodRange(regDay: string | null, todayDay: string) {
+  return clampDefaultPeriodDays(shiftAstanaDay(todayDay, -29), todayDay, regDay, todayDay);
 }
 
 function getClientConnectionState(
@@ -92,105 +98,251 @@ export function DashboardPage() {
   const { setActiveBusiness } = useActiveBusiness();
   const { locale } = useLocale();
   const t = useAdminTranslation();
+  const initialRegDay =
+    view.status === 'authenticated' && view.admin.role === 'business_manager'
+      ? isoToAstanaDay(view.admin.business?.created_at)
+      : null;
   const [defaultPeriod] = useState(() => {
-    const to = localDate(new Date());
-    return { from: localDate(new Date(Date.now() - 29 * 86400_000)), to, businessId: '' };
+    const todayDay = localDate(new Date());
+    const clamped = defaultPeriodRange(initialRegDay, todayDay);
+    return { from: clamped.from, to: clamped.to, today: todayDay };
   });
-  const today = defaultPeriod.to;
+  const [currentDay, setCurrentDay] = useState(defaultPeriod.today);
   const [businessId, setBusinessId] = useState('');
   const [from, setFrom] = useState(defaultPeriod.from);
-  const [to, setTo] = useState(today);
+  const [to, setTo] = useState(defaultPeriod.to);
   const [filters, setFilters] = useState({
     from: periodBoundary(defaultPeriod.from, false),
-    to: periodBoundary(today, true),
+    to: periodBoundary(defaultPeriod.to, true),
     business_id: undefined as string | undefined,
   });
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const lastWorkingPeriod = useRef<{ from: string; to: string; businessId: string } | null>(null);
+  const [dismissedServerPeriodError, setDismissedServerPeriodError] = useState(false);
+  const hasCustomRangeRef = useRef(false);
 
-  const businesses = useBusinesses(
-    { limit: 100, offset: 0 },
-    view.status === 'authenticated' && view.admin.role === 'superadmin',
-  );
+  const isAuthenticated = view.status === 'authenticated';
+  const adminRole = isAuthenticated ? view.admin.role : null;
+  const isClient = adminRole === 'business_manager';
+  const isUnlimited = isAuthenticated ? view.adminStatsUnlimitedPeriod === true : false;
+  const maxPeriodDays = isAuthenticated ? view.adminMaxStatsPeriodDays : 90;
 
-  const adminRole = view.status === 'authenticated' ? view.admin.role : null;
+  const businesses = useAllBusinesses(isAuthenticated && adminRole === 'superadmin');
+  const selectedBusiness =
+    !isClient && businessId
+      ? businesses.items.find(b => b.id === businessId) ?? null
+      : null;
+  const awaitingRegDate =
+    isAuthenticated &&
+    !isClient &&
+    Boolean(businessId) &&
+    !selectedBusiness &&
+    (businesses.isPending || businesses.isLoadingMore);
+  const effectiveRegDay = isAuthenticated
+    ? isClient
+      ? isoToAstanaDay(view.admin.business?.created_at)
+      : selectedBusiness
+        ? isoToAstanaDay(selectedBusiness.created_at)
+        : null
+    : null;
 
   useEffect(() => {
-    if (view.status !== 'authenticated' || adminRole !== 'superadmin') return;
-    const selected = businessId ? businesses.data?.items.find(b => b.id === businessId) : null;
-    setActiveBusiness(selected ? {
-      id: selected.id,
-      name: selected.name,
-      logo_url: selected.logo_url,
-      android_app_id: selected.android_app_id,
+    const syncToday = () => {
+      const next = localDate(new Date());
+      setCurrentDay(prev => (prev === next ? prev : next));
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') syncToday();
+    };
+    window.addEventListener('focus', syncToday);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', syncToday);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isClient || hasCustomRangeRef.current) return;
+    const nowDay = localDate(new Date());
+    const clamped = defaultPeriodRange(effectiveRegDay, nowDay);
+    if (
+      (effectiveRegDay !== null && (from < effectiveRegDay || to < effectiveRegDay)) ||
+      from > nowDay ||
+      to > nowDay
+    ) {
+      setFrom(clamped.from);
+      setTo(clamped.to);
+      setFilters({
+        from: periodBoundary(clamped.from, false),
+        to: periodBoundary(clamped.to, true),
+        business_id: undefined,
+      });
+    }
+  }, [isAuthenticated, isClient, effectiveRegDay, from, to]);
+
+  useEffect(() => {
+    if (!isAuthenticated || adminRole !== 'superadmin') return;
+    setActiveBusiness(selectedBusiness ? {
+      id: selectedBusiness.id,
+      name: selectedBusiness.name,
+      logo_url: selectedBusiness.logo_url,
+      android_app_id: selectedBusiness.android_app_id,
     } : null);
-  }, [businessId, businesses.data?.items, view.status, adminRole, setActiveBusiness]);
+  }, [selectedBusiness, isAuthenticated, adminRole, setActiveBusiness]);
 
   useEffect(() => {
     return () => {
       setActiveBusiness(null);
     };
   }, [setActiveBusiness]);
-  const dashboard = useDashboard(filters, view.status === 'authenticated', refreshVersion);
-  const title = view.status === 'authenticated' ? view.admin.business?.name ?? t.dashboard.allBusinesses : t.layout.nav.overview;
 
-  useEffect(() => {
-    if (!dashboard.data || !dashboard.isSuccess || dashboard.isFetching) return;
-    lastWorkingPeriod.current = {
-      from: localDate(new Date(filters.from)),
-      to: localDate(new Date(filters.to)),
-      businessId: filters.business_id ?? '',
-    };
-  }, [dashboard.data, dashboard.isSuccess, dashboard.isFetching, filters]);
+  const liveNowDay = localDate(new Date());
+  const needsInitialClientClamp =
+    isAuthenticated &&
+    isClient &&
+    !hasCustomRangeRef.current &&
+    ((effectiveRegDay !== null && (from < effectiveRegDay || to < effectiveRegDay)) ||
+      from > liveNowDay ||
+      to > liveNowDay);
+
+  const dashboard = useDashboard(
+    filters,
+    isAuthenticated && !awaitingRegDate && !needsInitialClientClamp,
+    refreshVersion,
+  );
+  const title = isAuthenticated ? view.admin.business?.name ?? t.dashboard.allBusinesses : t.layout.nav.overview;
 
   useEffect(() => {
     const resetToDefault = () => {
-      setFrom(defaultPeriod.from);
-      setTo(defaultPeriod.to);
-      setBusinessId('');
+      const nowDay = localDate(new Date());
+      setCurrentDay(nowDay);
+      setDismissedServerPeriodError(true);
+      hasCustomRangeRef.current = false;
+      const target = defaultPeriodRange(effectiveRegDay, nowDay);
+      setFrom(target.from);
+      setTo(target.to);
       setFilters({
-        from: periodBoundary(defaultPeriod.from, false),
-        to: periodBoundary(defaultPeriod.to, true),
-        business_id: undefined,
+        from: periodBoundary(target.from, false),
+        to: periodBoundary(target.to, true),
+        business_id: businessId || undefined,
       });
       setRefreshVersion(version => version + 1);
     };
     window.addEventListener('admin-dashboard-reset', resetToDefault);
     return () => window.removeEventListener('admin-dashboard-reset', resetToDefault);
-  }, [defaultPeriod]);
+  }, [effectiveRegDay, businessId]);
 
   if (view.status !== 'authenticated') return null;
 
+  const liveToday = localDate(new Date());
+  const effectiveToday = liveToday !== currentDay ? liveToday : currentDay;
   const data = dashboard.data;
-  const isClient = view.admin.role === 'business_manager';
-  const dateRangeValid = isValidDateOnly(from) && isValidDateOnly(to) && from <= to;
-  const requestedDays = dateRangeValid ? calendarDaysInclusive(from, to) : 0;
-  const exceedsPeriodLimit = requestedDays > view.adminMaxStatsPeriodDays;
-  const isPeriodValid = dateRangeValid && !exceedsPeriodLimit;
-  const periodHint = !dateRangeValid
-    ? t.dashboard.periodInvalid
-    : exceedsPeriodLimit
-      ? t.dashboard.periodTooLarge(view.adminMaxStatsPeriodDays)
-      : '';
+
+  const validateRange = (checkFrom: string, checkTo: string, todayDay: string) => {
+    const fromValid = isValidDateOnly(checkFrom);
+    const toValid = isValidDateOnly(checkTo);
+    if (!fromValid || !toValid) {
+      return {
+        valid: false,
+        fromInvalid: !fromValid,
+        toInvalid: !toValid,
+        message: t.dashboard.periodDateInvalid,
+      };
+    }
+    const fromOutOfBounds = checkFrom > todayDay;
+    const toOutOfBounds = checkTo > todayDay;
+    if (fromOutOfBounds || toOutOfBounds) {
+      return {
+        valid: false,
+        fromInvalid: fromOutOfBounds,
+        toInvalid: toOutOfBounds,
+        message: t.dashboard.periodOutOfBounds,
+      };
+    }
+    if (checkFrom > checkTo) {
+      return {
+        valid: false,
+        fromInvalid: true,
+        toInvalid: true,
+        message: t.dashboard.periodInvalid,
+      };
+    }
+    const requestedDays = calendarDaysInclusive(checkFrom, checkTo);
+    if (!isUnlimited && requestedDays > maxPeriodDays) {
+      return {
+        valid: false,
+        fromInvalid: true,
+        toInvalid: true,
+        message: t.dashboard.periodTooLarge(maxPeriodDays),
+      };
+    }
+    return {
+      valid: true,
+      fromInvalid: false,
+      toInvalid: false,
+      message: '',
+    };
+  };
+
+  const validation = validateRange(from, to, effectiveToday);
+  const isServerPeriodError =
+    !dismissedServerPeriodError &&
+    dashboard.isError &&
+    dashboard.error instanceof ApiError &&
+    (dashboard.error.code === 'ADMIN_INVALID_PERIOD' || dashboard.error.code === 'ADMIN_PERIOD_TOO_LARGE');
+  const serverPeriodMessage = isServerPeriodError ? messageForError(dashboard.error, locale) : '';
+  const periodHint = validation.message || serverPeriodMessage;
+  const fromInvalid = validation.fromInvalid || isServerPeriodError;
+  const toInvalid = validation.toInvalid || isServerPeriodError;
+
+  const syncDayNow = () => {
+    const nowDay = localDate(new Date());
+    setCurrentDay(prev => (prev === nowDay ? prev : nowDay));
+    return nowDay;
+  };
+
+  const handleFromChange = (nextValue: string) => {
+    hasCustomRangeRef.current = true;
+    setDismissedServerPeriodError(true);
+    syncDayNow();
+    setFrom(nextValue);
+  };
+
+  const handleToChange = (nextValue: string) => {
+    hasCustomRangeRef.current = true;
+    setDismissedServerPeriodError(true);
+    syncDayNow();
+    setTo(nextValue);
+  };
+
+  const handleBusinessChange = (nextBusinessId: string) => {
+    const nowDay = syncDayNow();
+    setDismissedServerPeriodError(true);
+    setBusinessId(nextBusinessId);
+    if (!hasCustomRangeRef.current) {
+      const nextBiz = nextBusinessId
+        ? businesses.items.find(b => b.id === nextBusinessId) ?? null
+        : null;
+      const nextRegDay = nextBusinessId ? isoToAstanaDay(nextBiz?.created_at) : null;
+      const clamped = defaultPeriodRange(nextRegDay, nowDay);
+      setFrom(clamped.from);
+      setTo(clamped.to);
+    }
+  };
 
   const apply = () => {
-    if (!isPeriodValid) return;
+    const nowDay = syncDayNow();
+    if (awaitingRegDate) return;
+    const latestCheck = validateRange(from, to, nowDay);
+    if (!latestCheck.valid) return;
+    setDismissedServerPeriodError(false);
     setFilters({ from: periodBoundary(from, false), to: periodBoundary(to, true), business_id: businessId || undefined });
     setRefreshVersion(version => version + 1);
   };
 
-  const restoreWorkingPeriod = () => {
-    const target = lastWorkingPeriod.current ?? defaultPeriod;
-    setFrom(target.from);
-    setTo(target.to);
-    setBusinessId(target.businessId);
-    setFilters({
-      from: periodBoundary(target.from, false),
-      to: periodBoundary(target.to, true),
-      business_id: target.businessId || undefined,
-    });
-    setRefreshVersion(version => version + 1);
-  };
+  const fromPickerMin = '1000-01-01';
+  const fromPickerMax = isValidDateOnly(to) && to <= effectiveToday ? to : effectiveToday;
+  const toPickerMin = isValidDateOnly(from) && from <= effectiveToday ? from : fromPickerMin;
 
   const totalAgents = data?.agents ? Object.values(data.agents).reduce((sum, item) => sum + item, 0) : 0;
 
@@ -222,46 +374,55 @@ export function DashboardPage() {
             <span>{t.dashboard.fromLabel}</span>
             <input
               type="date"
-              min="1000-01-01"
-              max={to || today}
+              min={fromPickerMin}
+              max={fromPickerMax}
               value={from}
-              onChange={event => setFrom(event.target.value)}
+              aria-invalid={fromInvalid}
+              aria-describedby={periodHint ? 'dashboard-period-error' : undefined}
+              onFocus={syncDayNow}
+              onChange={event => handleFromChange(event.target.value)}
             />
           </label>
           <label className="form-control">
             <span>{t.dashboard.toLabel}</span>
             <input
               type="date"
-              min={from || '1000-01-01'}
-              max={today}
+              min={toPickerMin}
+              max={effectiveToday}
               value={to}
-              onChange={event => setTo(event.target.value)}
+              aria-invalid={toInvalid}
+              aria-describedby={periodHint ? 'dashboard-period-error' : undefined}
+              onFocus={syncDayNow}
+              onChange={event => handleToChange(event.target.value)}
             />
           </label>
           {!isClient && (
-            <label className="form-control business-select">
-              <span>{t.dashboard.businessLabel}</span>
-              <select value={businessId} onChange={event => setBusinessId(event.target.value)} aria-label={t.dashboard.businessLabel}>
-                <option value="">{t.dashboard.allBusinesses}</option>
-                {businesses.data?.items.map(item => (
-                  <option key={item.id} value={item.id}>{item.name}</option>
-                ))}
-              </select>
-            </label>
+            <div className="form-control business-select">
+              <label htmlFor="dashboard-business">{t.dashboard.businessLabel}</label>
+              <BusinessSelect
+                id="dashboard-business"
+                ariaLabel={t.dashboard.businessLabel}
+                value={businessId}
+                onChange={handleBusinessChange}
+                allowAllLabel={t.dashboard.allBusinesses}
+                businesses={businesses}
+              />
+            </div>
           )}
-          <button className="button button-primary" type="button" disabled={!isPeriodValid} onClick={apply}>
+          <button className="button button-primary" type="button" disabled={dashboard.isLoading} onClick={apply}>
             {t.dashboard.refreshBtn}
           </button>
         </div>
-        {periodHint && <p className="form-error" role="status">{periodHint}</p>}
+        {periodHint && (
+          <div className="dashboard-period-hint-row">
+            <p id="dashboard-period-error" className="form-error" role="alert">{periodHint}</p>
+          </div>
+        )}
       </section>
 
-      {dashboard.isError && (
+      {dashboard.isError && !isServerPeriodError && (
         <div className="dashboard-period-error">
           <ErrorNotice error={dashboard.error} retry={() => { void dashboard.refetch(); }} />
-          <button className="button button-secondary" type="button" onClick={restoreWorkingPeriod}>
-            {t.dashboard.backToWorkingPeriod}
-          </button>
         </div>
       )}
 

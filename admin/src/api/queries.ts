@@ -1,7 +1,10 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo } from 'react';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAdminSession } from '../auth/provider';
+import type { AdminApiClient } from './client';
+import { ApiError } from './errors';
 import type {
-  Agent, AdminUser, AdminUserDetail, AppNotification, AppTexts, AuditItem, Business, BusinessDetail, BusinessSplashConfig, BusinessStore, Card, CardDetail, Dashboard, LoyaltyTier, Page, PageQuery, PosKey, Promotion, PromotionKind,
+  Agent, AdminTransaction, AdminUser, AdminUserDetail, AppNotification, AppTexts, AuditItem, Business, BusinessDetail, BusinessSplashConfig, BusinessStore, Card, CardDetail, Dashboard, LoyaltyScaleResponse, LoyaltyScaleSaveRequest, LoyaltyScaleSaveResponse, LoyaltyTier, Page, PageQuery, PosKey, Promotion, PromotionKind,
 } from './types';
 
 export const privateKey = ['admin'] as const;
@@ -21,9 +24,172 @@ export function useDashboard(filters: { business_id?: string; from?: string; to?
   });
 }
 
+export const ALL_BUSINESSES_PAGE_LIMIT = 100;
+const ALL_BUSINESSES_QUERY_KEY = [...privateKey, 'businesses', 'all'] as const;
+
+interface InFlightNextPageEntry {
+  cursorKey: string;
+  promise: Promise<unknown>;
+}
+
+// Per-QueryClient in-flight guard prevents competing fetchNextPage calls when multiple
+// selectors (e.g. ContentPage + BusinessPicker + open dialog) observe the same query.
+const inFlightNextPageByClient = new WeakMap<QueryClient, InFlightNextPageEntry>();
+
+export interface AllBusinessesResult {
+  items: Business[];
+  isPending: boolean;
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  isError: boolean;
+  error: unknown;
+  loadedCount: number;
+  retry: () => Promise<unknown>;
+}
+
 export function useBusinesses(page: PageQuery = { limit: 25, offset: 0 }, enabled = true) {
   const { session } = useAdminSession();
   return useQuery({ queryKey: [...privateKey, 'businesses', page], enabled, queryFn: ({ signal }) => session.api.request<Page<Business>>(`/admin/businesses?limit=${page.limit}&offset=${page.offset}`, { signal }) });
+}
+
+export function useAllBusinesses(enabled = true): AllBusinessesResult {
+  const { session } = useAdminSession();
+  const queryClient = useQueryClient();
+  const query = useInfiniteQuery({
+    queryKey: ALL_BUSINESSES_QUERY_KEY,
+    enabled,
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      session.api.request<Page<Business>>(
+        `/admin/businesses?limit=${ALL_BUSINESSES_PAGE_LIMIT}&offset=${pageParam}`,
+        { signal }
+      ),
+    getNextPageParam: (lastPage, allPages, lastPageParam) => {
+      if (!lastPage.has_more || lastPage.items.length === 0) return undefined;
+      const baseOffset = typeof lastPage.offset === 'number' && lastPage.offset >= lastPageParam
+        ? lastPage.offset
+        : lastPageParam;
+      const nextOffset = baseOffset + lastPage.items.length;
+      if (nextOffset <= lastPageParam) return undefined;
+
+      if (allPages.length > 1) {
+        const prevIds = new Set<string>();
+        for (let i = 0; i < allPages.length - 1; i++) {
+          for (const item of allPages[i]!.items) {
+            prevIds.add(item.id);
+          }
+        }
+        if (!lastPage.items.some(item => !prevIds.has(item.id))) {
+          return undefined;
+        }
+      }
+      return nextOffset;
+    },
+  });
+
+  const { items, paginationStalled } = useMemo(() => {
+    const pages = query.data?.pages ?? [];
+    const seen = new Set<string>();
+    const deduped: Business[] = [];
+    let stalled = false;
+
+    for (let i = 0; i < pages.length; i++) {
+      const p = pages[i]!;
+      let addedInPage = 0;
+      for (const item of p.items) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          deduped.push(item);
+          addedInPage += 1;
+        }
+      }
+      if (p.has_more && (p.items.length === 0 || (i > 0 && addedInPage === 0))) {
+        stalled = true;
+      }
+    }
+
+    return { items: deduped, paginationStalled: stalled };
+  }, [query.data?.pages]);
+
+  const pages = query.data?.pages;
+  const pageParams = query.data?.pageParams;
+  const pagesCount = pages?.length ?? 0;
+  const lastPage = pagesCount > 0 ? pages![pagesCount - 1] : undefined;
+  const pageProgressKey = pagesCount > 0
+    ? `${pagesCount}:${(pageParams ?? []).map(param => String(param)).join(',')}:${lastPage?.items.length ?? 0}:${String(Boolean(lastPage?.has_more))}`
+    : '';
+
+  const hasFetchError = query.isError || query.isFetchNextPageError;
+  const hasMore = Boolean(query.hasNextPage) || paginationStalled;
+  const isLoadingMore =
+    enabled &&
+    !query.isPending &&
+    !hasFetchError &&
+    !paginationStalled &&
+    (query.isFetchingNextPage || Boolean(query.hasNextPage));
+
+  const {
+    isPending,
+    isFetching,
+    isFetchingNextPage,
+    hasNextPage,
+    dataUpdatedAt,
+    fetchNextPage,
+    refetch,
+  } = query;
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (!hasNextPage || hasFetchError || isPending || isFetching || isFetchingNextPage || paginationStalled) {
+      return;
+    }
+    const cachedQuery = queryClient.getQueryCache().find({ queryKey: ALL_BUSINESSES_QUERY_KEY });
+    if (cachedQuery && cachedQuery.state.fetchStatus !== 'idle') {
+      return;
+    }
+    if (inFlightNextPageByClient.get(queryClient)?.cursorKey === pageProgressKey) {
+      return;
+    }
+    const promise = fetchNextPage({ cancelRefetch: false }).finally(() => {
+      if (inFlightNextPageByClient.get(queryClient)?.promise === promise) {
+        inFlightNextPageByClient.delete(queryClient);
+      }
+    });
+    inFlightNextPageByClient.set(queryClient, { cursorKey: pageProgressKey, promise });
+  }, [
+    enabled,
+    hasNextPage,
+    hasFetchError,
+    isPending,
+    isFetching,
+    isFetchingNextPage,
+    paginationStalled,
+    pageProgressKey,
+    dataUpdatedAt,
+    queryClient,
+    fetchNextPage,
+  ]);
+
+  const error = query.error ?? (paginationStalled ? new ApiError('INVALID_RESPONSE', 502) : null);
+  const isError = hasFetchError || paginationStalled;
+
+  const retry = useCallback(async () => {
+    if (query.data && hasNextPage && !paginationStalled) {
+      return fetchNextPage({ cancelRefetch: false });
+    }
+    return refetch();
+  }, [query.data, hasNextPage, paginationStalled, fetchNextPage, refetch]);
+
+  return {
+    items,
+    isPending: enabled && isPending,
+    isLoadingMore,
+    hasMore,
+    isError,
+    error,
+    loadedCount: items.length,
+    retry,
+  };
 }
 
 export function useBusiness(id: string) {
@@ -62,6 +228,20 @@ export function useCard(id: string) {
   return useQuery({ queryKey: [...privateKey, 'card', id], queryFn: ({ signal }) => session.api.request<CardDetail>(`/admin/cards/${encodeURIComponent(id)}`, { signal }) });
 }
 
+export function useCardTransactions(cardId: string, page: PageQuery, enabled = true) {
+  const { session } = useAdminSession();
+  const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
+  return useQuery({
+    queryKey: [...privateKey, 'card-transactions', cardId, page],
+    enabled: Boolean(cardId) && enabled,
+    queryFn: ({ signal }) =>
+      session.api.request<Page<AdminTransaction>>(
+        `/admin/cards/${encodeURIComponent(cardId)}/transactions?${query}`,
+        { signal },
+      ),
+  });
+}
+
 export function useUsers(business_id: string | undefined, page: PageQuery, enabled = true) {
   const { session } = useAdminSession();
   const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
@@ -86,6 +266,26 @@ export function useUser(id: string, business_id: string | undefined, page: PageQ
   const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
   if (business_id) query.set('business_id', business_id);
   return useQuery({ queryKey: [...privateKey, 'user', id, business_id, page], queryFn: ({ signal }) => session.api.request<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}?${query}`, { signal }) });
+}
+
+export function useUserTransactions(
+  userId: string,
+  business_id: string | undefined,
+  page: PageQuery,
+  enabled = true,
+) {
+  const { session } = useAdminSession();
+  const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) });
+  if (business_id) query.set('business_id', business_id);
+  return useQuery({
+    queryKey: [...privateKey, 'user-transactions', userId, business_id, page],
+    enabled: Boolean(userId) && enabled,
+    queryFn: ({ signal }) =>
+      session.api.request<Page<AdminTransaction>>(
+        `/admin/users/${encodeURIComponent(userId)}/transactions?${query}`,
+        { signal },
+      ),
+  });
 }
 
 export function useAudit(page: PageQuery) {
@@ -175,4 +375,23 @@ export function useLoyaltyTiers(businessId: string | undefined, enabled = true) 
         { signal }
       ),
   });
+}
+
+export function getLoyaltyScale(api: AdminApiClient, businessId: string, signal?: AbortSignal) {
+  return api.request<LoyaltyScaleResponse>(
+    `/admin/businesses/${encodeURIComponent(businessId)}/loyalty-tiers/scale`,
+    { signal }
+  );
+}
+
+export function saveLoyaltyScale(
+  api: AdminApiClient,
+  businessId: string,
+  payload: LoyaltyScaleSaveRequest,
+  signal?: AbortSignal
+) {
+  return api.request<LoyaltyScaleSaveResponse>(
+    `/admin/businesses/${encodeURIComponent(businessId)}/loyalty-tiers/scale`,
+    { method: 'PUT', body: payload, signal }
+  );
 }
