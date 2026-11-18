@@ -99,3 +99,10 @@ richtext_converted_to_markdown*.md
 *.p12
 *.pfx
 *.dump
+
+# Owner decision 18.11: the public repository gets code and docs only. New reports stay local
+# (already tracked reports are kept as they are); local junk and generated archives are not tracked.
+/reports/
+/C:/
+/.playwright-mcp/
+/docs/tools/*.zip

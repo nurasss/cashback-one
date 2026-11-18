@@ -9,7 +9,7 @@ Admin routes are separate from `/auth/*`, `/me/*` and `/agent/*`. All responses 
 | `/admin/auth/login` | POST | `{ "login": "…", "password": "…" }` | allowlisted Origin + CSRF header | `200 {access_token, token_type, expires_in}`; refresh in HttpOnly cookie only |
 | `/admin/auth/refresh` | POST | `{}` | allowlisted Origin + CSRF header + `admin_refresh` HttpOnly cookie | rotates stored refresh hash and cookie, returns a new access JWT |
 | `/admin/auth/logout` | POST | `{}` | allowlisted Origin + CSRF header + current refresh cookie | `200 {status: "ok"}`; revokes current session and expires the cookie |
-| `/admin/me` | GET | — | `typ=admin_access` Bearer token and active DB session | `{admin: {id, login, role, business}}` |
+| `/admin/me` | GET | — | `typ=admin_access` Bearer token and active DB session | `{admin: {id, login, role, business}, admin_stats_unlimited_period: true, admin_max_stats_period_days}` (`admin_max_stats_period_days` is a deprecated compatibility integer kept only for older frontends and does not limit queries when `admin_stats_unlimited_period` is `true`) |
 
 Invalid login, password and inactive-account cases all return `401 INVALID_CREDENTIALS`. No registration or default user endpoint exists. Invalid/expired/replayed refresh cookies return the same `401 ADMIN_UNAUTHENTICATED` response. Refresh rotation uses an atomic compare-and-swap on the old refresh hash; simultaneous requests have at most one winner.
 
@@ -31,13 +31,13 @@ Invalid login, password and inactive-account cases all return `401 INVALID_CREDE
 
 All list rows sort by a stable timestamp and ID tie-breaker. `Page<T>` is `{items, limit, offset, has_more}`; clients fetch another bounded page only when `has_more` is true.
 
-Dashboard period timestamps must include a timezone, `from <= to`, and the range may not exceed `ADMIN_MAX_STATS_PERIOD_DAYS`. Values are compared in UTC. Customer count means distinct active profiles linked to a card in that business. “Unblocked cards” is exactly `is_blocked = false`. Agent health is calculated by the backend: `disabled`, `error`, `never_connected`, `stale`, or `online`; stale seconds come from `ADMIN_AGENT_STALE_SECONDS` (default 900). No API key hash is returned. Sensitive search values arrive in POST JSON and are not written to request/application logs.
+Dashboard period timestamps must include a timezone and `from <= to`, with inclusive Astana (`UTC+5`) calendar day boundaries compared in UTC; there is no server-side period length limit (protected by DB `statement_timeout`, indexes, and constant query count; `ADMIN_MAX_STATS_PERIOD_DAYS` remains only as a deprecated legacy field in `/admin/me`). Customer count means distinct active profiles linked to a card in that business. “Unblocked cards” is exactly `is_blocked = false`. Agent health is calculated by the backend: `disabled`, `error`, `never_connected`, `stale`, or `online`; stale seconds come from `ADMIN_AGENT_STALE_SECONDS` (default 900). No API key hash is returned. Sensitive search values arrive in POST JSON and are not written to request/application logs.
 
 `business_manager` scope always comes from the authenticated AdminUser row. A foreign tenant selector and foreign IDs return a uniform `404 ADMIN_RESOURCE_NOT_FOUND`; global businesses return `403 ADMIN_FORBIDDEN` without querying other-tenant payload rows.
 
 ## Error envelope
 
-Errors use the existing `{ "error": { "code": "…", "message": "…" } }` contract. Admin additions include `INVALID_CREDENTIALS`, `ADMIN_UNAUTHENTICATED`, `ADMIN_FORBIDDEN`, `ADMIN_RESOURCE_NOT_FOUND`, `ADMIN_RATE_LIMITED`, `ADMIN_ORIGIN_FORBIDDEN`, `ADMIN_CSRF_BLOCKED`, `ADMIN_HTTPS_REQUIRED`, `ADMIN_INVALID_PERIOD`, `ADMIN_PERIOD_TOO_LARGE`, `ADMIN_AGENT_REVOKED`, and `ADMIN_REQUEST_TOO_LARGE`. Error messages never include a submitted password, refresh token, phone or barcode.
+Errors use the existing `{ "error": { "code": "…", "message": "…" } }` contract. Admin additions include `INVALID_CREDENTIALS`, `ADMIN_UNAUTHENTICATED`, `ADMIN_FORBIDDEN`, `ADMIN_RESOURCE_NOT_FOUND`, `ADMIN_RATE_LIMITED`, `ADMIN_ORIGIN_FORBIDDEN`, `ADMIN_CSRF_BLOCKED`, `ADMIN_HTTPS_REQUIRED`, `ADMIN_INVALID_PERIOD`, `ADMIN_PERIOD_TOO_LARGE` (legacy compatibility code), `ADMIN_AGENT_REVOKED`, and `ADMIN_REQUEST_TOO_LARGE`. Error messages never include a submitted password, refresh token, phone or barcode.
 
 ## Audited mutations — TASK-011B
 
