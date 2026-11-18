@@ -73,7 +73,7 @@ async def business_with_card(
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_login_sends_code_and_issues_14_day_session(
+async def test_whatsapp_login_sends_code_and_issues_365_day_session(
     client: AsyncClient, db_session: AsyncSession, fake_whatsapp
 ) -> None:
     phone, device = "+77017770011", "dev-wa-1"
@@ -91,7 +91,7 @@ async def test_whatsapp_login_sends_code_and_issues_14_day_session(
     auth = await db_session.scalar(select(AuthSession))
     assert auth is not None
     lifetime = as_utc(auth.expires_at) - as_utc(auth.created_at)
-    assert timedelta(days=14) - timedelta(minutes=1) < lifetime <= timedelta(days=14)
+    assert timedelta(days=365) - timedelta(minutes=1) < lifetime <= timedelta(days=365)
 
 
 @pytest.mark.asyncio
@@ -334,7 +334,7 @@ async def test_fresh_transaction_sync_notifies_card_owner(client: AsyncClient, d
     ]})
     assert res.status_code == 200, res.text
     items = (await client.get("/me/notifications", headers=headers)).json()["items"]
-    assert [n["title"] for n in items] == ["Начислено 1 500 баллов"]
+    assert [n["title"] for n in items] == ["Начислено 1 500 бонусов"]
     assert "Магазин ONE" in items[0]["body"] and "1 600" in items[0]["body"]
 
 

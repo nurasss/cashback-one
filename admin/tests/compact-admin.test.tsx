@@ -67,7 +67,7 @@ it.each(['ru', 'kk'] as const)('preserves login eyebrows and uses lowercase bran
 it.each(['ru', 'kk'] as const)('compacts user cards, retains expansion through real query paging and collapses (%s)', async locale => {
   const user = userEvent.setup();
   const { container } = setup('/admin/users/fixture-user', locale);
-  const expand = locale === 'ru' ? 'Все (25)' : 'Барлығы (25)';
+  const expand = locale === 'ru' ? 'Показать ещё' : 'Тағы көрсету';
   const collapse = locale === 'ru' ? 'Свернуть' : 'Жию';
   const next = locale === 'ru' ? 'Далее' : 'Келесі';
   const toggle = await screen.findByRole('button', { name: expand });
@@ -90,21 +90,21 @@ it.each([1, 7])('retains existing user card pagination for %i rows', async count
   const { container } = setup('/admin/users/fixture-user', 'ru', count);
   expect(await screen.findByRole('button', { name: 'Далее' })).toBeEnabled();
   expect(container.querySelectorAll('tbody tr')).toHaveLength(count);
-  expect(screen.queryByRole('button', { name: /Все/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Показать ещё/ })).not.toBeInTheDocument();
 });
 
 it('keeps card list expansion through pending search/filter queries and resets on section navigation', async () => {
   const user = userEvent.setup();
   const { container } = setup('/admin/operations');
-  await user.click(await screen.findByRole('button', { name: 'Все (25)' }));
+  await user.click(await screen.findByRole('button', { name: 'Показать ещё' }));
   await user.selectOptions(screen.getByLabelText('Бизнес поиска'), business.id);
   expect(await screen.findByRole('button', { name: 'Свернуть' })).toHaveAttribute('aria-expanded', 'true');
-  await user.type(screen.getByLabelText('Номер карты'), '100000');
+  await user.type(screen.getByLabelText('Номер карты или телефон'), '100000');
   await user.click(screen.getByRole('button', { name: 'Найти' }));
   expect(await screen.findByRole('button', { name: 'Свернуть' })).toHaveAttribute('aria-expanded', 'true');
   expect(container.querySelectorAll('tbody tr')).toHaveLength(25);
   await user.click(screen.getByRole('link', { name: /Журнал событий/ }));
   await screen.findByRole('heading', { name: 'Журнал событий' });
   await user.click(screen.getByRole('link', { name: /Карты и клиенты/ }));
-  expect(await screen.findByRole('button', { name: 'Все (25)' })).toHaveAttribute('aria-expanded', 'false');
+  expect(await screen.findByRole('button', { name: 'Показать ещё' })).toHaveAttribute('aria-expanded', 'false');
 });

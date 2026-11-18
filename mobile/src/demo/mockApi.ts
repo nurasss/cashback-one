@@ -56,13 +56,14 @@ export function createDemoApi() {
     has_new: true,
   };
   let promotionsSeen = false;
-  let notificationsRead = false;
+  const readNotificationIds = new Set<string>(); // demo of the exact-ID read (POST /me/notifications/mark-read)
   const notifications = [
-    { id: 'n4', kind: 'accrual', title: 'Чек 15 000 ₸', body: '450,00 баллов начислено по статусу 3%.', created_at: daysAgo(0, 9) },
-    { id: 'n3', kind: 'info', title: 'Добро пожаловать в ONE', body: 'QR-код готов. Покажите его кассиру — баллы начислятся после каждой покупки.', created_at: daysAgo(2) },
+    { id: 'n4', kind: 'accrual', title: 'Чек 15 000 ₸', body: '450,00 бонусов начислено по статусу 3%.', created_at: daysAgo(0, 9) },
+    { id: 'n3', kind: 'info', title: 'Добро пожаловать в ONE', body: 'QR-код готов. Покажите его кассиру — бонусы начислятся после каждой покупки.', created_at: daysAgo(2) },
     { id: 'n2', kind: 'info', title: 'Хиты недели в зале', body: 'Красные ценники: молоко, хлеб и овощи. Не пропустите купон.', created_at: daysAgo(3) },
     { id: 'n1', kind: 'info', title: '2-й статус от 350 000 ₸', body: 'Сейчас 3%. На 4-м статусе каждая покупка даёт 12%.', created_at: daysAgo(4) },
   ];
+  const unreadNotifications = () => notifications.filter(n => !readNotificationIds.has(n.id)).length;
   let profile: Profile = { phone: '+7 7•• ••• •• 26', language: 'ru', first_name: null, last_name: null, email: null, gender: null, city: null, address: null, birth_date: null, iin: null, company: null, avatar_url: null };
 
   const appContent: AppContent = {
@@ -89,16 +90,32 @@ export function createDemoApi() {
     ],
     app_texts: {
       home_store_note_lead: {
-        ru: 'Вы можете потратить эти баллы в супермаркетах сети по адресу: ',
-        kk: 'Сіз бұл ұпайларды желі супермаркеттерінде келесі мекенжай бойынша жұмсай аласыз: ',
+        ru: 'Вы можете потратить эти бонусы в супермаркетах сети по адресу: ',
+        kk: 'Сіз бұл бонустарды желі супермаркеттерінде келесі мекенжай бойынша жұмсай аласыз: ',
       },
       balance_delay_note: {
-        ru: 'Баллы за покупки начисляются и обновляются после закрытия кассовой смены',
-        kk: 'Сатып алулар үшін ұпайлар кассалық ауысым жабылғаннан кейін есептеледі және жаңартылады',
+        ru: 'Бонусы за покупки начисляются и обновляются после закрытия кассовой смены',
+        kk: 'Сатып алулар үшін бонустар кассалық ауысым жабылғаннан кейін есептеледі және жаңартылады',
       },
     },
     updated_at: daysAgo(0),
   };
+
+  // Demo only (?tiers=1, ?unconfirmed=1): server-style lifetime statuses without any period, or unconfirmed turnover state.
+  const search = typeof window !== 'undefined' ? (window.location?.search ?? '') : '';
+  const demoTiers = search.includes('tiers=1');
+  const demoUnconfirmed = search.includes('unconfirmed=1');
+  const tierBase = { description_ru: null, description_kk: null, image_url: null };
+  const demoLoyaltyTiers = [
+    { ...tierBase, id: 'dt-1', level: 1, priority: 1, name_ru: 'Нет-нет заглядывает', name_kk: 'Жиі кірмейді', turnover_period_months: 1, min_turnover: '0.00', max_turnover: '350000.00', percent: '1.00' },
+    { ...tierBase, id: 'dt-2', level: 2, priority: 2, name_ru: 'Продуктовый эксперт', name_kk: 'Азық-түлік сарапшысы', turnover_period_months: 12, min_turnover: '350000.00', max_turnover: '700000.00', percent: '3.00' },
+    { ...tierBase, id: 'dt-3', level: 3, priority: 3, name_ru: 'Шоппинг-босс', name_kk: 'Шопинг-босс', turnover_period_months: 6, min_turnover: '700000.00', max_turnover: null, percent: '5.00' },
+  ];
+  const cardView = () => demoUnconfirmed
+    ? { ...card, loyalty_status: { known: false, reason: 'turnover_unknown', program_version: 1 } }
+    : demoTiers
+      ? { ...card, loyalty_status: { known: true, reason: null, tier_id: 'dt-2', level: 2, percent: '3.00', turnover_amount: '420000.0000', program_version: 1 } }
+      : card;
 
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const error = (status: number, code: string) => json({ error: { code, message: code } }, status);
@@ -134,20 +151,20 @@ export function createDemoApi() {
                (init.headers as Record<string, string>)['if-none-match'] ??
                null))
         : null;
-      const demoEtag = '"demo-app-content-etag-1"';
+      const demoEtag = demoTiers ? '"demo-app-content-etag-tiers"' : '"demo-app-content-etag-1"';
       if (ifNoneMatch === demoEtag) {
         return new Response(null, { status: 304, headers: { ETag: demoEtag } });
       }
-      return new Response(JSON.stringify(appContent), {
+      return new Response(JSON.stringify(demoTiers ? { ...appContent, loyalty_tiers: demoLoyaltyTiers, loyalty_tiers_version: 1 } : appContent), {
         status: 200,
         headers: { 'Content-Type': 'application/json', ETag: demoEtag },
       });
     }
     if (path === '/me/cards' && method === 'GET') {
       if (typeof window !== 'undefined' && window.location?.search?.includes('no_card=1')) return json([]);
-      return json([card]);
+      return json([cardView()]);
     }
-    if (path === `/me/cards/${card.id}` && method === 'GET') return json(card);
+    if (path === `/me/cards/${card.id}` && method === 'GET') return json(cardView());
     if (path === `/me/cards/${card.id}` && method === 'DELETE') return new Response(null, { status: 204 });
     if (path === `/me/cards/${card.id}/qr`) return json(qr());
     if (path === `/me/cards/${card.id}/transactions`) {
@@ -196,10 +213,21 @@ export function createDemoApi() {
       return found ? json(found) : error(404, 'PROMOTION_NOT_FOUND');
     }
     if (path === '/me/notifications' && method === 'GET') {
-      return json({ items: notifications.map(n => ({ ...n, is_unread: !notificationsRead })), unread_count: notificationsRead ? 0 : notifications.length } satisfies Notifications);
+      return json({ items: notifications.map(n => ({ ...n, is_unread: !readNotificationIds.has(n.id) })), unread_count: unreadNotifications() } satisfies Notifications);
     }
-    if (path === '/me/notifications/read') { notificationsRead = true; return new Response(null, { status: 204 }); }
-    if (path === '/me/badges') return json({ promotions_new: !promotionsSeen, notifications_unread: notificationsRead ? 0 : notifications.length } satisfies Badges);
+    if (path === '/me/notifications/mark-read' && method === 'POST') {
+      const ids = readBody(init).ids;
+      if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100 || ids.some(id => typeof id !== 'string')) return error(422, 'VALIDATION_ERROR');
+      const read: string[] = []; const already: string[] = []; const ignored: string[] = [];
+      for (const id of [...new Set(ids as string[])]) {
+        if (!notifications.some(n => n.id === id)) ignored.push(id);
+        else if (readNotificationIds.has(id)) already.push(id);
+        else { readNotificationIds.add(id); read.push(id); }
+      }
+      return json({ read, already_read: already, ignored, unread_count: unreadNotifications() });
+    }
+    if (path === '/me/notifications/read') { notifications.forEach(n => readNotificationIds.add(n.id)); return new Response(null, { status: 204 }); }
+    if (path === '/me/badges') return json({ promotions_new: !promotionsSeen, notifications_unread: unreadNotifications() } satisfies Badges);
     return error(404, 'NOT_FOUND');
   };
 }

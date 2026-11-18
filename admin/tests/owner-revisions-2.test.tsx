@@ -122,15 +122,15 @@ describe('Owner revisions 2 (2026-11-11)', () => {
       const workingFrom = fromInput.value;
       const workingTo = toInput.value;
 
-      // 1. Pre-request validation > 90 days blocks Refresh button and shows hint without calling API
+      // 1. Pre-request validation > 90 days keeps Refresh active, shows hint, blocks API call on click
       fireEvent.change(fromInput, { target: { value: '2026-01-01' } });
       fireEvent.change(toInput, { target: { value: '2026-06-01' } });
       expect(screen.getByText('Выберите период не длиннее 90 дней.')).toBeInTheDocument();
-      expect(refreshBtn).toBeDisabled();
+      expect(refreshBtn).not.toBeDisabled();
       await user.click(refreshBtn);
       expect(dashboardCalls.length).toBe(initialCalls);
 
-      // 2. Valid range <= 90 days that returns server error keeps filter form on screen, hides Retry for 422, shows Back
+      // 2. Valid range <= 90 days that returns server error keeps filter form on screen, hides Retry for 422, removes Back button under error
       failNextDashboard = true;
       fireEvent.change(fromInput, { target: { value: '2026-10-01' } });
       fireEvent.change(toInput, { target: { value: '2026-10-15' } });
@@ -141,11 +141,13 @@ describe('Owner revisions 2 (2026-11-11)', () => {
       expect(screen.getByLabelText('С')).toBeInTheDocument();
       expect(screen.getByLabelText('Бизнес')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Назад' })).not.toBeInTheDocument();
 
-      // 3. Clicking "Назад" restores previous working period
+      // 3. User corrects the period and clicks Refresh to update
       failNextDashboard = false;
-      const backBtn = screen.getByRole('button', { name: 'Назад' });
-      await user.click(backBtn);
+      fireEvent.change(fromInput, { target: { value: workingFrom } });
+      fireEvent.change(toInput, { target: { value: workingTo } });
+      await user.click(refreshBtn);
       await waitFor(() => {
         expect(screen.queryByText('Выберите более короткий период.')).not.toBeInTheDocument();
       });
@@ -256,8 +258,8 @@ describe('Owner revisions 2 (2026-11-11)', () => {
         </LocaleProvider>,
       );
 
-      await user.type(screen.getByLabelText(/Название статуса \(RU\)/i), 'Золотой');
-      await user.type(screen.getByLabelText(/Дәреже атауы \(RU\)|Атауы \(KK\)|Название.*KK|Дәреже/i), 'Алтын');
+      await user.type(screen.getByLabelText(/Название статуса \(RU\)|Название \(русский\)/i), 'Золотой');
+      await user.type(screen.getByLabelText(/Дәреже атауы \(RU\)|Атауы \(KK\)|Название.*KK|Дәреже|Название \(қазақша\)/i), 'Алтын');
       const levelInput = screen.getByLabelText(/Номер уровня/i);
       await user.clear(levelInput);
       await user.type(levelInput, '0');
@@ -269,12 +271,14 @@ describe('Owner revisions 2 (2026-11-11)', () => {
       const { unmount: unmountPromo } = render(
         <LocaleProvider initialLocale="ru">
           <AdminProvider>
-            <PromotionDialog superadmin={false} onClose={vi.fn()} />
+            <PromotionDialog onClose={vi.fn()} />
           </AdminProvider>
         </LocaleProvider>,
       );
       await user.type(screen.getByLabelText('Заголовок'), 'Акция');
       await user.type(screen.getByLabelText('Описание'), 'Описание акции');
+      await user.click(screen.getByRole('checkbox', { name: /начать сейчас/i }));
+      await user.click(screen.getByRole('checkbox', { name: /бессрочно/i }));
       const startInput = screen.getByLabelText('Начало показа');
       const endInput = screen.getByLabelText('Конец показа');
       fireEvent.change(startInput, { target: { value: '2026-12-10T12:00' } });
@@ -315,6 +319,7 @@ describe('Owner revisions 2 (2026-11-11)', () => {
       expect(screen.getByRole('navigation', { name: publicRu.header.navAria })).toHaveTextContent('Для бизнеса');
       expect(screen.getByRole('link', { name: 'Вход для бизнеса' })).toHaveAttribute('href', '/admin/login');
       expect(screen.getByRole('link', { name: /Для бизнеса →/ })).toHaveAttribute('href', '#business');
+      expect(container.textContent).not.toMatch(/iPhone/i);
 
       cleanup();
       const { container: kkContainer } = render(
@@ -325,16 +330,17 @@ describe('Owner revisions 2 (2026-11-11)', () => {
       expect(kkContainer.querySelector('.landing-header-biz-btn')).toBeNull();
       expect(screen.getByRole('link', { name: 'Бизнеске кіру' })).toHaveAttribute('href', '/admin/login');
       expect(screen.getByRole('link', { name: /Бизнес үшін →/ })).toHaveAttribute('href', '#business');
+      expect(kkContainer.textContent).not.toMatch(/iPhone/i);
     });
 
-    it('has no балл or ұпай in publicRu, publicKk, or admin/index.html', () => {
+    it('has no балл, ұпай, or iPhone mention in publicRu, publicKk, or admin/index.html', () => {
       const ruText = JSON.stringify(publicRu);
       const kkText = JSON.stringify(publicKk);
       const indexHtml = readFileSync(resolve(__dirname, '../index.html'), 'utf-8');
 
-      expect(ruText).not.toMatch(/балл/i);
-      expect(kkText).not.toMatch(/балл|балдар|ұпай/i);
-      expect(indexHtml).not.toMatch(/балл|ұпай/i);
+      expect(ruText).not.toMatch(/балл|iPhone/i);
+      expect(kkText).not.toMatch(/балл|балдар|ұпай|iPhone/i);
+      expect(indexHtml).not.toMatch(/балл|ұпай|iPhone/i);
       expect(publicRu.bonus.pointsText1).toBe(
         'Правила начисления, списания и использования бонусов / скидок определяет магазин.',
       );

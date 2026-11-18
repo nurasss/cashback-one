@@ -59,7 +59,7 @@ export function Loading({ label }: { label?: string }) {
   const { t: tr } = useI18n();
   const styles = useUiStyles();
   const { colors } = useTheme();
-  return <View style={styles.loading}><ActivityIndicator color={colors.primary} /><Text style={styles.muted}>{label ?? tr('loading')}</Text></View>;
+  return <View style={styles.loading}><ActivityIndicator color={colors.primaryText} /><Text style={styles.muted}>{label ?? tr('loading')}</Text></View>;
 }
 
 export function EmptyState({ icon, title, body, children }: { icon: IconName; title: string; body?: string; children?: React.ReactNode }) {

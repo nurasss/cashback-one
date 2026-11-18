@@ -9,7 +9,7 @@ import StatusScreen from '../app/(app)/status';
 import { ActiveCardProvider } from '../src/features/activeCard';
 import { I18nProvider } from '../src/i18n';
 import { kz } from '../src/i18n/kz';
-import { errorMessages, ru } from '../src/i18n/ru';
+import { ru } from '../src/i18n/ru';
 import type { AppContent, Card, Profile } from '../src/types/api';
 
 const mockRequest = jest.fn();
@@ -173,8 +173,8 @@ describe('Home screen header and notes', () => {
     ],
     app_texts: {
       home_store_note_lead: {
-        ru: 'Вы можете потратить эти баллы в супермаркете, по адресу: ',
-        kk: 'Бұл ұпайларды супермаркетте келесі мекенжай бойынша жұмсай аласыз: ',
+        ru: 'Вы можете потратить эти бонусы в супермаркете, по адресу: ',
+        kk: 'Бұл бонустарды супермаркетте келесі мекенжай бойынша жұмсай аласыз: ',
       },
       balance_delay_note: null,
     },
@@ -198,50 +198,70 @@ describe('Home screen header and notes', () => {
     screen.unmount();
   });
 
-  it('shows home_store_note_lead and store addresses on the home screen in Russian and matches specified texts', async () => {
+  // The pink address plate was removed from the home screen (owner decision 2026-11-10). Addresses, maps and distances live in the
+  // stores section of the status screen, which the "where can I spend" link on Home opens.
+  const waitForStoresLink = (screen: ReturnType<typeof mountWith>) => waitFor(() => {
+    if (screen.queryByTestId('where-to-spend-link') === null) throw new Error('not yet: the stores link');
+  });
+
+  it('does not show the store addresses on the home screen in Russian (no plate, no legacy lead), the stores link stays', async () => {
     serve(home);
     const screen = mountWith(<Home />);
-    await waitFor(() => {
-      expect(screen.getByText(mockAppContent.app_texts.home_store_note_lead!.ru!, { exact: false })).toBeTruthy();
-      expect(screen.getByText(mockAppContent.stores[0]!.address_ru)).toBeTruthy();
-    });
+    await waitForStoresLink(screen);
+    expect(screen.queryByTestId('store-block')).toBeNull();
+    expect(screen.queryByText(mockAppContent.stores[0]!.address_ru)).toBeNull();
+    expect(screen.queryByText(mockAppContent.app_texts.home_store_note_lead!.ru!, { exact: false })).toBeNull();
     expect(screen.queryByText(ru.balanceDelayNote)).toBeNull();
+    expect(screen.getByText(ru.whereToSpendBonuses)).toBeTruthy();
     screen.unmount();
   });
 
-  it('shows home_store_note_lead and store addresses in Kazakh when language is kz', async () => {
+  it('does not show the store addresses on the home screen in Kazakh either, the stores link stays', async () => {
     serve({ ...home, '/me/profile': { ...profile, language: 'kz' } });
     const screen = mountWith(<Home />, 'kz');
-    await waitFor(() => {
-      expect(screen.getByText(mockAppContent.app_texts.home_store_note_lead!.kk!, { exact: false })).toBeTruthy();
-      expect(screen.getByText(mockAppContent.stores[0]!.address_kk)).toBeTruthy();
-    });
+    await waitForStoresLink(screen);
+    expect(screen.queryByTestId('store-block')).toBeNull();
+    expect(screen.queryByText(mockAppContent.stores[0]!.address_kk)).toBeNull();
+    expect(screen.queryByText(mockAppContent.app_texts.home_store_note_lead!.kk!, { exact: false })).toBeNull();
     expect(screen.queryByText(kz.balanceDelayNote)).toBeNull();
+    expect(screen.getByText(kz.whereToSpendBonuses)).toBeTruthy();
     screen.unmount();
   });
 
-  it('tapping store link calls Linking.openURL with map URL', async () => {
+  it('tapping the stores link opens the stores section of the status screen', async () => {
     serve(home);
-    const openUrlSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
     const screen = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByTestId('store-link-store-1')).toBeTruthy());
-    const storeLink = screen.getByTestId('store-link-store-1');
-    fireEvent.press(storeLink);
+    await waitForStoresLink(screen);
+    fireEvent.press(screen.getByTestId('where-to-spend-link'));
+    expect(mockRouterPush).toHaveBeenCalledWith({ pathname: '/status', params: { section: 'stores', at: expect.any(String) } });
+    screen.unmount();
+  });
+
+  it('the stores section shows the address, and tapping the store opens its map URL', async () => {
+    serve({ ...home, '/me/badges': { promotions_new: false, notifications_unread: 0 } });
+    const openUrlSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
+    const screen = mountWith(<StatusScreen />);
+    await waitFor(() => {
+      if (screen.queryByTestId('status-store-item-store-1') === null) throw new Error('not yet: the store item');
+    });
+    expect(screen.getByText(mockAppContent.stores[0]!.address_ru)).toBeTruthy();
+    fireEvent.press(screen.getByTestId('status-store-item-store-1'));
     expect(openUrlSpy).toHaveBeenCalledWith('https://maps.example.com/firm/1');
     openUrlSpy.mockRestore();
     screen.unmount();
   });
 
-  it('does not crash and shows Alert message if openURL rejects', async () => {
-    serve(home);
+  it('does not crash and shows an Alert message if the map cannot be opened from the stores section', async () => {
+    serve({ ...home, '/me/badges': { promotions_new: false, notifications_unread: 0 } });
     const openUrlSpy = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('Cannot open URL'));
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    const screen = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByTestId('store-link-store-1')).toBeTruthy());
-    const storeLink = screen.getByTestId('store-link-store-1');
-    fireEvent.press(storeLink);
+    const screen = mountWith(<StatusScreen />);
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith(ru.app, errorMessages.UNKNOWN_ERROR);
+      if (screen.queryByTestId('status-store-item-store-1') === null) throw new Error('not yet: the store item');
+    });
+    fireEvent.press(screen.getByTestId('status-store-item-store-1'));
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(ru.app, ru.mapOpenFailed);
     });
     openUrlSpy.mockRestore();
     alertSpy.mockRestore();
@@ -285,12 +305,13 @@ describe('Profile screen links', () => {
     '/me/cards': [card],
   };
 
-  it('renders accrualHistory, but does NOT render myCards or logout', async () => {
+  it('renders accrualHistory and the visible "Выход из аккаунта" row, but does NOT render myCards', async () => {
     serve(profileRoutes);
     const screen = mountWith(<ProfileScreen />);
     await waitFor(() => expect(screen.getByText(ru.accrualHistory)).toBeTruthy());
     expect(screen.queryByText(ru.myCards)).toBeNull();
-    expect(screen.queryByText(ru.logout)).toBeNull();
+    expect(screen.getByText(ru.logoutAccount)).toBeTruthy();
+    expect(ru.logoutAccount).toBe('Выход из аккаунта');
     screen.unmount();
   });
 });

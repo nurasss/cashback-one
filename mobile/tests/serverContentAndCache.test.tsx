@@ -55,7 +55,7 @@ const sampleContent: AppContent = {
     { id: 's1', title_ru: 'Магазин 1', title_kk: '1-дүкен', address_ru: 'ул. Абая, 1', address_kk: 'Абай к-сі, 1', map_url: null, sort_order: 1 },
   ],
   app_texts: {
-    home_store_note_lead: { ru: 'Потратить баллы: ', kk: 'Ұпайларды жұмсау: ' },
+    home_store_note_lead: { ru: 'Потратить бонусы: ', kk: 'Бонустарды жұмсау: ' },
     balance_delay_note: { ru: 'Серверный текст задержки', kk: 'Кідіріс туралы серверлік мәтін' },
   },
   updated_at: '2026-11-04T12:00:00Z',

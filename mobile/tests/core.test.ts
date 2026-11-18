@@ -2,7 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import { tokenStore, deviceId } from '../src/storage/secure';
 import { ApiClient } from '../src/api/client';
 import { normalizeApiError } from '../src/api/errors';
-import { isBarcode, decimalText, transactionLabel, pointsText, amountText, phoneText, phoneInputDigits, phoneInputText, phoneToApi, birthDateToApi, birthDateToUi, birthDateInputText, isAdultBirthDate, initials } from '../src/utils/format';
+import { isBarcode, decimalText, transactionLabel, pointsText, amountText, phoneText, phoneInputDigits, phoneInputText, phoneToApi, birthDateToApi, birthDateToUi, birthDateEdit, birthDateInputText, birthDateProblem, isAdultBirthDate, initials } from '../src/utils/format';
 import { translate } from '../src/i18n';
 import { isQrToken } from '../src/features/DynamicQr';
 const tokens = { access_token: 'a', refresh_token: 'r', token_type: 'bearer', expires_in: 900 };
@@ -44,9 +44,15 @@ it('malformed SecureStore JSON is deleted without retaining its contents', async
   jest.mocked(SecureStore.getItemAsync).mockResolvedValue('invalid-json'); expect(await tokenStore.read()).toBeNull(); expect(SecureStore.deleteItemAsync).toHaveBeenCalled();
 });
 
-it('points always show two decimals without rounding up', () => {
-  expect(pointsText('0')).toBe('0,00'); expect(pointsText('1500.5000')).toBe('1 500,50'); expect(pointsText('99.9999')).toBe('99,99');
-  expect(pointsText(null)).toBe('0,00'); expect(amountText('350000.0000')).toBe('350 000');
+it('points truncate decimals to zero and avoid -0 for remainders less than 1', () => {
+  expect(pointsText('0')).toBe('0');
+  expect(pointsText('0.99')).toBe('0');
+  expect(pointsText('-0.99')).toBe('0');
+  expect(pointsText('1234.56')).toBe('1 234');
+  expect(pointsText('-1234.56')).toBe('-1 234');
+  expect(pointsText('99999999999999999999.88')).toBe('99 999 999 999 999 999 999');
+  expect(pointsText(null)).toBe('0');
+  expect(amountText('350000.0000')).toBe('350 000');
 });
 it('formats Kazakhstan phone like the design', () => { expect(phoneText('+77058344326')).toBe('+7 705 834 43 26'); expect(phoneText('+4915112345678')).toBe('+4915112345678'); });
 it('converts birth date between UI and API formats and rejects impossible dates', () => {
@@ -56,7 +62,7 @@ it('converts birth date between UI and API formats and rejects impossible dates'
 });
 it('Kazakh dictionary interpolates and covers every key', () => {
   expect(translate('kz', 'tabNotifications')).toBe('Хабарламалар');
-  expect(translate('ru', 'dontMiss', { percent: '12' })).toBe('Не упустите до 12% баллов');
+  expect(translate('ru', 'dontMiss', { percent: '12' })).toBe('Не упустите до 12% бонусов');
   expect(translate('kz', 'untilStatus', { level: 2 })).toContain('2');
 });
 it('only server-signed dynamic QR tokens are rendered', () => {
@@ -127,4 +133,92 @@ it('birthDateInputText formats mask on typing and erasing, isAdultBirthDate test
   expect(isAdultBirthDate('29.02.2004', feb28_2022)).toBe(false);
   expect(isAdultBirthDate('29.02.2004', mar01_2022)).toBe(true);
   expect(isAdultBirthDate('29.02.2004', feb29_2024)).toBe(true);
+});
+
+it('birthDateProblem: invalid / implausible / under18 / acceptable (the 18+ rule is unchanged)', () => {
+  const today = new Date(2026, 10, 11); // 11 Nov 2026
+  expect(birthDateProblem('', today)).toBeNull();
+  expect(birthDateProblem('   ', today)).toBeNull();
+  expect(birthDateProblem('15.01.1990', today)).toBeNull();
+  expect(birthDateProblem('11.11.2008', today)).toBeNull();       // exactly 18 today
+  expect(birthDateProblem('12.11.2008', today)).toBe('under18');   // one day short
+  expect(birthDateProblem('01.01.2020', today)).toBe('under18');
+  expect(birthDateProblem('31.02.1990', today)).toBe('invalid');
+  expect(birthDateProblem('15.13.1990', today)).toBe('invalid');
+  expect(birthDateProblem('1.1.1990', today)).toBe('invalid');     // not DD.MM.YYYY
+  expect(birthDateProblem('15.01.90', today)).toBe('invalid');     // two-digit year
+  expect(birthDateProblem('15.01.19900', today)).toBe('invalid');  // five-digit year
+  expect(birthDateProblem('15.01.0099', today)).toBe('implausible');
+  expect(birthDateProblem('31.12.1899', today)).toBe('implausible');
+  expect(birthDateProblem('12.11.2026', today)).toBe('implausible'); // tomorrow
+  expect(birthDateProblem('01.01.2030', today)).toBe('implausible');
+  expect(birthDateProblem('29.02.2000', today)).toBeNull();
+  expect(birthDateProblem('29.02.1900', today)).toBe('invalid');   // 1900 is not a leap year
+});
+
+it('birthDateInputText reads a pasted date in common layouts and never keeps a fifth year digit', () => {
+  expect(birthDateInputText('1990-01-15')).toBe('15.01.1990');
+  expect(birthDateInputText('15/01/1990')).toBe('15.01.1990');
+  expect(birthDateInputText('5.1.1990')).toBe('05.01.1990');
+  expect(birthDateInputText('Дата: 15.01.1990 г.')).toBe('15.01.1990');
+  expect(birthDateInputText('15.01.19905')).toBe('15.01.1990');
+  expect(birthDateInputText('150119901234')).toBe('15.01.1990');
+  expect(birthDateInputText(`${'9'.repeat(5000)}`)).toBe('99.99.9999');
+  expect(birthDateInputText('')).toBe('');
+});
+
+describe('birthDateEdit: editing the current value is separate from pasting a date', () => {
+  // [previous, what the input reports after the change, what must be shown]
+  it.each([
+    // typing at the end builds the mask
+    ['', '1', '1'], ['1', '15', '15'], ['15', '150', '15.0'], ['15.0', '15.01', '15.01'], ['15.01', '15.011', '15.01.1'],
+    ['15.01.1', '15.01.19', '15.01.19'], ['15.01.199', '15.01.1990', '15.01.1990'],
+    // Backspace / Delete of a digit in the middle changes only that digit: nothing is padded, shifted or re-masked
+    ['15.01.1990', '1.01.1990', '1.01.1990'],       // a day digit
+    ['15.01.1990', '5.01.1990', '5.01.1990'],
+    ['15.01.1990', '15.0.1990', '15.0.1990'],       // a month digit (the old behaviour padded this to 15.00.1990)
+    ['15.01.1990', '15.1.1990', '15.1.1990'],
+    ['15.01.1990', '15.01.190', '15.01.190'],       // a year digit
+    ['15.01.1990', '15.01.199', '15.01.199'],
+    // retyping the digit puts it back
+    ['1.01.1990', '15.01.1990', '15.01.1990'],
+    ['15.0.1990', '15.01.1990', '15.01.1990'],
+    ['15.01.190', '15.01.1990', '15.01.1990'],
+    // Backspace on a mask dot erases nothing
+    ['15.01.1990', '1501.1990', '15.01.1990'],
+    ['15.01.1990', '15.011990', '15.01.1990'],
+    // selecting a part and typing one character replaces just that part
+    ['15.01.1990', '15.1.1990', '15.1.1990'],
+    ['15.01.1990', '15.01.2', '15.01.2'],
+    ['15.01.1990', '3', '3'],
+    // clearing
+    ['15.01.1990', '', ''], ['15.0', '', ''],
+    // a digit that would make a part too long is not accepted: the year keeps four digits
+    ['15.01.1990', '15.01.19905', '15.01.1990'],
+    ['15.01.1990', '15.01.19990', '15.01.1990'],
+    ['15.01.1990', '151.01.1990', '15.01.1990'],
+    ['15.01.1990', '15.011.1990', '15.01.1990'],
+    ['15.01.1990', '15.01.1990.', '15.01.1990'],
+    // letters and other characters are ignored
+    ['15', '15a', '15'],
+  ])('%j -> %j shows %j', (previous, next, expected) => {
+    expect(birthDateEdit(previous, next)).toBe(expected);
+  });
+
+  it.each([
+    // a paste of a complete date: ISO and DD.MM.YYYY (also over the existing value), other layouts
+    ['', '1990-01-15', '15.01.1990'],
+    ['', '15.01.1990', '15.01.1990'],
+    ['15.01.1990', '20.02.2001', '20.02.2001'],
+    ['15.01.1990', '2001-02-20', '20.02.2001'],
+    ['', '15/01/1990', '15.01.1990'],
+    ['', '5.1.1990', '05.01.1990'],
+    ['', 'Дата: 15.01.1990 г.', '15.01.1990'],
+    // digits only, or a longer row of digits: the mask keeps exactly four year digits
+    ['', '15011990', '15.01.1990'],
+    ['', '15.01.19905', '15.01.1990'],
+    ['', '15011990123456', '15.01.1990'],
+  ])('paste over %j: %j becomes %j', (previous, pasted, expected) => {
+    expect(birthDateEdit(previous, pasted)).toBe(expected);
+  });
 });

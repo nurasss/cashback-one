@@ -535,7 +535,7 @@ async def test_pos_code_push_notification_hidden_after_5_minutes(
     body = items2[0]["body"]
     assert "7890" not in body
     assert "0" not in body
-    assert "0 баллов" not in body
+    assert "0 бонусов" not in body
     assert "Код для списания в «Магазин Керемет» больше не действует." == body
 
 

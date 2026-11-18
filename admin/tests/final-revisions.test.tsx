@@ -105,11 +105,12 @@ describe('Final Revisions (Points 5–14)', () => {
       expect(adminKk.statuses.fieldPriority).toBe('Басымдық (сан неғұрлым үлкен болса, басымдық соғұрлым жоғары)');
     });
 
-    it('audit column headers and labels indicate Astana time and human actor', () => {
+    // Draft AuditPage behaviour, not in production 18.11; the draft and these checks live on wip/admin-audit-splash-drafts.
+    it.skip('audit column headers and labels indicate Astana time and account', () => {
       expect(adminRu.audit.colDateTime).toBe('ДАТА И ВРЕМЯ (АСТАНА)');
-      expect(adminRu.audit.colActor).toBe('КТО ВЫПОЛНИЛ');
+      expect(adminRu.audit.colActor).toBe('УЧЁТНАЯ ЗАПИСЬ');
       expect(adminKk.audit.colDateTime).toBe('КҮНІ МЕН УАҚЫТЫ (АСТАНА)');
-      expect(adminKk.audit.colActor).toBe('КІМ ОРЫНДАДЫ');
+      expect(adminKk.audit.colActor).toBe('ТІРКЕЛГІ ЖАЗБАСЫ');
     });
 
     it('nav contains statuses for both manager and superadmin', () => {

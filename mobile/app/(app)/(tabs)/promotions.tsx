@@ -37,7 +37,7 @@ export default function PromotionsScreen() {
   return <SafeAreaView edges={['top']} style={styles.screen}>
     <ScreenHeader title={t('promotions')} />
     <ScrollView contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16, paddingTop: 0 }]}
-      refreshControl={<RefreshControl refreshing={promotions.isRefetching} onRefresh={() => { void promotions.refetch(); }} tintColor={colors.primary} />}>
+      refreshControl={<RefreshControl refreshing={promotions.isRefetching} onRefresh={() => { void promotions.refetch(); }} tintColor={colors.primaryText} />}>
       {promotions.isPending && offers.length === 0 ? <Loading /> : promotions.isError && offers.length === 0 ? <ErrorNotice error={promotions.error} retry={() => { void promotions.refetch(); }} /> :
         offers.length > 0 ? (
           <View testID="server-promotion-cards" style={local.grid}>

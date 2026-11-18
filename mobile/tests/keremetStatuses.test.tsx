@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -45,8 +45,8 @@ function tierFor(spend: string | null, overrides: Partial<Tier> = {}): Tier {
 }
 
 describe('catalog and image mapping', () => {
-  it('has the three owner-confirmed statuses with non-overlapping thresholds, in order', () => {
-    expect(keremetStatuses.periodMonths).toBe(6);
+  it('has the three owner-confirmed statuses with non-overlapping thresholds, in order, and no periodMonths rule', () => {
+    expect('periodMonths' in keremetStatuses).toBe(false);
     expect(keremetStatuses.levels.map(l => [l.level, l.key, l.name, l.threshold, l.percent])).toEqual([
       [1, 'occasional', 'Нет-нет заглядывает', 0, 2],
       [2, 'expert', 'Продуктовый эксперт', 100000, 3],
@@ -166,38 +166,45 @@ beforeEach(() => { mockRequest.mockReset(); mockPush.mockReset(); process.env.EX
 afterAll(() => { if (originalClient === undefined) delete process.env.EXPO_PUBLIC_CLIENT; else process.env.EXPO_PUBLIC_CLIENT = originalClient; keremetStatuses.turnoverConfirmed = false; });
 
 describe('Keremet status screen', () => {
-  it('while the data is unconfirmed: balance stays, no made-up level, "data unavailable", conditions are in the sheet', async () => {
+  it('while the data is unconfirmed: shows Keremet minimum tier and percent without fake turnover or progress; conditions stay in sheet', async () => {
     serve([card(tierFor('0'))]);
     mount(<StatusRoute />);
-    expect(await screen.findByTestId('status-unavailable')).toBeTruthy();
-    expect(screen.getAllByText(ru.statusUnavailable).length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByTestId('current-status-name')).toBeNull();
-    expect(screen.queryByText('1')).toBeNull(); // no "level 1" for everybody
+    expect((await screen.findByTestId('current-status-name')).props.children).toBe('Нет-нет заглядывает');
+    expect((screen.getByTestId('current-status-percent')).props.children.join('')).toBe('2%');
+    expect(screen.getAllByTestId('status-art-occasional').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('status-unavailable')).toBeNull();
+    expect(screen.queryByText(/Сумма покупок за всё время/)).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByText(/до статуса/)).toBeNull();
     expect(screen.queryByText(ru.maxStatus)).toBeNull();
     fireEvent.press(screen.getByRole('button', { name: ru.howToRaise }));
     for (const level of keremetStatuses.levels) {
-      expect(screen.getByTestId(`status-row-${level.key}`)).toBeTruthy();
-      expect(screen.getByLabelText(level.name)).toBeTruthy();
+      const row = screen.getByTestId(`status-row-${level.key}`);
+      expect(row).toBeTruthy();
+      expect(row.props.accessibilityState).toEqual({ selected: false });
+      expect(within(row).getByLabelText(level.name)).toBeTruthy();
     }
     expect(screen.getByText('до 100 000 ₸')).toBeTruthy();
     expect(screen.getByText('от 100 000 ₸ до 200 000 ₸')).toBeTruthy();
     expect(screen.getByText('от 200 000 ₸')).toBeTruthy();
-    expect(screen.getByText('2%')).toBeTruthy();
+    expect(screen.getAllByText('2%').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('3%')).toBeTruthy();
     expect(screen.getByText('4%')).toBeTruthy();
-    expect(screen.getAllByText(ru.statusPeriodNote).length).toBeGreaterThan(0);
-    // No estimate of points while the status is unknown.
-    expect(screen.queryByLabelText(ru.calcLabel)).toBeNull();
+    expect(screen.getAllByText(ru.statusLifetimeNote).length).toBeGreaterThan(0);
+    // No bonus calculator at all; an unknown status is not replaced by zero turnover.
+    expect(screen.queryByLabelText('Сумма чека')).toBeNull();
+    expect(screen.queryByText(/Придёт примерно/)).toBeNull();
   });
 
-  it('with confirmed data: current name and picture, period-labelled turnover, progress to the next named status', async () => {
+  it('with confirmed data: current name and picture, lifetime turnover, progress to the next named status', async () => {
     keremetStatuses.turnoverConfirmed = true;
     serve([card(tierFor('120000'))]);
     mount(<StatusRoute />);
     expect((await screen.findByTestId('current-status-name')).props.children).toBe('Продуктовый эксперт');
+    expect((screen.getByTestId('current-status-percent')).props.children.join('')).toBe('3%');
     expect(screen.getAllByTestId('status-art-expert').length).toBeGreaterThan(0);
     expect(screen.queryByTestId('status-art-boss')).toBeNull();
-    expect(screen.getByText('Покупки за последние 6 месяцев: 120 000 ₸')).toBeTruthy();
+    expect(screen.getByText('Сумма покупок за всё время: 120 000 ₸')).toBeTruthy();
     expect(screen.getByText('ещё 80 000 ₸')).toBeTruthy();
     expect(screen.getByText('до статуса Шоппинг-босс')).toBeTruthy();
     expect(screen.queryByTestId('status-unavailable')).toBeNull();
@@ -212,13 +219,16 @@ describe('Keremet status screen', () => {
     expect(screen.getAllByTestId('status-art-boss').length).toBeGreaterThan(0);
   });
 
-  it('confirmed period but unknown turnover (null): unavailable, not level 1', async () => {
+  it('confirmed period but unknown turnover (null): falls back to minimum tier display without fake 0 turnover or progress', async () => {
     keremetStatuses.turnoverConfirmed = true;
     serve([card(tierFor(null))]);
     mount(<StatusRoute />);
-    expect(await screen.findByTestId('status-unavailable')).toBeTruthy();
-    expect(screen.queryByTestId('current-status-name')).toBeNull();
-    expect(screen.queryByTestId('status-art-occasional')).toBeNull();
+    expect((await screen.findByTestId('current-status-name')).props.children).toBe('Нет-нет заглядывает');
+    expect((screen.getByTestId('current-status-percent')).props.children.join('')).toBe('2%');
+    expect(screen.getAllByTestId('status-art-occasional').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('status-unavailable')).toBeNull();
+    expect(screen.queryByText(/Сумма покупок за всё время/)).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
   });
 
   it('a user without a card sees the conditions, but no current status, balance or QR', async () => {
@@ -236,13 +246,15 @@ describe('Keremet status screen', () => {
   it('Kazakh: conditions and labels are translated, the brand names stay as they are', async () => {
     serve([card(tierFor('0'))]);
     mount(<StatusRoute />, { language: 'kz' });
-    fireEvent.press(await screen.findByRole('button', { name: kz.howToRaise }));
+    expect((await screen.findByTestId('current-status-name')).props.children).toBe('Нет-нет заглядывает');
+    expect((screen.getByTestId('current-status-percent')).props.children.join('')).toBe('2%');
+    expect(screen.queryByTestId('status-unavailable')).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: kz.howToRaise }));
     expect(screen.getByText('100 000 ₸ дейін')).toBeTruthy();
     expect(screen.getByText('100 000 ₸ бастап 200 000 ₸ дейін')).toBeTruthy();
     expect(screen.getByText('200 000 ₸ бастап')).toBeTruthy();
-    expect(screen.getAllByText(kz.statusPeriodNote).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(kz.statusUnavailable).length).toBeGreaterThan(0);
-    for (const level of keremetStatuses.levels) expect(screen.getByText(level.name)).toBeTruthy();
+    expect(screen.getAllByText(kz.statusLifetimeNote).length).toBeGreaterThan(0);
+    for (const level of keremetStatuses.levels) expect(screen.getAllByText(level.name).length).toBeGreaterThan(0);
   });
 
   it('the pictures are never tinted or inverted, in either theme', async () => {
@@ -259,12 +271,14 @@ describe('Keremet status screen', () => {
 });
 
 describe('Keremet home', () => {
-  it('with unconfirmed data the status card says "unavailable" and no "up to N%" promise is shown', async () => {
+  it('with unconfirmed data the status card shows the minimum tier and its percent without an "up to N%" promise', async () => {
     serve([card(tierFor('0'))]);
     mount(<Home />);
-    expect(await screen.findByTestId('home-status-unavailable')).toBeTruthy();
+    expect((await screen.findByTestId('home-status-name')).props.children).toBe('Нет-нет заглядывает');
+    expect(screen.getByTestId('home-status-percent').props.children).toBe('Кешбэк 2%');
+    expect(screen.getAllByTestId('status-art-occasional').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('home-status-unavailable')).toBeNull();
     expect(screen.queryByText(/Не упустите/)).toBeNull();
-    expect(screen.queryByTestId('home-status-name')).toBeNull();
   });
 
   it('with confirmed data the card shows the name and picture, consistent with the status screen, and the highest percent of the catalog', async () => {
@@ -273,7 +287,7 @@ describe('Keremet home', () => {
     mount(<Home />);
     expect((await screen.findByTestId('home-status-name')).props.children).toBe('Продуктовый эксперт');
     expect(screen.getAllByTestId('status-art-expert').length).toBeGreaterThan(0);
-    expect(screen.getByText('Не упустите до 4% баллов')).toBeTruthy();
+    expect(screen.getByText('Не упустите до 4% бонусов')).toBeTruthy();
   });
 
   it('a user without a card gets a small entry to the conditions and no status card', async () => {
@@ -307,7 +321,7 @@ describe('other clients keep their server levels and artwork', () => {
     render(<I18nProvider initial="ru"><LevelsSheet tier={tier} onClose={jest.fn()} /></I18nProvider>);
     expect(screen.getByText('Статус 1')).toBeTruthy();
     expect(screen.getByText(ru.howToLead)).toBeTruthy();
-    expect(screen.getByLabelText(ru.calcLabel)).toBeTruthy();
+    expect(screen.queryByLabelText('Сумма чека')).toBeNull();
   });
 
   it('on the general app the home status card still shows the server tier number', async () => {
@@ -315,7 +329,7 @@ describe('other clients keep their server levels and artwork', () => {
     serve([card(tier)]);
     mount(<Home />);
     await waitFor(() => expect(screen.getByText('2')).toBeTruthy());
-    expect(screen.getByText('Не упустите до 12% баллов')).toBeTruthy();
+    expect(screen.getByText('Не упустите до 12% бонусов')).toBeTruthy();
     expect(screen.queryByTestId('home-status-unavailable')).toBeNull();
   });
 });

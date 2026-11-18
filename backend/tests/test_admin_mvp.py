@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from http.cookies import SimpleCookie
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_deps import AdminScope
 from app.core.admin_types import AdminRole
+from app.core.config import settings
 from app.core.errors import AppError
 from app.core.security import create_access_token
 from app.db.session import get_session
@@ -332,12 +333,15 @@ async def test_bearer_admin_access_authenticates_current_database_role(
     db_session: AsyncSession, admin_client: AsyncClient
 ) -> None:
     business = await make_business(db_session, "Managed Store")
+    business.logo_url = "https://cashback-qr.poscenter.kz/media/logos/fixture.webp"
     manager = await make_admin(db_session, "business_manager", business.id, "manager.identity")
     headers = await authenticated_headers(db_session, manager)
     response = await admin_client.get("/admin/me", headers=headers)
     assert response.status_code == 200
     assert response.json()["admin"]["role"] == "business_manager"
     assert response.json()["admin"]["business"]["name"] == "Managed Store"
+    assert response.json()["admin"]["business"]["logo_url"] == business.logo_url
+    assert response.json()["admin_max_stats_period_days"] == settings.admin_max_stats_period_days
     assert "password_hash" not in response.text
     assert "refresh_token" not in response.text
 
@@ -381,8 +385,6 @@ async def test_user_detail_only_returns_cards_scoped_to_manager_business(
 
 @pytest.mark.asyncio
 async def test_dashboard_aggregates_and_periods_are_tenant_scoped(db_session: AsyncSession) -> None:
-    from datetime import timedelta
-
     a = await make_business(db_session, "Dashboard A")
     b = await make_business(db_session, "Dashboard B")
     now = datetime.now(UTC).replace(microsecond=0)
@@ -451,6 +453,53 @@ async def test_dashboard_aggregates_and_periods_are_tenant_scoped(db_session: As
     assert aggregate.unblocked_cards == 1
     assert aggregate.transactions == 2
     assert aggregate.agents.online == aggregate.agents.stale == 1
+
+
+@pytest.mark.asyncio
+async def test_dashboard_astana_day_includes_operation_at_2030_utc_on_next_local_day(
+    db_session: AsyncSession,
+) -> None:
+    business = await make_business(db_session, "Astana Boundary")
+    occurred_at = datetime(2026, 11, 11, 20, 30, tzinfo=UTC)
+    user = User(phone="+77001234003", language="ru", created_at=occurred_at)
+    db_session.add(user)
+    await db_session.flush()
+    card = await make_card(db_session, business.id, "0000000000003", user.phone)
+    db_session.add_all([
+        UserCard(user_id=user.id, card_id=card.id, bound_at=occurred_at, bind_method="manual_barcode"),
+        Transaction(
+            card_id=card.id,
+            external_id="astana-boundary-2030-utc",
+            type="accrual",
+            amount=Decimal("1.0000"),
+            balance_after=Decimal("1.0000"),
+            occurred_at=occurred_at,
+        ),
+    ])
+    manager = await make_admin(db_session, "business_manager", business.id, "manager.astana-boundary")
+    await db_session.flush()
+
+    astana = timezone(timedelta(hours=5))
+    local_day = await dashboard(
+        db_session,
+        AdminScope(manager.id, manager.role, manager.business_id),
+        None,
+        datetime(2026, 11, 12, 0, 0, tzinfo=astana),
+        datetime(2026, 11, 12, 23, 59, 59, tzinfo=astana),
+    )
+    prior_day = await dashboard(
+        db_session,
+        AdminScope(manager.id, manager.role, manager.business_id),
+        None,
+        datetime(2026, 11, 11, 0, 0, tzinfo=astana),
+        datetime(2026, 11, 11, 23, 59, 59, tzinfo=astana),
+    )
+
+    assert local_day.transactions == 1
+    assert local_day.period_days == 1
+    assert local_day.period_from == datetime(2026, 11, 11, 19, 0, tzinfo=UTC)
+    assert local_day.period_to == datetime(2026, 11, 12, 18, 59, 59, 999999, tzinfo=UTC)
+    assert prior_day.transactions == 0
 
 
 @pytest.mark.asyncio

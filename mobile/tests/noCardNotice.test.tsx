@@ -147,7 +147,7 @@ const sampleKeremetAppContent: AppContent = {
 };
 
 const mountWith = (element: ReactElement, initialLang: 'ru' | 'kz' = 'ru') => {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <I18nProvider initial={initialLang}>
@@ -196,8 +196,8 @@ describe('No card bind removed — Home, QR, Cards, Status', () => {
       });
       expect(screen.getByTestId('no-card-notice')).toBeTruthy();
 
-      // Balance defaults to 0,00
-      expect(screen.getByText('0,00')).toBeTruthy();
+      // Balance defaults to 0
+      expect(screen.getByText('0')).toBeTruthy();
 
       // Banners and offers from server are displayed normally
       await waitFor(() => {
@@ -251,7 +251,7 @@ describe('No card bind removed — Home, QR, Cards, Status', () => {
       const screen = mountWith(<Home />, 'ru');
 
       await waitFor(() => {
-        expect(screen.getAllByText('1 500,00').length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText('1 500').length).toBeGreaterThanOrEqual(1);
       });
       expect(screen.queryByTestId('no-card-notice')).toBeNull();
       expect(screen.queryByText('Карта с вашим номером телефона не найдена в базе магазина. Пожалуйста, обратитесь в магазин.')).toBeNull();
@@ -327,7 +327,7 @@ describe('No card bind removed — Home, QR, Cards, Status', () => {
   });
 
   describe('Keremet client without card', () => {
-    it('shows notice banner, keremet stores block, banners and offers', async () => {
+    it('shows notice banner, the stores link (no address plate), banners and offers', async () => {
       process.env.EXPO_PUBLIC_CLIENT = 'keremet';
       serve({
         '/me/cards': [],
@@ -343,11 +343,12 @@ describe('No card bind removed — Home, QR, Cards, Status', () => {
       });
       expect(screen.getByTestId('no-card-notice')).toBeTruthy();
 
-      // Stores block appears for keremet even without a card
+      // The stores link appears for keremet even without a card; the address plate is gone from Home (owner decision 2026-11-10)
       await waitFor(() => {
-        expect(screen.getByTestId('store-block')).toBeTruthy();
+        expect(screen.getByTestId('where-to-spend-link')).toBeTruthy();
       });
-      expect(screen.getByText(/ул\. Абая, 100/)).toBeTruthy();
+      expect(screen.queryByTestId('store-block')).toBeNull();
+      expect(screen.queryByText(/ул\. Абая, 100/)).toBeNull();
 
       // Offers and banners still visible
       await waitFor(() => {

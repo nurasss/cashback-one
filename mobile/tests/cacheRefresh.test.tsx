@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-
 import { render, waitFor, act, fireEvent } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 import Home from '../app/(app)/(tabs)/index';
+import StatusRoute from '../app/(app)/status';
 import { ApiError } from '../src/api/errors';
 import { usePromotions } from '../src/api/app';
 import { ActiveCardProvider } from '../src/features/activeCard';
@@ -291,6 +292,8 @@ describe('App Cache Refresh & Background Invalidation', () => {
     });
   });
 
+  // The store address used to be the visible sign of the cached app content on Home. The pink address plate was removed from Home
+  // (owner decision 2026-11-10), so these tests watch the same data where the addresses are shown: the stores section of the status screen.
   describe('2. App content cache refresh', () => {
     it('displays cached app content immediately, refetches in background, and replaces with server data', async () => {
       setCachedAppContent('test-user', 'b-1', cachedAppContent, '"etag-c-old"', Date.now() - 60000);
@@ -317,9 +320,9 @@ describe('App Cache Refresh & Background Invalidation', () => {
         return Promise.reject(new Error(`unexpected request ${path}`));
       });
 
-      const { screen } = mountScreen(<Home />);
+      const { screen } = mountScreen(<StatusRoute />);
 
-      // Cached store address is visible immediately once card is mounted
+      // Cached store address is visible immediately once the card is mounted (stores section of the status screen)
       await waitFor(() => {
         expect(screen.getByText('Старый адрес 1')).toBeTruthy();
       });
@@ -369,7 +372,7 @@ describe('App Cache Refresh & Background Invalidation', () => {
         return Promise.reject(new Error(`unexpected request ${path}`));
       });
 
-      const { screen } = mountScreen(<Home />);
+      const { screen } = mountScreen(<StatusRoute />);
 
       await waitFor(() => {
         expect(screen.getByText('Старый адрес 1')).toBeTruthy();
@@ -397,7 +400,7 @@ describe('App Cache Refresh & Background Invalidation', () => {
         return Promise.reject(new Error(`unexpected request ${path}`));
       });
 
-      const { screen } = mountScreen(<Home />);
+      const { screen } = mountScreen(<StatusRoute />);
 
       await waitFor(() => {
         expect(screen.getByText('Старый адрес 1')).toBeTruthy();

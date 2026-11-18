@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
-import { TextInput } from 'react-native';
+import { FlatList, TextInput } from 'react-native';
 import Home from '../app/(app)/(tabs)/index';
 import NotificationsScreen from '../app/(app)/(tabs)/notifications';
 import ProfileScreen from '../app/(app)/(tabs)/profile';
@@ -18,7 +18,9 @@ import type { Card, Profile } from '../src/types/api';
 const mockRequest = jest.fn();
 const mockAccept = jest.fn().mockResolvedValue(undefined);
 const mockPush = jest.fn();
-jest.mock('../src/auth/provider', () => ({ useSession: () => ({ api: { request: mockRequest }, session: { accept: mockAccept, logout: jest.fn() } }) }));
+const mockSession = { accept: mockAccept, logout: jest.fn(), registerOnInvalidate: () => () => undefined, registerBeforeLogout: () => () => undefined };
+const mockSessionValue = { api: { request: mockRequest }, session: mockSession, state: { status: 'authenticated' } };
+jest.mock('../src/auth/provider', () => ({ useSession: () => mockSessionValue }));
 jest.mock('../src/storage/secure', () => ({ deviceId: async () => 'installation-id' }));
 jest.mock('expo-router', () => {
   const React = jest.requireActual<typeof import('react')>('react');
@@ -110,8 +112,8 @@ it('home shows phone, balance, status, max cashback and hot offers', async () =>
   await waitFor(() => expect(screen.getByText('+7 705 834 43 26')).toBeTruthy());
   await waitFor(() => expect(screen.getByText(ru.hotOffers)).toBeTruthy());
   fireEvent(screen.getByTestId('banner-carousel'), 'layout', { nativeEvent: { layout: { width: 390, height: 200 } } });
-  expect(screen.getByText('Не упустите до 12% баллов')).toBeTruthy();
-  expect(screen.getAllByText('0,00').length).toBeGreaterThanOrEqual(2);
+  expect(screen.getByText('Не упустите до 12% бонусов')).toBeTruthy();
+  expect(screen.getAllByText('0').length).toBeGreaterThanOrEqual(2);
   await waitFor(() => expect(screen.getAllByLabelText('Выиграй авто').length).toBeGreaterThan(0));
   fireEvent.press(screen.getAllByLabelText('Выиграй авто')[0]!);
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/promotion/[id]', params: { id: 'b1' } });
@@ -124,14 +126,15 @@ it('home shows phone, balance, status, max cashback and hot offers', async () =>
   screen.unmount();
 });
 
-it('status screen shows progress to the next level and opens the levels calculator', async () => {
+it('status screen shows progress to the next level and opens the levels sheet without a calculator', async () => {
   const levels = [{ level: 1, name: null, threshold: '0', percent: '3' }, { level: 2, name: null, threshold: '500000', percent: '5' }];
   serve({ '/me/cards': [{ ...card, tier: { ...tier, levels } }] });
   const { screen } = mountWith(<StatusScreen />);
   await waitFor(() => expect(screen.getByText('ещё 350 000 ₸')).toBeTruthy());
   expect(screen.getByText('до статуса 2')).toBeTruthy();
   fireEvent.press(screen.getByRole('button', { name: ru.howToRaise }));
-  await waitFor(() => expect(screen.getByLabelText(ru.calcLabel)).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('Статус 2')).toBeTruthy());
+  expect(screen.queryByLabelText('Сумма чека')).toBeNull();
   screen.unmount();
 });
 
@@ -146,20 +149,64 @@ it('QR screen renders card barcode verbatim without requesting dynamic qr', asyn
 it('accrual history filters by type through the backend', async () => {
   serve({ '/me/cards/card-id/transactions': { items: [{ id: 't', external_id: 'e', type: 'accrual', amount: '1500.0000', balance_after: '1500.0000', occurred_at: '2026-10-01T00:00:00Z', receipt_ref: null, store: 'Shop 1' }], has_more: false, next_cursor: null }, '/me/cards': [card] });
   const { screen } = mountWith(<HistoryScreen />);
-  await waitFor(() => expect(screen.getByText('+1 500,00')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('+1 500')).toBeTruthy());
   expect(screen.queryByText('Shop 1')).toBeNull();
   fireEvent.press(screen.getByRole('button', { name: ru.filterAccrual }));
   await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/cards/card-id/transactions?limit=20&type=accrual', expect.anything()));
   screen.unmount();
 });
 
-it('notifications are marked read when the tab opens and badges refresh', async () => {
-  serve({ '/me/notifications/read': undefined, '/me/notifications': { items: [{ id: 'n', kind: 'accrual', title: 'Начислено 1 500 баллов', body: 'Shop', created_at: '2026-10-01T00:00:00Z', is_unread: true }], unread_count: 1 } });
+const viewed = (screen: { UNSAFE_getByType: (type: typeof FlatList) => { props: { onViewableItemsChanged: (info: unknown) => void; viewabilityConfig: unknown } } }, ids: string[]) =>
+  act(async () => { screen.UNSAFE_getByType(FlatList).props.onViewableItemsChanged({ viewableItems: ids.map((id, index) => ({ item: { id }, key: id, index, isViewable: true })), changed: [] }); });
+const markReadCalls = () => mockRequest.mock.calls.filter(call => String(call[0]).startsWith('/me/notifications/mark-read'));
+
+it('notifications: opening the tab marks nothing; the item that was really shown is marked by id, and the legacy read is never used', async () => {
+  serve({
+    '/me/notifications/mark-read': { read: ['n'], already_read: [], ignored: [], unread_count: 1 },
+    '/me/notifications': { items: [
+      { id: 'n', kind: 'accrual', title: 'Начислено 1 500 бонусов', body: 'Shop', created_at: '2026-10-01T00:00:00Z', is_unread: true },
+      { id: 'below', kind: 'broadcast', title: 'Ниже экрана', body: 'Shop', created_at: '2026-09-01T00:00:00Z', is_unread: true },
+    ], unread_count: 2 },
+  });
   const { screen, query } = mountWith(<NotificationsScreen />);
   const invalidate = jest.spyOn(query, 'invalidateQueries');
-  await waitFor(() => expect(screen.getByText('Начислено 1 500 баллов')).toBeTruthy());
-  await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/notifications/read', { method: 'POST', auth: true }));
+  await waitFor(() => expect(screen.getByText('Начислено 1 500 бонусов')).toBeTruthy());
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(markReadCalls()).toHaveLength(0);
+  await viewed(screen, ['n']);
+  await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/notifications/mark-read', expect.objectContaining({ method: 'POST', auth: true, body: { ids: ['n'] } })));
   await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['app', 'badges'] }));
+  expect(mockRequest.mock.calls.some(call => call[0] === '/me/notifications/read')).toBe(false);
+  expect(markReadCalls()).toHaveLength(1);
+  screen.unmount();
+});
+
+it('the list gives FlatList viewability settings (stable objects)', async () => {
+  serve({ '/me/notifications': { items: [], unread_count: 0 } });
+  const { screen } = mountWith(<NotificationsScreen />);
+  const first = screen.UNSAFE_getByType(FlatList).props;
+  expect(first.viewabilityConfig).toEqual({ viewAreaCoveragePercentThreshold: 20, minimumViewTime: 800 });
+  await waitFor(() => expect(mockRequest).toHaveBeenCalledWith('/me/notifications', expect.anything()));
+  expect(screen.UNSAFE_getByType(FlatList).props.onViewableItemsChanged).toBe(first.onViewableItemsChanged);
+  screen.unmount();
+});
+
+it('a seen notification stops being unread on screen: the dot disappears after the server confirms and the list is refetched; the unseen one keeps its dot', async () => {
+  let read = false;
+  mockRequest.mockImplementation((path: string) => {
+    if (path === '/me/notifications/mark-read') { read = true; return Promise.resolve({ read: ['n'], already_read: [], ignored: [], unread_count: 1 }); }
+    if (path === '/me/notifications') return Promise.resolve({ items: [
+      { id: 'n', kind: 'broadcast', title: 'Акция', body: 'Shop', created_at: '2026-10-01T00:00:00Z', is_unread: !read },
+      { id: 'u', kind: 'broadcast', title: 'Новая ниже', body: 'Shop', created_at: '2026-09-01T00:00:00Z', is_unread: true },
+    ], unread_count: read ? 1 : 2 });
+    return Promise.reject(new Error(`unexpected ${path}`));
+  });
+  const { screen } = mountWith(<NotificationsScreen />);
+  await waitFor(() => expect(screen.getByLabelText(`${ru.newBadge}. Акция. Shop`)).toBeTruthy());
+  await viewed(screen, ['n']);
+  await waitFor(() => expect(screen.getByLabelText('Акция. Shop')).toBeTruthy()); // no "new" prefix any more
+  expect(screen.getByLabelText(`${ru.newBadge}. Новая ниже. Shop`)).toBeTruthy();
+  expect(markReadCalls()).toHaveLength(1);
   screen.unmount();
 });
 

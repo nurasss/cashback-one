@@ -436,7 +436,7 @@ async def test_loyalty_tier_interval_overlap_and_image_scoping(
     )
     assert res_overlap_inf.status_code == 409
 
-    # 2. Overlap in DIFFERENT period (period 12) is ALLOWED (resolves by priority)
+    # 2. Lifetime turnover: a different (historical) period no longer separates overlapping ranges
     res_diff_period = await mutation_client.post(
         f"/admin/businesses/{biz1.id}/loyalty-tiers",
         headers=h1,
@@ -451,7 +451,7 @@ async def test_loyalty_tier_interval_overlap_and_image_scoping(
             "percent": 2.5,
         },
     )
-    assert res_diff_period.status_code == 201
+    assert res_diff_period.status_code == 409
 
     # 3. Same range in DIFFERENT business is ALLOWED
     res_diff_biz = await mutation_client.post(

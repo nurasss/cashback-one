@@ -2,9 +2,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { BusinessDetail, Card } from '../src/api/types';
+import type { AdminTransaction, AdminUserDetail, BusinessDetail, Card, CardDetail } from '../src/api/types';
 import { AdminProvider } from '../src/auth/provider';
-import { OperationsPage } from '../src/pages/OperationsPage';
+import { LocaleProvider } from '../src/i18n/LocaleContext';
+import { CardDetailPage, OperationsPage, UserDetailPage } from '../src/pages/OperationsPage';
 
 const access = { access_token: 'fixture-access', token_type: 'bearer', expires_in: 900 };
 const businessIdA = 'business-a-uuid';
@@ -116,16 +117,18 @@ it('immediately renders first page of all cards without requiring search input',
   // Verify leading zeros preserved
   expect(screen.getByText('0000000000001')).toBeInTheDocument();
   expect(screen.queryByText('0000000000025')).not.toBeInTheDocument();
-  await userEvent.setup().click(screen.getByRole('button', { name: 'Все (25)' }));
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Показать ещё' }));
   expect(screen.getByText('0000000000025')).toBeInTheDocument();
   expect(screen.getAllByText('Alpha Market').length).toBeGreaterThan(0);
 
-  // Verify table columns
-  expect(screen.getByText('КАРТА')).toBeInTheDocument();
+  // Verify combined card/client column and remaining columns
+  expect(screen.getByText('КАРТА / КЛИЕНТ')).toBeInTheDocument();
   expect(screen.getByText('БАЛАНС')).toBeInTheDocument();
   expect(screen.getByText('СТАТУС')).toBeInTheDocument();
-  expect(screen.getByText('КЛИЕНТ')).toBeInTheDocument();
   expect(screen.getByText('ОБНОВЛЕНА')).toBeInTheDocument();
+  expect(screen.queryByText('КЛИЕНТ')).not.toBeInTheDocument();
+  expect(screen.getAllByText('••••1122').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Не привязана').length).toBeGreaterThan(0);
 
   // Verify pagination status
   expect(screen.getByText('Страница 1')).toBeInTheDocument();
@@ -175,7 +178,7 @@ it('navigates next and previous pages properly with has_more handling', async ()
     expect(screen.getByText('0000000000001')).toBeInTheDocument();
   });
 
-  await user.click(screen.getByRole('button', { name: 'Все (25)' }));
+  await user.click(screen.getByRole('button', { name: 'Показать ещё' }));
   const nextBtn = screen.getByRole('button', { name: 'Далее' });
   expect(nextBtn).toBeEnabled();
 
@@ -244,8 +247,9 @@ it('supports search by barcode and provides clear reset back to general list', a
     expect(screen.getByText('0000000000001')).toBeInTheDocument();
   });
 
-  // Enter barcode in search input
-  const input = screen.getByLabelText('Номер карты');
+  // Unified search input (no separate tabs)
+  expect(screen.queryByRole('tablist')).toBeNull();
+  const input = screen.getByLabelText('Номер карты или телефон');
   await user.type(input, '0000000000777');
   const searchBtn = screen.getByRole('button', { name: 'Найти' });
   await user.click(searchBtn);
@@ -287,8 +291,8 @@ it('barcode search accepts 4-13 digit numbers and ignores out-of-range terms', a
       return json(200, { items: generalCards, limit: 25, offset: 0, has_more: false });
     }
     if (url.includes('/admin/cards/search') && method === 'POST') {
-      const body = JSON.parse(String(init?.body)) as { barcode?: string };
-      if (body.barcode === '0001') {
+      const body = JSON.parse(String(init?.body)) as { barcode?: string; phone?: string };
+      if (body.barcode === '0001' || body.barcode === '77001112233') {
         return json(200, { items: [searchedCard], limit: 25, offset: 0, has_more: false });
       }
     }
@@ -310,7 +314,7 @@ it('barcode search accepts 4-13 digit numbers and ignores out-of-range terms', a
     expect(screen.getByText('0000000000001')).toBeInTheDocument();
   });
 
-  const input = screen.getByLabelText('Номер карты');
+  const input = screen.getByLabelText('Номер карты или телефон');
   const searchBtn = screen.getByRole('button', { name: 'Найти' });
 
   // 3 digits: form must not be submitted
@@ -327,7 +331,7 @@ it('barcode search accepts 4-13 digit numbers and ignores out-of-range terms', a
   expect(searchCallsAfterLong).toBe(0);
   await user.clear(input);
 
-  // 4 digits with leading zeros: search request is issued with the raw string barcode
+  // 4 digits with leading zeros: search request is issued with unified barcode and phone
   await user.type(input, '0001');
   await user.click(searchBtn);
   await waitFor(() => {
@@ -335,8 +339,24 @@ it('barcode search accepts 4-13 digit numbers and ignores out-of-range terms', a
   });
   const searchBodies = fetchMock.mock.calls
     .filter(([url]) => String(url).includes('/admin/cards/search'))
-    .map(([, init]) => JSON.parse(String((init as RequestInit | undefined)?.body)) as { barcode?: string });
-  expect(searchBodies).toEqual([{ barcode: '0001' }]);
+    .map(([, init]) => JSON.parse(String((init as RequestInit | undefined)?.body)) as { barcode?: string; phone?: string });
+  expect(searchBodies).toEqual([{ barcode: '0001', phone: '0001' }]);
+
+  // Formatted phone number sends clean digits in barcode and raw phone
+  await user.clear(input);
+  await user.type(input, '+7 (700) 111-22-33');
+  await user.click(searchBtn);
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/admin/cards/search'))).toHaveLength(2);
+  });
+  const allBodies = fetchMock.mock.calls
+    .filter(([url]) => String(url).includes('/admin/cards/search'))
+    .map(([, init]) => JSON.parse(String((init as RequestInit | undefined)?.body)) as { barcode?: string; phone?: string });
+  expect(allBodies).toEqual([
+    { barcode: '0001', phone: '0001' },
+    { barcode: '77001112233', phone: '+7 (700) 111-22-33' },
+  ]);
+
 });
 
 it('switches business filter and re-fetches cards with offset reset', async () => {
@@ -426,3 +446,256 @@ it('handles empty state and error state correctly', async () => {
   });
   expect(screen.getByText('В базе пока нет карт для отображения.')).toBeInTheDocument();
 });
+
+it('shows phone_masked and full_name together in combined card/client column even when unbound', async () => {
+  vi.stubEnv('VITE_API_BASE_URL', 'https://admin.test');
+  vi.stubEnv('VITE_ALLOW_INSECURE_HTTP', '0');
+
+  const cards: Card[] = [
+    {
+      ...makeMockCard(10, businessIdA, 'Alpha Market'),
+      phone_masked: '••••4455',
+      full_name: 'Айгуль С.',
+      bind_method: null,
+      bound_at: null,
+    },
+    {
+      ...makeMockCard(11, businessIdA, 'Alpha Market'),
+      phone_masked: null,
+      full_name: null,
+      bind_method: null,
+      bound_at: null,
+    },
+  ];
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/admin/auth/refresh')) return json(200, access);
+      if (url.endsWith('/admin/me')) return json(200, adminResponse('business_manager'));
+      if (url.includes('/admin/cards?')) {
+        return json(200, { items: cards, limit: 25, offset: 0, has_more: false, total: 2 });
+      }
+      return json(404, { error: { code: 'ADMIN_RESOURCE_NOT_FOUND' } });
+    }),
+  );
+
+  render(
+    <AdminProvider>
+      <LocaleProvider initialLocale="ru">
+        <MemoryRouter initialEntries={['/operations']}>
+          <Routes>
+            <Route path="/operations" element={<OperationsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    </AdminProvider>,
+  );
+
+  expect(await screen.findByText('••••4455 · Айгуль С.')).toBeInTheDocument();
+  expect(screen.getByText('Не привязана')).toBeInTheDocument();
+});
+
+it.each(['ru', 'kk'] as const)(
+  'renders accrual and redemption transaction history with compact toggle and pagination on CardDetailPage (%s)',
+  async locale => {
+    const user = userEvent.setup();
+    vi.stubEnv('VITE_API_BASE_URL', 'https://admin.test');
+    vi.stubEnv('VITE_ALLOW_INSECURE_HTTP', '0');
+
+    const cardId = 'card-tx-1';
+    const cardDetail: CardDetail = {
+      id: cardId,
+      business_id: businessIdA,
+      business_name: 'Alpha Market',
+      barcode: '0000123456789',
+      phone_masked: '••••7788',
+      full_name: 'Тест Клиент',
+      owner_language: 'ru',
+      balance: '250.0000',
+      is_blocked: false,
+      updated_at: '2026-11-18T10:00:00Z',
+      bind_method: 'phone_auto',
+      bound_at: '2026-11-01T09:00:00Z',
+      hidden_at: null,
+    };
+
+    const page1Tx: AdminTransaction[] = Array.from({ length: 8 }, (_, idx) => ({
+      id: `tx-${idx + 1}`,
+      card_id: cardId,
+      barcode: cardDetail.barcode,
+      business_id: businessIdA,
+      business_name: 'Alpha Market',
+      type: idx === 1 ? 'redemption' : 'accrual',
+      amount: idx === 1 ? '50.0000' : `${150 + idx}.0000`,
+      balance_after: idx === 1 ? '100.0000' : `${250 + idx}.0000`,
+      occurred_at: `2026-11-${String(18 - idx).padStart(2, '0')}T10:00:00Z`,
+    }));
+
+    const page2Tx: AdminTransaction[] = [
+      {
+        id: 'tx-page2',
+        card_id: cardId,
+        barcode: cardDetail.barcode,
+        business_id: businessIdA,
+        business_name: 'Alpha Market',
+        type: 'redemption',
+        amount: '25.0000',
+        balance_after: '75.0000',
+        occurred_at: '2026-11-01T10:00:00Z',
+      },
+    ];
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/admin/auth/refresh')) return json(200, access);
+        if (url.endsWith('/admin/me')) return json(200, adminResponse('business_manager'));
+        if (url.includes(`/admin/cards/${cardId}/transactions?limit=25&offset=0`)) {
+          return json(200, { items: page1Tx, limit: 25, offset: 0, has_more: true, total: 26 });
+        }
+        if (url.includes(`/admin/cards/${cardId}/transactions?limit=25&offset=25`)) {
+          return json(200, { items: page2Tx, limit: 25, offset: 25, has_more: false, total: 26 });
+        }
+        if (url.endsWith(`/admin/cards/${cardId}`)) {
+          return json(200, cardDetail);
+        }
+        return json(404, { error: { code: 'ADMIN_RESOURCE_NOT_FOUND' } });
+      }),
+    );
+
+    render(
+      <AdminProvider>
+        <LocaleProvider initialLocale={locale}>
+          <MemoryRouter initialEntries={[`/admin/cards/${cardId}`]}>
+            <Routes>
+              <Route path="/admin/cards/:cardId" element={<CardDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>
+      </AdminProvider>,
+    );
+
+    const expectedTitle = locale === 'ru' ? 'История начислений и списаний' : 'Есептеулер мен шегерулер тарихы';
+    expect(await screen.findByText(expectedTitle)).toBeInTheDocument();
+    expect(await screen.findByText('+150')).toBeInTheDocument();
+    expect(screen.getByText('−50')).toBeInTheDocument();
+    expect(screen.getByText('100')).toBeInTheDocument();
+    expect(screen.getAllByText(locale === 'ru' ? 'Начисление' : 'Есептеу').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(locale === 'ru' ? 'Списание' : 'Шегеру').length).toBeGreaterThan(0);
+
+    // 8th row is collapsed initially until "Показать ещё" / "Тағы көрсету"
+    expect(screen.queryByText('+157')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: locale === 'ru' ? 'Показать ещё' : 'Тағы көрсету' }));
+    expect(screen.getByText('+157')).toBeInTheDocument();
+    expect(screen.getByText(locale === 'ru' ? 'Страница 1 из 2' : '1 / 2 бет')).toBeInTheDocument();
+    expect(screen.queryByText(locale === 'ru' ? 'Операции постранично' : 'Операциялар беттер бойынша')).not.toBeInTheDocument();
+
+    // Pagination Next -> Page 2
+    await user.click(screen.getByRole('button', { name: locale === 'ru' ? 'Далее' : 'Келесі' }));
+    expect(await screen.findByText('−25')).toBeInTheDocument();
+    expect(screen.getByText('75')).toBeInTheDocument();
+    expect(screen.getByText(locale === 'ru' ? 'Страница 2 из 2' : '2 / 2 бет')).toBeInTheDocument();
+  },
+);
+
+it.each(['ru', 'kk'] as const)(
+  'renders customer transaction history with card links on UserDetailPage (%s)',
+  async locale => {
+    vi.stubEnv('VITE_API_BASE_URL', 'https://admin.test');
+    vi.stubEnv('VITE_ALLOW_INSECURE_HTTP', '0');
+
+    const userId = 'user-tx-1';
+    const userDetail: AdminUserDetail = {
+      id: userId,
+      phone: '+77001112233',
+      language: locale,
+      created_at: '2026-10-01T00:00:00Z',
+      cards: {
+        items: [
+          {
+            ...makeMockCard(55, businessIdA, 'Alpha Market'),
+            phone_masked: '••••2233',
+            full_name: 'Марат Б.',
+          },
+        ],
+        limit: 25,
+        offset: 0,
+        has_more: false,
+      },
+    };
+
+    const userTx: AdminTransaction[] = [
+      {
+        id: 'utx-1',
+        card_id: 'card-uuid-55',
+        barcode: '0000000000055',
+        business_id: businessIdA,
+        business_name: 'Alpha Market',
+        type: 'accrual',
+        amount: '320.0000',
+        balance_after: '445.5000',
+        occurred_at: '2026-11-18T09:30:00Z',
+      },
+      {
+        id: 'utx-2',
+        card_id: 'card-uuid-55',
+        barcode: '0000000000055',
+        business_id: businessIdA,
+        business_name: 'Alpha Market',
+        type: 'redemption',
+        amount: '100.0000',
+        balance_after: '345.5000',
+        occurred_at: '2026-11-17T14:00:00Z',
+      },
+    ];
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/admin/auth/refresh')) return json(200, access);
+        if (url.endsWith('/admin/me')) return json(200, adminResponse('superadmin'));
+        if (url.includes(`/admin/users/${userId}/transactions`)) {
+          return json(200, { items: userTx, limit: 25, offset: 0, has_more: false, total: 2 });
+        }
+        if (url.includes(`/admin/users/${userId}`)) {
+          return json(200, userDetail);
+        }
+        return json(404, { error: { code: 'ADMIN_RESOURCE_NOT_FOUND' } });
+      }),
+    );
+
+    render(
+      <AdminProvider>
+        <LocaleProvider initialLocale={locale}>
+          <MemoryRouter initialEntries={[`/admin/users/${userId}`]}>
+            <Routes>
+              <Route path="/admin/users/:userId" element={<UserDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>
+      </AdminProvider>,
+    );
+
+    const expectedTitle = locale === 'ru' ? 'История начислений и списаний' : 'Есептеулер мен шегерулер тарихы';
+    expect(await screen.findByText(expectedTitle)).toBeInTheDocument();
+    expect(screen.getByText('••••2233 · Марат Б.')).toBeInTheDocument();
+    expect(await screen.findByText('+320')).toBeInTheDocument();
+    expect(screen.getByText('−100')).toBeInTheDocument();
+    expect(screen.getByText('445,5')).toBeInTheDocument();
+    expect(screen.getByText('345,5')).toBeInTheDocument();
+    expect(screen.getAllByText('0000000000055').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(locale === 'ru' ? 'Тип привязки' : 'Байланыстыру түрі')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        locale === 'ru'
+          ? 'Отображаются только карты, входящие в разрешённую область данных.'
+          : 'Рұқсат етілген деректер аймағына кіретін карталар ғана көрсетіледі.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(locale === 'ru' ? 'Страница 1 из 1' : '1 / 1 бет')).toBeInTheDocument();
+  },
+);

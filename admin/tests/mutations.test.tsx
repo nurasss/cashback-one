@@ -74,6 +74,9 @@ function renderAdmin(element: React.ReactNode, role: 'superadmin' | 'business_ma
     if (url.endsWith(`/admin/businesses/${businessId}`) && method === 'PATCH') {
       return json(200, business);
     }
+    if (url.includes(`/admin/cards/${cardId}/transactions`)) {
+      return json(200, { items: [], limit: 25, offset: 0, has_more: false });
+    }
     if (url.endsWith(`/admin/cards/${cardId}`)) {
       return json(200, { ...card, bind_method: cardBound ? card.bind_method : null, bound_at: cardBound ? card.bound_at : null });
     }
@@ -195,7 +198,10 @@ it('requires explicit unbind confirmation and refreshes only the binding state',
   expect(confirm.mock.calls[0]?.[0]).toContain('0000000000123');
   await screen.findByText('Привязка удалена. Карта и баланс сохранены.');
   expect(screen.getByText('125,5')).toBeInTheDocument();
-  expect(screen.getByText('Не привязана')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Отвязать карту' })).toBeDisabled();
+  expect(screen.queryByText('Тип привязки')).not.toBeInTheDocument();
+  expect(screen.queryByText('Дата привязки')).not.toBeInTheDocument();
+  expect(screen.queryByText('Скрыта клиентом')).not.toBeInTheDocument();
   const call = vi.mocked(fetchMock).mock.calls.find(([url]) => String(url).endsWith('/unbind'));
   expect(call?.[1]?.method).toBe('POST');
 });

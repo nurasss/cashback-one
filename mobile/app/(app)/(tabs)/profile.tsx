@@ -18,7 +18,7 @@ import { fonts, type Colors } from '../../../src/theme';
 import { useTheme, useThemedStyles } from '../../../src/theme/ThemeProvider';
 import type { Profile } from '../../../src/types/api';
 import { cityOptions } from '../../../src/features/cities';
-import { birthDateInputText, birthDateToApi, birthDateToUi, initials, isAdultBirthDate } from '../../../src/utils/format';
+import { birthDateEdit, birthDateProblem, birthDateToApi, birthDateToUi, initials } from '../../../src/utils/format';
 
 type Form = { first_name: string; last_name: string; email: string; gender: string; city: string; address: string; birth_date: string };
 type SheetField = Exclude<keyof Form, 'first_name' | 'last_name'>;
@@ -32,14 +32,11 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { t, language, setLanguage } = useI18n();
   const version = Constants.expoConfig?.version?.trim();
-  const versionCode = Constants.expoConfig?.android?.versionCode;
-  const versionLabel = version
-    ? `${t('appVersion', { version })}${typeof versionCode === 'number' && Number.isInteger(versionCode) && versionCode > 0 ? ` (${versionCode})` : ''}`
-    : null;
+  const versionLabel = version ? t('appVersion', { version }) : null;
   const styles = useUiStyles();
   const local = useThemedStyles(makeLocal);
   const { colors } = useTheme();
-  const { api } = useSession();
+  const { api, session } = useSession();
   const query = useQueryClient();
   const profile = useProfile();
   const [form, setForm] = useState<Form | null>(null);
@@ -258,9 +255,16 @@ export default function ProfileScreen() {
     }
   };
 
+  // Sign out of this device: the session revokes only this refresh token, removes this device's push registration, and clears the
+  // credentials and the cached data. The root navigation then returns to the sign-in screen, and the protected screens are gone.
+  const logout = () => Alert.alert(t('logoutConfirm'), undefined, [
+    { text: t('cancel'), style: 'cancel' },
+    { text: t('logout'), style: 'destructive', onPress: () => { void session.logout().then(failed => { if (failed) Alert.alert(t('logoutAccount'), t('revokeFailed')); }); } },
+  ]);
+
   const genderLabel = (value: string) => value === 'male' ? t('male') : value === 'female' ? t('female') : '';
   const sheets: Record<SheetField, { title: string; hint?: string; placeholder?: string; keyboardType?: 'default' | 'email-address' | 'number-pad'; maxLength?: number;
-    options?: { value: string; label: string }[]; format?: (value: string) => string; validate?: (value: string) => string | null;
+    options?: { value: string; label: string }[]; format?: (value: string, previous: string) => string; validate?: (value: string) => string | null;
     customOption?: { value: string; placeholder: string; maxLength: number; validate: (value: string) => string | null }; }> = {
     email: { title: t('email'), placeholder: t('emailPh'), keyboardType: 'email-address', maxLength: 255,
       validate: value => !value || /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(value) ? null : t('invalidEmail') },
@@ -276,13 +280,13 @@ export default function ProfileScreen() {
       },
     },
     address: { title: t('address'), maxLength: 255 },
-    birth_date: { title: t('birthDate'), placeholder: t('birthDatePh'), keyboardType: 'number-pad', maxLength: 10,
-      format: birthDateInputText,
+    // No maxLength here: the input would cut a pasted text (for example "ДР: 15.01.1990") before the mask can read the date in it.
+    // The mask itself keeps the value at DD.MM.YYYY, so a fifth year digit cannot be entered.
+    birth_date: { title: t('birthDate'), placeholder: t('birthDatePh'), keyboardType: 'number-pad',
+      format: (next, previous) => birthDateEdit(previous, next), // FieldSheet passes (new text, shown text); birthDateEdit takes them the other way round
       validate: value => {
-        if (!value.trim()) return null;
-        if (birthDateToApi(value) === undefined) return t('invalidDate');
-        if (!isAdultBirthDate(value)) return t('birthDateUnder18');
-        return null;
+        const problem = birthDateProblem(value);
+        return problem === 'invalid' ? t('invalidDate') : problem === 'implausible' ? t('birthDateImplausible') : problem === 'under18' ? t('birthDateUnder18') : null;
       } },
   };
 
@@ -315,6 +319,7 @@ export default function ProfileScreen() {
           <View style={local.links}>
             <ProfileRow icon="history" label={t('accrualHistory')} onPress={() => router.push('/history')} />
             <ProfileRow icon="settings" label={t('settings')} onPress={() => router.push('/settings')} />
+            <ProfileRow icon="logout" label={t('logoutAccount')} onPress={logout} />
           </View>
         </>}
         {versionLabel && <Text style={local.appVersion}>{versionLabel}</Text>}

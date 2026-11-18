@@ -10,7 +10,7 @@ from app.core.admin_types import AdminRole
 from app.db.session import get_session
 from app.main import app
 from app.models.admin import AdminSession, AdminUser
-from app.models.entities import Business, Card, User, UserCard
+from app.models.entities import Business, Card, Transaction, User, UserCard
 from app.services.admin_security import (
     admin_refresh_token_hash,
     create_admin_access_token,
@@ -360,10 +360,164 @@ async def test_admin_cards_search_contract_preserved(admin_client: AsyncClient, 
     empty_search = await admin_client.post("/admin/cards/search", json={}, headers=headers)
     assert empty_search.status_code == 422
 
-    # Valid barcode search works
+    # Valid barcode search works and exposes full_name in CardListItem
     valid_search = await admin_client.post(
         "/admin/cards/search", json={"barcode": "0123456789012"}, headers=headers
     )
     assert valid_search.status_code == 200
     assert len(valid_search.json()["items"]) == 1
     assert valid_search.json()["items"][0]["barcode"] == "0123456789012"
+    assert valid_search.json()["items"][0]["full_name"] == "Fixture Customer"
+
+
+@pytest.mark.asyncio
+async def test_admin_card_and_user_transactions_history_and_scope(
+    admin_client: AsyncClient, db_session: AsyncSession
+):
+    business_a = await make_business(db_session, "Tx Business A")
+    business_b = await make_business(db_session, "Tx Business B")
+
+    user = User(phone="+77019998877", language="ru")
+    db_session.add(user)
+    await db_session.flush()
+
+    card_a = await make_card(db_session, business_a.id, "0001112223331", user.phone, balance=Decimal("150.0000"))
+    card_b = await make_card(db_session, business_b.id, "0001112223332", user.phone, balance=Decimal("500.0000"))
+
+    db_session.add_all([
+        UserCard(user_id=user.id, card_id=card_a.id, bind_method="phone_auto"),
+        UserCard(user_id=user.id, card_id=card_b.id, bind_method="phone_auto"),
+    ])
+    await db_session.flush()
+
+    t1 = datetime(2026, 11, 10, 10, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 11, 11, 10, 0, 0, tzinfo=UTC)
+    t3 = datetime(2026, 11, 12, 10, 0, 0, tzinfo=UTC)
+    t4 = datetime(2026, 11, 13, 10, 0, 0, tzinfo=UTC)
+
+    db_session.add_all([
+        Transaction(
+            card_id=card_a.id,
+            external_id="tx-a-1",
+            type="accrual",
+            amount=Decimal("200.0000"),
+            balance_after=Decimal("200.0000"),
+            occurred_at=t1,
+            store="Store A",
+            receipt_ref="R-001",
+        ),
+        Transaction(
+            card_id=card_a.id,
+            external_id="tx-a-2",
+            type="redemption",
+            amount=Decimal("50.0000"),
+            balance_after=Decimal("150.0000"),
+            occurred_at=t2,
+            store="Store A",
+            receipt_ref="R-002",
+        ),
+        Transaction(
+            card_id=card_a.id,
+            external_id="tx-a-3",
+            type="accrual",
+            amount=Decimal("25.5000"),
+            balance_after=Decimal("175.5000"),
+            occurred_at=t3,
+        ),
+        Transaction(
+            card_id=card_b.id,
+            external_id="tx-b-1",
+            type="accrual",
+            amount=Decimal("500.0000"),
+            balance_after=Decimal("500.0000"),
+            occurred_at=t4,
+        ),
+    ])
+    await db_session.flush()
+
+    superadmin = await make_admin(db_session, "superadmin", None, "superadmin.tx")
+    manager_a = await make_admin(db_session, "business_manager", business_a.id, "manager.tx.a")
+    s_headers = await authenticated_headers(db_session, superadmin)
+    m_headers = await authenticated_headers(db_session, manager_a)
+
+    # 1. Card transactions ordered DESC with pagination
+    p1 = await admin_client.get(f"/admin/cards/{card_a.id}/transactions?limit=2&offset=0", headers=m_headers)
+    assert p1.status_code == 200
+    d1 = p1.json()
+    assert d1["total"] == 3
+    assert d1["has_more"] is True
+    assert [it["type"] for it in d1["items"]] == ["accrual", "redemption"]
+    assert [it["amount"] for it in d1["items"]] == ["25.5000", "50.0000"]
+    assert [it["balance_after"] for it in d1["items"]] == ["175.5000", "150.0000"]
+
+    p2 = await admin_client.get(f"/admin/cards/{card_a.id}/transactions?limit=2&offset=2", headers=m_headers)
+    assert p2.status_code == 200
+    d2 = p2.json()
+    assert d2["total"] == 3
+    assert d2["has_more"] is False
+    assert len(d2["items"]) == 1
+    assert d2["items"][0]["amount"] == "200.0000"
+    assert d2["items"][0]["store"] == "Store A"
+    assert d2["items"][0]["receipt_ref"] == "R-001"
+
+    # 2. Manager cannot access foreign card transactions
+    foreign_card_tx = await admin_client.get(f"/admin/cards/{card_b.id}/transactions", headers=m_headers)
+    assert foreign_card_tx.status_code == 404
+    assert foreign_card_tx.json()["error"]["code"] == "ADMIN_RESOURCE_NOT_FOUND"
+
+    # 3. Manager user transactions only include manager's business cards
+    m_user_tx = await admin_client.get(f"/admin/users/{user.id}/transactions", headers=m_headers)
+    assert m_user_tx.status_code == 200
+    assert m_user_tx.json()["total"] == 3
+    m_tx_items = m_user_tx.json()["items"]
+    assert len(m_tx_items) == 3
+    assert all(it["business_id"] == str(business_a.id) for it in m_tx_items)
+
+    # 4. Manager requesting foreign business_id on user transactions gets 404
+    m_foreign_user_tx = await admin_client.get(
+        f"/admin/users/{user.id}/transactions?business_id={business_b.id}",
+        headers=m_headers,
+    )
+    assert m_foreign_user_tx.status_code == 404
+
+    # 5. Superadmin sees all user transactions across businesses and can filter by business_id
+    s_user_tx_all = await admin_client.get(f"/admin/users/{user.id}/transactions", headers=s_headers)
+    assert s_user_tx_all.status_code == 200
+    assert s_user_tx_all.json()["total"] == 4
+    assert len(s_user_tx_all.json()["items"]) == 4
+    assert s_user_tx_all.json()["items"][0]["business_id"] == str(business_b.id)
+
+    s_user_tx_b = await admin_client.get(
+        f"/admin/users/{user.id}/transactions?business_id={business_b.id}",
+        headers=s_headers,
+    )
+    assert s_user_tx_b.status_code == 200
+    assert len(s_user_tx_b.json()["items"]) == 1
+    assert s_user_tx_b.json()["items"][0]["barcode"] == "0001112223332"
+
+
+@pytest.mark.asyncio
+async def test_admin_cards_unified_search_matches_barcode_or_phone(admin_client: AsyncClient, db_session: AsyncSession):
+    business = await make_business(db_session, "Unified Search Biz")
+    card_by_barcode = await make_card(db_session, business.id, "0000111119901", "+77001112233")
+    card_by_phone = await make_card(db_session, business.id, "0000222227777", "+77009999901")
+    superadmin = await make_admin(db_session, "superadmin", None, "superadmin.unified")
+    headers = await authenticated_headers(db_session, superadmin)
+
+    res_suffix = await admin_client.post(
+        "/admin/cards/search",
+        json={"barcode": "9901", "phone": "9901"},
+        headers=headers,
+    )
+    assert res_suffix.status_code == 200
+    found_ids = {item["id"] for item in res_suffix.json()["items"]}
+    assert found_ids == {str(card_by_barcode.id), str(card_by_phone.id)}
+
+    res_formatted_phone = await admin_client.post(
+        "/admin/cards/search",
+        json={"barcode": "77009999901", "phone": "+7 (700) 999-99-01"},
+        headers=headers,
+    )
+    assert res_formatted_phone.status_code == 200
+    assert [item["id"] for item in res_formatted_phone.json()["items"]] == [str(card_by_phone.id)]
+

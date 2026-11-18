@@ -1,10 +1,12 @@
 import { fireEvent, render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { ApiError } from '../src/api/errors';
-import { TabBar, makeStyles as makeTabBarStyles } from '../src/components/TabBar';
+import { TabBar, makeStyles as makeTabBarStyles, tabs } from '../src/components/TabBar';
 import { ErrorNotice } from '../src/components/ui';
 import { DynamicQr } from '../src/features/DynamicQr';
 import { OfferCard, StatusCard } from '../src/features/home';
+import { I18nProvider } from '../src/i18n';
+import { kz } from '../src/i18n/kz';
 import { ru } from '../src/i18n/ru';
 import { lightColors } from '../src/theme';
 import type { CardQr, Promotion } from '../src/types/api';
@@ -19,14 +21,29 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 const token = 'C1' + 'ABCDEFGH'.repeat(6);
 const qr = (expiresInMs: number): CardQr => ({ token, expires_at: new Date(Date.now() + expiresInMs).toISOString(), ttl_seconds: 60 });
 
-it('tab bar shows Messages like the design and marks new promotions and notifications', () => {
+it('tab bar shows Уведомления with bell icon and marks new promotions and notifications', () => {
   const onSelect = jest.fn();
   const screen = render(<TabBar active="index" onSelect={onSelect} badges={{ promotions: true, notifications: 3 }} />);
-  expect(screen.getByText('Сообщения')).toBeTruthy();
+  expect(screen.getByText('Уведомления')).toBeTruthy();
+  expect(screen.queryByText('Сообщения')).toBeNull();
+  expect(tabs.find(tab => tab.route === 'notifications')).toEqual({ route: 'notifications', icon: 'bell', label: 'tabNotifications' });
   expect(screen.getByLabelText(`${ru.tabPromotions}. ${ru.newBadge}`)).toBeTruthy();
   expect(screen.getByLabelText(`${ru.tabNotifications}. ${ru.newBadge}`)).toBeTruthy();
+  fireEvent.press(screen.getByLabelText(`${ru.tabNotifications}. ${ru.newBadge}`));
+  expect(onSelect).toHaveBeenCalledWith('notifications');
   fireEvent.press(screen.getByLabelText(ru.tabQr));
   expect(onSelect).toHaveBeenCalledWith('qr');
+});
+
+it('tab bar shows approved Kazakh notification label and badges', () => {
+  const screen = render(
+    <I18nProvider initial="kz">
+      <TabBar active="notifications" onSelect={jest.fn()} badges={{ promotions: false, notifications: 2 }} />
+    </I18nProvider>,
+  );
+  expect(screen.getByText(kz.tabNotifications)).toBeTruthy();
+  expect(screen.getByLabelText(`${kz.tabNotifications}. ${kz.newBadge}`)).toBeTruthy();
+  expect(screen.getByRole('tab', { selected: true }).props.accessibilityLabel).toBe(`${kz.tabNotifications}. ${kz.newBadge}`);
 });
 
 it('tab bar without news shows plain labels', () => {
@@ -78,11 +95,11 @@ it('dynamic QR encodes the server token, never the barcode, and hides expired to
   expect(screen.getByText(ru.cardBlocked)).toBeTruthy();
 });
 
-it('status card shows level and two-decimal balance like the design', () => {
+it('status card shows level and integer balance without decimals', () => {
   const onPress = jest.fn();
   const screen = render(<StatusCard tier={{ level: 1, name: null, percent: '3', max_percent: '12', spend_total: '0', next_level: 2, next_threshold: '350000', remaining: '350000' }} balance="0.0000" onPress={onPress} />);
   expect(screen.getByText('1')).toBeTruthy();
-  expect(screen.getByText('0,00')).toBeTruthy();
+  expect(screen.getByText('0')).toBeTruthy();
   fireEvent.press(screen.getByRole('button'));
   expect(onPress).toHaveBeenCalled();
 });

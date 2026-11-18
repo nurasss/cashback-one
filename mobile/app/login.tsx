@@ -92,7 +92,6 @@ export default function Login() {
           )}
         </View>}
         {error !== null && <ErrorNotice error={error} />}
-        <Text style={[styles.muted, { textAlign: 'center' }]}>{t('sessionNote')}</Text>
       </ScrollView>
     </Animated.View>
   </SafeAreaView>;

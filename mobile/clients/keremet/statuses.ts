@@ -1,7 +1,7 @@
 import type { ImageSourcePropType } from 'react-native';
 
-// Keremet loyalty statuses, confirmed by the owner on 2026-11-09. The rule is purchases over the LAST 6 MONTHS; thresholds do not
-// overlap: turnover < 100 000 -> level 1; 100 000 <= turnover < 200 000 -> level 2; turnover >= 200 000 -> level 3.
+// Keremet fallback loyalty statuses (used only when an older server omits `loyalty_tiers`). Thresholds do not overlap:
+// turnover < 100 000 -> level 1; 100 000 <= turnover < 200 000 -> level 2; turnover >= 200 000 -> level 3.
 // Images are 640 px derivatives of the owner's originals (docs/assets/keremet-statuses/, untouched); they are matched by the stable
 // `level`/`key`, never by the (translatable) name. Names are brand names and stay in Russian in the Kazakh interface until the owner
 // approves Kazakh names.
@@ -17,18 +17,16 @@ export interface ClientStatus {
 }
 
 export interface ClientStatuses {
-  periodMonths: number;
   /**
-   * Whether the server's `spend_total` is confirmed to be purchases for the last `periodMonths` months. While false the app shows the
-   * catalog for information only and "status data is not available yet" instead of a current status (see
-   * reports/KEREMET_STATUS_DATA_2026-11-09.md for the data source; switching this on is a separate, accepted step).
+   * Whether the server's `spend_total` is confirmed lifetime turnover. While false the app shows the
+   * catalog for information only and "status data is not available yet" instead of a current status (switching this on
+   * happens only after server confirmation via `loyalty_status`).
    */
   turnoverConfirmed: boolean;
   levels: ClientStatus[];
 }
 
 export const keremetStatuses: ClientStatuses = {
-  periodMonths: 6,
   turnoverConfirmed: false,
   levels: [
     { level: 1, key: 'occasional', name: 'Нет-нет заглядывает', threshold: 0, percent: 2, image: require('./statuses/occasional.png') as ImageSourcePropType },

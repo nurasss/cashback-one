@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { HeaderBadge } from '../components/BrandBadge';
+import { LinkedText } from '../components/LinkedText';
 import { Icon, type IconName } from '../components/icons';
 import { motionEnabled, PressScale, useCountUp } from '../components/motion';
 import { useI18n, type Language } from '../i18n';
@@ -11,9 +12,9 @@ import { fonts, type Colors } from '../theme';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import type { ClientStatuses } from '../../clients/keremet/statuses';
 import type { AppContent, Promotion, Tier } from '../types/api';
-import { pointsText } from '../utils/format';
+import { percentText, pointsText } from '../utils/format';
 import { StatusArt } from './StatusArt';
-import type { CurrentStatus } from './statuses';
+import type { CurrentStatus, StatusCatalog } from './statuses';
 
 export function BalanceHeader({ phone, balance }: { phone: string; balance: string }) {
   const { t: tr } = useI18n();
@@ -142,26 +143,53 @@ function Dot({ dot, count, step, scrollX }: { dot: number; count: number; step: 
   return <Animated.View testID={`banner-dot-${dot}`} style={[styles.pageDot, { width, backgroundColor }]} />;
 }
 
-// `statuses` (Keremet): the card shows the named status with its picture, or "status data is not available yet" — never a made-up level.
-export function StatusCard({ tier, balance, onPress, statuses }: { tier: Tier | null | undefined; balance: string; onPress: () => void; statuses?: { catalog: ClientStatuses; current: CurrentStatus } }) {
-  const { t: tr } = useI18n();
+// `statuses`: the card shows the confirmed personal status, or when personal data is missing/unconfirmed the minimum catalog
+// status with its percent; when no applicable tier is available, "status data is not available yet".
+export function StatusCard({ tier, balance, onPress, statuses }: { tier: Tier | null | undefined; balance: string; onPress: () => void; statuses?: { catalog: StatusCatalog | ClientStatuses; current: CurrentStatus; display?: import('./statuses').StatusDisplay } }) {
+  const { t: tr, language } = useI18n();
   const styles = useThemedStyles(makeStyles);
   const { colors } = useTheme();
   const rightLabel = tr('pointsSum');
   const counted = useCountUp(Number(balance) || 0);
-  const rightValue = pointsText(Math.abs(counted - (Number(balance) || 0)) < 0.005 ? balance : counted.toFixed(2));
-  const statusLabel = statuses ? (statuses.current.known ? statuses.current.status.name : tr('statusUnavailable')) : String(tier?.level ?? '');
+  const rightValue = pointsText(Math.abs(counted - (Number(balance) || 0)) < 0.005 ? balance : String(Math.trunc(counted)));
+  const resolvedDisplay = statuses?.display ?? (statuses
+    ? (statuses.current.known
+        ? { kind: 'confirmed' as const, current: statuses.current }
+        : { kind: 'unavailable' as const, reason: statuses.current.reason })
+    : null);
+  const shownStatus = resolvedDisplay?.kind === 'confirmed'
+    ? resolvedDisplay.current.status
+    : resolvedDisplay?.kind === 'minimum'
+      ? resolvedDisplay.status
+      : null;
+  const shownPercent = resolvedDisplay?.kind === 'confirmed'
+    ? resolvedDisplay.current.percent
+    : resolvedDisplay?.kind === 'minimum'
+      ? resolvedDisplay.percent
+      : null;
+  const statusName = shownStatus
+    ? ((language === 'kz' ? shownStatus.name_kk : shownStatus.name_ru) || shownStatus.name)
+    : tr('statusUnavailable');
+  const shownPercentText = shownStatus && shownPercent !== null
+    ? tr('cashbackPercent', { percent: percentText(shownPercent) })
+    : null;
+  const statusLabel = statuses
+    ? (shownStatus && shownPercentText ? `${statusName}, ${shownPercentText}` : tr('statusUnavailable'))
+    : String(tier?.level ?? '');
   return <PressScale accessibilityRole="button" accessibilityLabel={`${tr('yourStatus')} ${statusLabel}. ${tr('pointsSum')} ${pointsText(balance)}`}
     onPress={onPress} scale={0.98} style={styles.statusWrap}>
     <LinearGradient colors={[colors.statusGradientStart, colors.statusGradientEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.statusCard, statuses && styles.statusCardStacked]}>
       {statuses ? <>
         {/* Named statuses are long ("Продуктовый эксперт"): the name gets the full width and the balance sits on its own row. */}
         <View style={styles.statusNamed}>
-          {statuses.current.known && <StatusArt status={statuses.current.status} size={52} />}
-          <View style={{ flex: 1, gap: 4 }}>
+          {shownStatus && <StatusArt status={shownStatus} size={52} />}
+          <View style={{ flex: 1, gap: 3 }}>
             <Text style={styles.statusCaption}>{tr('yourStatus')}</Text>
-            {statuses.current.known
-              ? <Text testID="home-status-name" style={styles.statusName}>{statuses.current.status.name}</Text>
+            {shownStatus && shownPercentText
+              ? <>
+                  <Text testID="home-status-name" style={styles.statusName}>{statusName}</Text>
+                  <Text testID="home-status-percent" style={styles.statusPercent}>{shownPercentText}</Text>
+                </>
               : <Text testID="home-status-unavailable" style={styles.statusUnavailable}>{tr('statusUnavailable')}</Text>}
           </View>
           <Icon name="chevronRight" size={22} />
@@ -238,57 +266,25 @@ export function OfferCard({ offer, index, onPress, wide = false, fill = false }:
   </PressScale>;
 }
 
-export function StoreBlock({
-  appContent,
-  language,
-  onOpenMap,
-}: {
-  appContent: AppContent | null | undefined;
-  language: Language;
-  onOpenMap: (url: string) => void;
-}) {
-  const { t: tr } = useI18n();
+// The standalone home text: the selected language first, then the other one when it is empty. Whitespace-only counts as empty.
+// The text itself is returned untouched (line breaks and length kept); it is never mixed with the store addresses.
+export function homeTextFor(appContent: AppContent | null | undefined, language: Language): string | null {
+  const text = appContent?.app_texts?.home_text;
+  if (!text) return null;
+  const ordered = language === 'kz' ? [text.kk, text.ru] : [text.ru, text.kk];
+  return ordered.find((value): value is string => typeof value === 'string' && value.trim() !== '') ?? null;
+}
+
+// Not rendered on the home screen since 2026-11-10 (the owner removed this pink block); kept, together with the home_text contract and
+// homeTextFor, so the text can be shown again without rebuilding the component.
+export function HomeTextBlock({ appContent, language }: { appContent: AppContent | null | undefined; language: Language }) {
   const styles = useThemedStyles(makeStyles);
-  const stores = appContent?.stores;
-  if (!stores || stores.length === 0) return null;
-
-  const langKey = language === 'kz' ? 'kk' : 'ru';
-  const customLead = appContent.app_texts?.home_store_note_lead?.[langKey]?.trim();
-  const leadText = customLead || tr('storeNoteDefaultLead');
-  const sortedStores = [...stores].sort((a, b) => a.sort_order - b.sort_order);
-
-  return (
-    <View testID="store-block" style={styles.balanceNote}>
-      <Text style={styles.balanceNoteText}>
-        {leadText}
-        {sortedStores.map((store, index) => {
-          const address = (langKey === 'kk' ? store.address_kk : store.address_ru) || '';
-          const isLast = index === sortedStores.length - 1;
-          const separator = isLast ? '' : ', ';
-          return (
-            <Text key={store.id}>
-              {store.map_url ? (
-                <Text
-                  testID={`store-link-${store.id}`}
-                  accessibilityRole="link"
-                  accessibilityLabel={address}
-                  style={styles.storeAddress}
-                  onPress={() => onOpenMap(store.map_url!)}
-                >
-                  {address}
-                </Text>
-              ) : (
-                <Text testID={`store-text-${store.id}`} style={styles.storeAddressPlain}>
-                  {address}
-                </Text>
-              )}
-              {separator}
-            </Text>
-          );
-        })}
-      </Text>
-    </View>
-  );
+  const text = homeTextFor(appContent, language);
+  if (text === null) return null;
+  // LinkedText renders a plain <Text> unless the text has links, so named links [text](https://…) work here too.
+  return <View testID="home-text-block" style={styles.homeText}>
+    <LinkedText text={text} style={styles.homeTextBody} />
+  </View>;
 }
 
 const makeStyles = (c: Colors) => StyleSheet.create({
@@ -317,6 +313,7 @@ const makeStyles = (c: Colors) => StyleSheet.create({
   statusNamed: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   statusBalanceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   statusName: { fontFamily: fonts.extrabold, fontSize: 20, lineHeight: 25, color: c.text },
+  statusPercent: { fontFamily: fonts.bold, fontSize: 13, lineHeight: 18, color: c.primaryText },
   statusUnavailable: { fontFamily: fonts.semibold, fontSize: 13, lineHeight: 18, color: c.text },
   permanentGrid: { gap: 12, paddingHorizontal: 20 },
   permanentGridRow: { flexDirection: 'row', gap: 12 },
@@ -385,8 +382,6 @@ const makeStyles = (c: Colors) => StyleSheet.create({
     lineHeight: 17,
     color: c.text,
   },
-  balanceNote: { backgroundColor: c.softPrimary, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
-  balanceNoteText: { fontFamily: fonts.medium, fontSize: 13, lineHeight: 18, color: c.text },
-  storeAddress: { textDecorationLine: 'underline' },
-  storeAddressPlain: { textDecorationLine: 'none' },
+  homeText: { backgroundColor: c.softPrimary, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  homeTextBody: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 20, color: c.text },
 });

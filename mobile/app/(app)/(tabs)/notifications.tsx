@@ -1,3 +1,4 @@
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,7 +8,8 @@ import { FadeIn } from '../../../src/components/motion';
 import { EmptyState, ErrorNotice, Loading, NewDot, ScreenHeader, useUiStyles } from '../../../src/components/ui';
 import { LinkedText } from '../../../src/components/LinkedText';
 import { PushPermissionNotice } from '../../../src/features/push';
-import { useMarkSeen } from '../../../src/features/useMarkSeen';
+import { getTapTarget, setTapTarget, subscribeTapTarget } from '../../../src/features/notificationSignals';
+import { useMarkNotificationsRead } from '../../../src/features/useMarkSeen';
 import { useI18n } from '../../../src/i18n';
 import { fonts, type Colors } from '../../../src/theme';
 import { useTheme, useThemedStyles } from '../../../src/theme/ThemeProvider';
@@ -21,10 +23,24 @@ export default function NotificationsScreen() {
   const { colors } = useTheme();
   const { t, language } = useI18n();
   const notifications = useNotifications();
-  useMarkSeen('/me/notifications/read', (notifications.data?.unread_count ?? 0) > 0);
+  // Only the items the list really showed are marked read (see useMarkNotificationsRead); nothing is marked just by opening the tab.
+  const { onViewableItemsChanged, viewabilityConfig } = useMarkNotificationsRead(notifications.data);
+  const listRef = useRef<FlatList>(null);
+  // A tapped push names its notification: bring that item into view once the list has it (it is marked read once it is shown).
+  const tapTarget = useSyncExternalStore(subscribeTapTarget, getTapTarget, getTapTarget);
+  const items = notifications.data?.items;
+  useEffect(() => {
+    if (!tapTarget || !items) return;
+    const index = items.findIndex(item => item.id === tapTarget);
+    if (index < 0) return;
+    setTapTarget(null);
+    try { listRef.current?.scrollToIndex({ index, viewPosition: 0, animated: false }); } catch { /* the list is not laid out yet */ }
+  }, [tapTarget, items]);
   return <SafeAreaView edges={['top']} style={styles.screen}>
     <ScreenHeader title={t('notifications')} />
-    <FlatList data={notifications.data?.items ?? []} keyExtractor={item => item.id} contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16, paddingTop: 0, gap: 12 }]}
+    <FlatList ref={listRef} onViewableItemsChanged={onViewableItemsChanged} viewabilityConfig={viewabilityConfig}
+      onScrollToIndexFailed={info => { listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false }); }}
+      data={notifications.data?.items ?? []} keyExtractor={item => item.id} contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + insets.bottom + 16, paddingTop: 0, gap: 12 }]}
       refreshing={notifications.isRefetching} onRefresh={() => { void notifications.refetch(); }}
       ListHeaderComponent={<>
         <PushPermissionNotice />

@@ -110,7 +110,7 @@ describe('ImageUploadField component', () => {
 
     await screen.findByRole('alert');
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Файл превышает 10 МБ. Выберите файл меньшего размера.',
+      'Файл превышает 10 МиБ. Выберите файл меньшего размера.',
     );
 
     // Verify no upload network request was sent
@@ -205,7 +205,7 @@ describe('ImageUploadField component', () => {
 
     await screen.findByRole('alert');
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Файл слишком большой. Максимальный размер — 10 МБ.',
+      'Файл слишком большой. Максимальный размер — 10 МиБ.',
     );
   });
 

@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
-import { Linking } from 'react-native';
 import Home from '../app/(app)/(tabs)/index';
 import { ActiveCardProvider } from '../src/features/activeCard';
 import { getCarouselAutoplaySlot, getCarouselLogicalIndex, getLoopSlides } from '../src/features/home';
 import { clearAppCache } from '../src/storage/appCache';
 import { I18nProvider } from '../src/i18n';
+import { kz } from '../src/i18n/kz';
 import { ru } from '../src/i18n/ru';
 import type { AppContent, Card, Profile, Promotion } from '../src/types/api';
 
@@ -43,12 +43,12 @@ const sampleAppContent: AppContent = {
   ],
   app_texts: {
     home_store_note_lead: {
-      ru: 'Баллы действуют в магазинах: ',
-      kk: 'Ұпайлар мына дүкендерде жарамды: ',
+      ru: 'Бонусы действуют в магазинах: ',
+      kk: 'Бонустар мына дүкендерде жарамды: ',
     },
     balance_delay_note: {
-      ru: 'Баллы начисляются после смены',
-      kk: 'Ұпайлар ауысымнан кейін есептеледі',
+      ru: 'Бонусы начисляются после смены',
+      kk: 'Бонустар ауысымнан кейін есептеледі',
     },
   },
   updated_at: '2026-11-04T12:00:00Z',
@@ -170,7 +170,13 @@ describe('Home screen server content and artwork', () => {
     screen.unmount();
   });
 
-  it('renders stores sorted by sort_order with map_url clickable and non-map plain', async () => {
+  // The pink address plate was removed from the home screen (owner decision 2026-11-10): addresses, maps and distances live in the
+  // stores section, which the "where can I spend" link opens. The stores data stays in the contract.
+  const waitForStoresLink = (screen: ReturnType<typeof mountWith>['screen']) => waitFor(() => {
+    if (screen.queryByTestId('where-to-spend-link') === null) throw new Error('not yet: the stores link');
+  });
+
+  it('shows no address plate on Home, while the stores link stays and opens the stores section', async () => {
     serve({
       '/me/cards': [card],
       '/me/profile': profile,
@@ -178,25 +184,24 @@ describe('Home screen server content and artwork', () => {
       '/me/app-content': sampleAppContent,
     });
 
-    const openUrlSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
     const { screen } = mountWith(<Home />);
-    await waitFor(() => expect(screen.getByTestId('store-block')).toBeTruthy());
+    await waitForStoresLink(screen);
 
-    expect(screen.getByText(sampleAppContent.app_texts.home_store_note_lead!.ru!, { exact: false })).toBeTruthy();
-    // Sorted by sort_order: s1 (order 1: пр. Республики, 5) before s2 (order 2: ул. Абая, 20)
-    const linkS1 = screen.getByTestId('store-link-s1');
-    const textS2 = screen.getByTestId('store-text-s2');
+    expect(screen.queryByTestId('store-block')).toBeNull();
+    expect(screen.queryByTestId('store-link-s1')).toBeNull();
+    expect(screen.queryByTestId('store-text-s2')).toBeNull();
+    expect(screen.queryByText('пр. Республики, 5', { exact: false })).toBeNull();
+    expect(screen.queryByText('ул. Абая, 20', { exact: false })).toBeNull();
+    // Neither the server phrase nor the built-in one comes back as a plate.
+    expect(screen.queryByText(sampleAppContent.app_texts.home_store_note_lead!.ru!, { exact: false })).toBeNull();
+    expect(screen.queryByText(ru.storeNoteDefaultLead, { exact: false })).toBeNull();
 
-    expect(linkS1).toBeTruthy();
-    expect(textS2).toBeTruthy();
-
-    fireEvent.press(linkS1);
-    expect(openUrlSpy).toHaveBeenCalledWith('https://maps.example.com/s1');
-    openUrlSpy.mockRestore();
+    fireEvent.press(screen.getByTestId('where-to-spend-link'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/status', params: { section: 'stores', at: expect.any(String) } });
     screen.unmount();
   });
 
-  it('uses default lead text when server home_store_note_lead is null or empty', async () => {
+  it('shows no plate either when the server lead phrase is null or empty', async () => {
     const noLeadAppContent: AppContent = {
       ...sampleAppContent,
       app_texts: { home_store_note_lead: null, balance_delay_note: null },
@@ -209,14 +214,14 @@ describe('Home screen server content and artwork', () => {
     });
 
     const { screen } = mountWith(<Home />);
-    await waitFor(() => {
-      expect(screen.getByTestId('store-block')).toBeTruthy();
-      expect(screen.getByText(ru.storeNoteDefaultLead, { exact: false })).toBeTruthy();
-    });
+    await waitForStoresLink(screen);
+    expect(screen.queryByTestId('store-block')).toBeNull();
+    expect(screen.queryByText(ru.storeNoteDefaultLead, { exact: false })).toBeNull();
+    expect(screen.queryByText('пр. Республики, 5', { exact: false })).toBeNull();
     screen.unmount();
   });
 
-  it('renders store lead and addresses in Kazakh when locale is kz', async () => {
+  it('shows no address plate in Kazakh either, and the Kazakh link stays', async () => {
     serve({
       '/me/cards': [card],
       '/me/profile': { ...profile, language: 'kz' },
@@ -225,16 +230,16 @@ describe('Home screen server content and artwork', () => {
     });
 
     const { screen } = mountWith(<Home />, 'kz');
-    await waitFor(() => {
-      expect(screen.getByTestId('store-block')).toBeTruthy();
-      expect(screen.getByText(sampleAppContent.app_texts.home_store_note_lead!.kk!, { exact: false })).toBeTruthy();
-      expect(screen.getByText('Республика д-лы, 5')).toBeTruthy();
-      expect(screen.getByText('Абай к-сі, 20')).toBeTruthy();
-    });
+    await waitForStoresLink(screen);
+    expect(screen.queryByTestId('store-block')).toBeNull();
+    expect(screen.queryByText(sampleAppContent.app_texts.home_store_note_lead!.kk!, { exact: false })).toBeNull();
+    expect(screen.queryByText('Республика д-лы, 5', { exact: false })).toBeNull();
+    expect(screen.queryByText('Абай к-сі, 20', { exact: false })).toBeNull();
+    expect(screen.getByText(kz.whereToSpendBonuses)).toBeTruthy();
     screen.unmount();
   });
 
-  it('hides store block when stores array is empty', async () => {
+  it('has no stores link and no plate when the stores array is empty', async () => {
     const emptyStoresAppContent: AppContent = {
       ...sampleAppContent,
       stores: [],
@@ -249,6 +254,7 @@ describe('Home screen server content and artwork', () => {
     const { screen } = mountWith(<Home />);
     await waitFor(() => expect(screen.getByText('+7 705 834 43 26')).toBeTruthy());
     expect(screen.queryByTestId('store-block')).toBeNull();
+    expect(screen.queryByTestId('where-to-spend-link')).toBeNull();
     screen.unmount();
   });
 

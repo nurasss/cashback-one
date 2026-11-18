@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any, TypeVar
 
 from poscenter_loyalty_agent.config import AgentSettings
+from poscenter_loyalty_agent.logging import sanitize_message
 from poscenter_loyalty_agent.models import (
     CardSyncItem,
     SourceBatch,
@@ -60,6 +61,12 @@ T = TypeVar("T")
 
 DIGITS_RE = re.compile(r"^\d+$")
 DECIMAL_4 = Decimal("0.0001")
+
+
+def compute_card_sync_item_hmac(key: bytes, item: CardSyncItem) -> str:
+    spend_suffix = f"|{item.spend_total:f}" if item.spend_total is not None else ""
+    raw = f"{item.barcode}|{item.phone or ''}|{item.full_name or ''}|{item.is_blocked}|{item.balance}{spend_suffix}"
+    return compute_card_hmac(key, raw)
 
 
 def _sta_thread_init() -> None:
@@ -309,6 +316,28 @@ class OneComLoyaltySource(LoyaltySource):
         conn = self._get_connection()
         cfg = self.mapping_config
 
+        if self.settings.agent_lifetime_turnover_enabled:
+            reg = self.settings.agent_one_turnover_register
+            card_dim = self.settings.agent_one_turnover_card_dim
+            raw_res = self.settings.agent_one_turnover_amount_res
+            turnover_res = raw_res if raw_res.endswith("Оборот") else f"{raw_res}Оборот"
+
+            turnover_select = ",\n    ЕСТЬNULL(Об.Оборот, 0) КАК Оборот"
+            turnover_join = f"""
+    ЛЕВОЕ СОЕДИНЕНИЕ (
+        ВЫБРАТЬ
+            Об.{card_dim} КАК Карточка,
+            СУММА(Об.{turnover_res}) КАК Оборот
+        ИЗ
+            РегистрНакопления.{reg}.Обороты(, , , ) КАК Об
+        СГРУППИРОВАТЬ ПО
+            Об.{card_dim}
+    ) КАК Об
+        ПО К.{cfg.card_id_field} = Об.Карточка"""
+        else:
+            turnover_select = ""
+            turnover_join = ""
+
         query_text = f"""
 ВЫБРАТЬ
     К.{cfg.card_id_field} КАК Ссылка,
@@ -317,11 +346,11 @@ class OneComLoyaltySource(LoyaltySource):
     К.{cfg.card_full_name_field} КАК Наименование,
     К.{FIELD_CARD_BLOCKED} КАК {FIELD_CARD_BLOCKED},
     К.{FIELD_DELETION_MARK} КАК {FIELD_DELETION_MARK},
-    ЕСТЬNULL(Ост.{cfg.balance_amount_resource}, 0) КАК Баланс
+    ЕСТЬNULL(Ост.{cfg.balance_amount_resource}, 0) КАК Баланс{turnover_select}
 ИЗ
     Справочник.{cfg.card_catalog_name} КАК К
     ЛЕВОЕ СОЕДИНЕНИЕ РегистрНакопления.{cfg.balance_register_name}.Остатки(, ) КАК Ост
-        ПО К.{cfg.card_id_field} = Ост.{cfg.balance_card_dimension}
+        ПО К.{cfg.card_id_field} = Ост.{cfg.balance_card_dimension}{turnover_join}
 УПОРЯДОЧИТЬ ПО
     К.{cfg.card_id_field}
 """
@@ -360,7 +389,34 @@ class OneComLoyaltySource(LoyaltySource):
                 emitted_balance = balance
                 was_clamped = False
 
-            raw_payload = f"{barcode}|{phone or ''}|{full_name or ''}|{is_blocked}|{emitted_balance}"
+            if self.settings.agent_lifetime_turnover_enabled:
+                if hasattr(sel, "Оборот"):
+                    raw_turnover = getattr(sel, "Оборот", None)
+                else:
+                    raw_turnover = None
+
+                if raw_turnover is not None and str(raw_turnover).strip() not in ("", "None", "NULL"):
+                    try:
+                        parsed_turnover = Decimal(str(raw_turnover)).quantize(DECIMAL_4)
+                        if parsed_turnover < Decimal("0"):
+                            # Negative turnover indicates unreliable data, omit field per contract §2
+                            spend_total = None
+                        else:
+                            spend_total = parsed_turnover
+                    except Exception as exc:
+                        logger.warning(
+                            "Unparseable turnover value for card; omitting spend_total per contract: %s",
+                            sanitize_message(str(exc))[:200],
+                        )
+                        spend_total = None
+                else:
+                    # Missing attribute or None/NULL COM result is unknown: do NOT convert to zero!
+                    spend_total = None
+            else:
+                spend_total = None
+
+            spend_suffix = f"|{spend_total:f}" if spend_total is not None else ""
+            raw_payload = f"{barcode}|{phone or ''}|{full_name or ''}|{is_blocked}|{emitted_balance}{spend_suffix}"
             content_hash = compute_card_hmac(self._hmac_key, raw_payload)
 
             if not self._full_resync_cards and card_uuid in known_hashes and known_hashes[card_uuid][0] == content_hash:
@@ -384,6 +440,7 @@ class OneComLoyaltySource(LoyaltySource):
                 is_blocked=is_blocked,
                 balance=emitted_balance,
                 updated_at=updated_at,
+                spend_total=spend_total,
             )
             changed_items.append((card_uuid, item))
 
@@ -439,10 +496,7 @@ class OneComLoyaltySource(LoyaltySource):
                 staged = [
                     (
                         c_uuid,
-                        compute_card_hmac(
-                            self._hmac_key,
-                            f"{item.barcode}|{item.phone or ''}|{item.full_name or ''}|{item.is_blocked}|{item.balance}",
-                        ),
+                        compute_card_sync_item_hmac(self._hmac_key, item),
                         item.updated_at.isoformat(),
                     )
                     for c_uuid, item in page_slice
@@ -491,16 +545,34 @@ class OneComLoyaltySource(LoyaltySource):
         staged = [
             (
                 c_uuid,
-                compute_card_hmac(
-                    self._hmac_key,
-                    f"{item.barcode}|{item.phone or ''}|{item.full_name or ''}|{item.is_blocked}|{item.balance}",
-                ),
+                compute_card_sync_item_hmac(self._hmac_key, item),
                 item.updated_at.isoformat(),
             )
             for c_uuid, item in page_slice
         ]
         self.state_store.record_pending_cards(sid, page=1, cards=staged)
         return SourceBatch(items=page_items, next_cursor=next_cursor, has_more=has_more)
+
+    def discard_pending_batch(self, batch: SourceBatch[CardSyncItem]) -> None:
+        """Discard pending cards for this batch so they won't be committed to card_hashes."""
+        if not batch.next_cursor:
+            self.state_store.discard_pending_cards()
+            self._active_cards_session = None
+            return
+
+        try:
+            decoded = decode_cards_cursor(batch.next_cursor)
+        except Exception:
+            self.state_store.discard_pending_cards()
+            self._active_cards_session = None
+            return
+
+        if isinstance(decoded, CardsPageCursor):
+            page = decoded.page - 1
+            self.state_store.discard_pending_cards(decoded.session_id, page)
+        elif isinstance(decoded, CardsDoneCursor):
+            self.state_store.discard_pending_cards(decoded.session_id)
+            self._active_cards_session = None
 
     # --- Transactions Logic ---
 

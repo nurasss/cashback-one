@@ -100,16 +100,18 @@ beforeEach(() => {
   mockExpoGlobal.__mockProfileExpoConfig = { version: '1.0.16', android: { versionCode: 17 } };
 });
 
-it('shows the application version in Russian and Kazakh, and renders when Expo config has no version', async () => {
+it('shows the application version in Russian and Kazakh without build number in parentheses, and renders when Expo config has no version', async () => {
   const russian = await open();
-  expect(russian.getByText('Версия 1.0.16 (17)')).toBeTruthy();
+  expect(russian.getByText('Версия 1.0.16')).toBeTruthy();
+  expect(russian.queryByText(/Версия 1\.0\.16 \(\d+\)/)).toBeNull();
   russian.unmount();
 
   const kazakh = await open();
   await act(async () => {
     fireEvent.press(kazakh.getByRole('radio', { name: ru.langKz }));
   });
-  expect(kazakh.getByText('Нұсқа 1.0.16 (17)')).toBeTruthy();
+  expect(kazakh.getByText('Нұсқа 1.0.16')).toBeTruthy();
+  expect(kazakh.queryByText(/Нұсқа 1\.0\.16 \(\d+\)/)).toBeNull();
   kazakh.unmount();
 
   mockExpoGlobal.__mockProfileExpoConfig = null;
@@ -397,4 +399,254 @@ it('focus and blur without changes does not show saved and does not send PATCH',
   expect(patches()).toHaveLength(0);
   expect(screen.queryByText(ru.saved)).toBeNull();
   screen.unmount();
+});
+
+describe('birth date field (typing, paste, four-digit year, validity, 18+)', () => {
+  const isoOf = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const uiOf = (date: Date) => `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}`;
+  const type = (screen: ReturnType<typeof render>, text: string) => fireEvent.changeText(sheetInput(screen, ru.birthDate), text);
+  const shown = (screen: ReturnType<typeof render>) => sheetInput(screen, ru.birthDate).props.value;
+  const done = async (screen: ReturnType<typeof render>) => { await act(async () => { fireEvent.press(screen.getByRole('button', { name: ru.done })); }); };
+
+  it('keeps exactly a four-digit year when typing, also past the end', async () => {
+    const screen = await open();
+    fireEvent.press(screen.getByLabelText(ru.birthDate));
+    for (const [typed, expected] of [['1', '1'], ['15', '15'], ['150', '15.0'], ['1501', '15.01'], ['15011', '15.01.1'], ['150119', '15.01.19'], ['1501199', '15.01.199'], ['15011990', '15.01.1990'], ['150119905', '15.01.1990'], ['15011990123456', '15.01.1990']] as const) {
+      type(screen, typed);
+      expect(shown(screen)).toBe(expected);
+    }
+    screen.unmount();
+  });
+
+  it('does not cut a pasted text before the mask: no maxLength on the input', async () => {
+    const screen = await open();
+    fireEvent.press(screen.getByLabelText(ru.birthDate));
+    expect(sheetInput(screen, ru.birthDate).props.maxLength).toBeUndefined();
+    screen.unmount();
+  });
+
+  it.each([
+    ['15.01.1990', '15.01.1990'],
+    ['15/01/1990', '15.01.1990'],
+    ['15-01-1990', '15.01.1990'],
+    ['15 01 1990', '15.01.1990'],
+    ['1990-01-15', '15.01.1990'],
+    ['5.1.1990', '05.01.1990'],
+    ['Дата рождения: 15.01.1990 г.', '15.01.1990'],
+    ['15.01.19905', '15.01.1990'],
+    ['  15011990  ', '15.01.1990'],
+  ])('paste %j becomes %s', async (pasted, expected) => {
+    const screen = await open();
+    fireEvent.press(screen.getByLabelText(ru.birthDate));
+    type(screen, pasted);
+    expect(shown(screen)).toBe(expected);
+    screen.unmount();
+  });
+
+  it('saves a valid date in the API format and shows it back as DD.MM.YYYY', async () => {
+    const screen = await open();
+    mockRequest.mockResolvedValueOnce({ ...profile, birth_date: '1990-01-15' });
+    fireEvent.press(screen.getByLabelText(ru.birthDate));
+    type(screen, '1990-01-15');
+    await done(screen);
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]).toEqual(['/me/profile', { method: 'PATCH', auth: true, body: { birth_date: '1990-01-15' } }]);
+    await waitFor(() => expect(screen.getByLabelText(`${ru.birthDate}: 15.01.1990`)).toBeTruthy());
+    screen.unmount();
+  });
+
+  it.each([
+    ['31021990', ru.invalidDate],      // not a calendar day
+    ['00011990', ru.invalidDate],
+    ['15131990', ru.invalidDate],      // month 13
+    ['290220', ru.invalidDate],        // incomplete: a year with fewer than four digits
+    ['29021990', ru.invalidDate],      // 1990 is not a leap year
+    ['15011850', ru.birthDateImplausible],  // before 1900
+    ['15012900', ru.birthDateImplausible],  // in the future
+    ['01012020', ru.birthDateUnder18],      // a real date, younger than 18
+  ])('rejects %s with the right message and sends nothing', async (typed, message) => {
+    const screen = await open();
+    fireEvent.press(screen.getByLabelText(ru.birthDate));
+    type(screen, typed);
+    await done(screen);
+    expect(screen.getByText(message)).toBeTruthy();
+    expect(patches()).toHaveLength(0);
+    screen.unmount();
+  });
+
+  it('accepts a leap day', async () => {
+    const screen = await open();
+    mockRequest.mockResolvedValueOnce({ ...profile, birth_date: '2000-02-29' });
+    fireEvent.press(screen.getByLabelText(ru.birthDate));
+    type(screen, '29022000');
+    await done(screen);
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.[1].body).toEqual({ birth_date: '2000-02-29' });
+    screen.unmount();
+  });
+
+  it('keeps the 18+ rule: exactly 18 today is accepted, one day short is rejected', async () => {
+    const now = new Date();
+    const eighteen = new Date(now.getFullYear() - 18, now.getMonth(), now.getDate());
+    const dayShort = new Date(now.getFullYear() - 18, now.getMonth(), now.getDate() + 1);
+
+    const ok = await open();
+    mockRequest.mockResolvedValueOnce({ ...profile, birth_date: isoOf(eighteen) });
+    fireEvent.press(ok.getByLabelText(ru.birthDate));
+    type(ok, uiOf(eighteen));
+    await done(ok);
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.[1].body).toEqual({ birth_date: isoOf(eighteen) });
+    ok.unmount();
+
+    mockRequest.mockClear();
+    const short = await open();
+    fireEvent.press(short.getByLabelText(ru.birthDate));
+    type(short, uiOf(dayShort));
+    await done(short);
+    expect(short.getByText(ru.birthDateUnder18)).toBeTruthy();
+    expect(patches()).toHaveLength(0);
+    short.unmount();
+  });
+
+  it('an empty field is allowed and clears the date', async () => {
+    const screen = await open({ ...profile, birth_date: '1990-02-01' });
+    mockRequest.mockResolvedValueOnce({ ...profile, birth_date: null });
+    fireEvent.press(screen.getByLabelText(`${ru.birthDate}: 01.02.1990`));
+    type(screen, '');
+    await done(screen);
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.[1].body).toEqual({ birth_date: null });
+    screen.unmount();
+  });
+});
+
+describe('birth date field: editing the current value (not a paste)', () => {
+  const type = (screen: ReturnType<typeof render>, text: string) => fireEvent.changeText(sheetInput(screen, ru.birthDate), text);
+  const shown = (screen: ReturnType<typeof render>) => sheetInput(screen, ru.birthDate).props.value;
+  const done = async (screen: ReturnType<typeof render>) => { await act(async () => { fireEvent.press(screen.getByRole('button', { name: ru.done })); }); };
+  // Opens the sheet and puts a complete date in it with one paste.
+  async function withDate(date = '15.01.1990') {
+    const screen = await open();
+    fireEvent.press(screen.getByLabelText(ru.birthDate));
+    type(screen, date);
+    expect(shown(screen)).toBe(date);
+    return screen;
+  }
+
+  it.each([
+    ['day', '1.01.1990', '5.01.1990', '15.01.1990'],
+    ['month', '15.0.1990', '15.1.1990', '15.01.1990'],
+    ['year (middle)', '15.01.190', '15.01.199', '15.01.1990'],
+  ])('erasing a %s digit changes only it, and retyping the digit restores the date', async (_part, erased, alsoErased, restored) => {
+    const screen = await withDate();
+    type(screen, erased);
+    expect(shown(screen)).toBe(erased);     // untouched parts stay exactly as they were, nothing is appended
+    type(screen, restored);
+    expect(shown(screen)).toBe(restored);
+    // the other digit of the same part can be erased and retyped too
+    type(screen, alsoErased);
+    expect(shown(screen)).toBe(alsoErased);
+    type(screen, restored);
+    expect(shown(screen)).toBe(restored);
+    screen.unmount();
+  });
+
+  it('the last year digit: erase it and type it again at the end', async () => {
+    const screen = await withDate();
+    type(screen, '15.01.199');
+    expect(shown(screen)).toBe('15.01.199');
+    type(screen, '15.01.1990');
+    expect(shown(screen)).toBe('15.01.1990');
+    screen.unmount();
+  });
+
+  it('Backspace on a dot erases nothing', async () => {
+    const screen = await withDate();
+    type(screen, '1501.1990');
+    expect(shown(screen)).toBe('15.01.1990');
+    screen.unmount();
+  });
+
+  it.each([
+    ['the day', '5.01.1990'],
+    ['the month', '15.1.1990'],
+    ['the year', '15.01.2'],
+    ['everything', '7'],
+  ])('selecting %s and typing a character replaces just that part: %s', async (_part, result) => {
+    const screen = await withDate();
+    type(screen, result);
+    expect(shown(screen)).toBe(result);
+    screen.unmount();
+  });
+
+  it('clearing everything gives an empty field and an empty date can be saved (clears the date)', async () => {
+    const screen = await open({ ...profile, birth_date: '1990-02-01' });
+    mockRequest.mockResolvedValueOnce({ ...profile, birth_date: null });
+    fireEvent.press(screen.getByLabelText(`${ru.birthDate}: 01.02.1990`));
+    type(screen, '');
+    expect(shown(screen)).toBe('');
+    await done(screen);
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.[1].body).toEqual({ birth_date: null });
+    screen.unmount();
+  });
+
+  it('keeps four year digits: an extra digit at the end or inside the year is not accepted', async () => {
+    const screen = await withDate();
+    type(screen, '15.01.19905');
+    expect(shown(screen)).toBe('15.01.1990');
+    type(screen, '15.01.19990');
+    expect(shown(screen)).toBe('15.01.1990');
+    screen.unmount();
+  });
+
+  it('pasting ISO and DD.MM.YYYY replaces the value, also over an existing date', async () => {
+    const screen = await withDate();
+    type(screen, '2001-02-20');
+    expect(shown(screen)).toBe('20.02.2001');
+    type(screen, '07.03.1985');
+    expect(shown(screen)).toBe('07.03.1985');
+    screen.unmount();
+  });
+
+  it.each([
+    ['a digit erased in the day', '1.01.1990'],
+    ['a digit erased in the month', '15.0.1990'],
+    ['a digit erased in the year', '15.01.190'],
+    ['a half-typed date', '15.01'],
+  ])('%s is not sent to the API: the sheet shows the date error and nothing is saved', async (_name, text) => {
+    const screen = await withDate();
+    type(screen, text);
+    await done(screen);
+    expect(screen.getByText(ru.invalidDate)).toBeTruthy();
+    expect(patches()).toHaveLength(0);
+    screen.unmount();
+  });
+
+  it('an erased digit that is typed again saves the original date in the API format, and only once', async () => {
+    const screen = await withDate();
+    mockRequest.mockResolvedValueOnce({ ...profile, birth_date: '1990-01-15' });
+    type(screen, '15.0.1990');
+    await done(screen);
+    expect(patches()).toHaveLength(0);      // the broken date was refused
+    type(screen, '15.01.1990');
+    await done(screen);
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]).toEqual(['/me/profile', { method: 'PATCH', auth: true, body: { birth_date: '1990-01-15' } }]);
+    screen.unmount();
+  });
+
+  it('under 18 and impossible dates reached by editing are refused too, and 18+ is kept', async () => {
+    const screen = await withDate();
+    type(screen, '15.01.2');
+    type(screen, '15.01.2020');
+    await done(screen);
+    expect(screen.getByText(ru.birthDateUnder18)).toBeTruthy();
+    type(screen, '31.02.1990');
+    await done(screen);
+    expect(screen.getByText(ru.invalidDate)).toBeTruthy();
+    expect(patches()).toHaveLength(0);
+    screen.unmount();
+  });
 });

@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useI18n } from '../i18n';
 import { fonts, type Colors } from '../theme';
@@ -12,11 +12,11 @@ import { NewDot } from './ui';
 export const TAB_BAR_HEIGHT = 10 + 68 + 16;
 
 export type TabRoute = 'index' | 'promotions' | 'qr' | 'notifications' | 'profile';
-const tabs: { route: TabRoute; icon: IconName; label: 'tabHome' | 'tabPromotions' | 'tabQr' | 'tabNotifications' | 'tabProfile' }[] = [
+export const tabs: { route: TabRoute; icon: IconName; label: 'tabHome' | 'tabPromotions' | 'tabQr' | 'tabNotifications' | 'tabProfile' }[] = [
   { route: 'index', icon: 'home', label: 'tabHome' },
   { route: 'promotions', icon: 'gift', label: 'tabPromotions' },
   { route: 'qr', icon: 'qr', label: 'tabQr' },
-  { route: 'notifications', icon: 'message', label: 'tabNotifications' },
+  { route: 'notifications', icon: 'bell', label: 'tabNotifications' },
   { route: 'profile', icon: 'user', label: 'tabProfile' },
 ];
 
@@ -25,8 +25,15 @@ export function TabBar({ active, onSelect, badges }: {
 }) {
   const { t: tr } = useI18n();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const styles = useThemedStyles(makeStyles);
   const { colors } = useTheme();
+  const narrow = width > 0 && width < 360;
+  const labelStyle = (text: string) => {
+    if (narrow) return [styles.label, styles.labelNarrow, Platform.OS === 'web' && text.length > 12 ? { fontSize: 7.5 } : null];
+    if (Platform.OS === 'web' && text.length > 12) return [styles.label, { fontSize: 8.8, letterSpacing: -0.35 }];
+    return styles.label;
+  };
   return <View style={[styles.bar, { paddingBottom: insets.bottom + 16 }]}>
     {tabs.map(tab => {
       const selected = tab.route === active;
@@ -37,8 +44,8 @@ export function TabBar({ active, onSelect, badges }: {
             style={[styles.qrButton, selected && styles.qrButtonSelected]}>
             <Icon name="qr" size={26} color={colors.onPrimary} />
           </PressScale>
-          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}
-            style={[styles.label, { color: selected ? colors.primaryText : colors.muted }]}>{label}</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}
+            style={[labelStyle(label), { color: selected ? colors.primaryText : colors.muted }]}>{label}</Text>
         </View>;
       }
       const hasNew = (tab.route === 'promotions' && badges.promotions) || (tab.route === 'notifications' && badges.notifications > 0);
@@ -49,7 +56,7 @@ export function TabBar({ active, onSelect, badges }: {
           <Icon name={tab.icon} size={24} color={color} strokeWidth={1.8} filled={selected && tab.route === 'index'} />
           {hasNew && <NewDot style={styles.dot} />}
         </View>
-        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.label, { color: selected ? colors.primaryText : colors.muted }]}>{label}</Text>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={[labelStyle(label), { color: selected ? colors.primaryText : colors.muted }]}>{label}</Text>
       </Pressable>;
     })}
   </View>;
@@ -61,8 +68,9 @@ export const makeStyles = (c: Colors) => StyleSheet.create({
     backgroundColor: c.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28,
     shadowColor: c.shadow, shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: -4 }, elevation: 12,
   },
-  item: { flex: 1, alignItems: 'center', gap: 6, minHeight: 56, justifyContent: 'flex-end', paddingHorizontal: 2 },
-  label: { fontFamily: fonts.medium, fontSize: 11, letterSpacing: -0.2 },
+  item: { flex: 1, alignItems: 'center', gap: 6, minHeight: 56, justifyContent: 'flex-end', paddingHorizontal: 1 },
+  label: { fontFamily: fonts.medium, fontSize: 10, letterSpacing: -0.3 },
+  labelNarrow: { fontSize: 8.5, letterSpacing: -0.4 },
   // Flush with the other tabs: no negative margin, aligned to the bottom edge like the icon+label rows.
   qrButton: {
     width: 48, height: 48, borderRadius: 24, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center',

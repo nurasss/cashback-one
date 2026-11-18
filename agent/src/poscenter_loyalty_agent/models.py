@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 T = TypeVar("T")
 
@@ -37,6 +37,13 @@ class CardSyncItem(BaseModel):
     balance: Decimal = Field(..., decimal_places=4, max_digits=18)
     is_blocked: bool = Field(default=False)
     updated_at: datetime = Field(..., description="Timestamp of card update in ONE")
+    spend_total: Decimal | None = Field(
+        default=None,
+        ge=0,
+        decimal_places=4,
+        max_digits=18,
+        description="Cumulative lifetime purchases total from ONE (snapshot)",
+    )
 
     @field_validator("updated_at")
     @classmethod
@@ -44,6 +51,12 @@ class CardSyncItem(BaseModel):
         res = ensure_timezone_aware(v)
         assert res is not None
         return res
+
+    @field_serializer("spend_total", when_used="json")
+    def serialize_spend_total(self, v: Decimal | None) -> str | None:
+        if v is None:
+            return None
+        return f"{v:f}"
 
 
 class CardsSyncPayload(BaseModel):

@@ -160,6 +160,117 @@ async def test_refresh_token_rotation_flow(
 
 
 @pytest.mark.asyncio
+async def test_refresh_on_day_300_renews_session_through_day_400(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create_res = await client.post("/auth/challenge", json={"device_id": "dev-sliding-ttl"})
+    challenge_id = create_res.json()["challenge_id"]
+    await confirm_login_challenge(db_session, create_res.json()["code"], "+77015550001")
+    poll = await client.get(
+        f"/auth/challenge/{challenge_id}", headers={"X-Device-Id": "dev-sliding-ttl"}
+    )
+    first_refresh = poll.json()["refresh_token"]
+    session_record = await db_session.scalar(select(AuthSession))
+    assert session_record is not None
+
+    issued_at = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)
+    session_record.created_at = issued_at
+    session_record.expires_at = issued_at + timedelta(days=365)
+    await db_session.commit()
+
+    clock = {"now": issued_at + timedelta(days=300)}
+    monkeypatch.setattr("app.api.auth.utcnow", lambda: clock["now"])
+    day_300 = await client.post("/auth/refresh", json={"refresh_token": first_refresh})
+    assert day_300.status_code == 200
+    second_refresh = day_300.json()["refresh_token"]
+    assert session_record.expires_at == clock["now"] + timedelta(days=365)
+
+    clock["now"] = issued_at + timedelta(days=400)
+    day_400 = await client.post("/auth/refresh", json={"refresh_token": second_refresh})
+    assert day_400.status_code == 200
+    assert session_record.expires_at == clock["now"] + timedelta(days=365)
+
+
+async def _issue_session(client: AsyncClient, db_session: AsyncSession, device: str, phone: str):
+    create_res = await client.post("/auth/challenge", json={"device_id": device})
+    challenge_id = create_res.json()["challenge_id"]
+    await confirm_login_challenge(db_session, create_res.json()["code"], phone)
+    poll = await client.get(f"/auth/challenge/{challenge_id}", headers={"X-Device-Id": device})
+    session_record = await db_session.scalar(select(AuthSession))
+    assert session_record is not None
+    return poll.json()["refresh_token"], session_record
+
+
+@pytest.mark.asyncio
+async def test_challenge_session_is_issued_for_365_days_and_admin_ttl_is_unchanged(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    from app.core.config import settings
+
+    _, record = await _issue_session(client, db_session, "dev-ttl-365", "+77015550002")
+    lifetime = record.expires_at.replace(tzinfo=UTC) - record.created_at.replace(tzinfo=UTC)
+    assert timedelta(days=365) - timedelta(minutes=1) < lifetime <= timedelta(days=365)
+    assert settings.refresh_token_ttl_seconds == 365 * 86400
+    assert settings.admin_refresh_token_ttl_seconds == 28800
+
+
+@pytest.mark.asyncio
+async def test_unrefreshed_session_expires_after_365_days_and_old_token_does_not_extend(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_refresh, record = await _issue_session(client, db_session, "dev-ttl-expire", "+77015550003")
+    issued_at = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)
+    record.created_at = issued_at
+    record.expires_at = issued_at + timedelta(days=365)
+    await db_session.commit()
+
+    clock = {"now": issued_at + timedelta(days=100)}
+    monkeypatch.setattr("app.api.auth.utcnow", lambda: clock["now"])
+    rotated = await client.post("/auth/refresh", json={"refresh_token": first_refresh})
+    assert rotated.status_code == 200
+    expected_expiry = clock["now"] + timedelta(days=365)
+    assert record.expires_at == expected_expiry
+
+    # The rotated-out token is rejected and must not slide the session window.
+    clock["now"] = issued_at + timedelta(days=200)
+    reused = await client.post("/auth/refresh", json={"refresh_token": first_refresh})
+    assert reused.status_code == 401
+    assert reused.json()["error"]["code"] == "INVALID_REFRESH_TOKEN"
+    assert record.expires_at == expected_expiry
+
+    # Without any further refresh the session ends 365 days after the last one.
+    clock["now"] = expected_expiry + timedelta(seconds=1)
+    expired = await client.post(
+        "/auth/refresh", json={"refresh_token": rotated.json()["refresh_token"]}
+    )
+    assert expired.status_code == 401
+    assert expired.json()["error"]["code"] == "REFRESH_TOKEN_EXPIRED"
+    assert record.expires_at == expected_expiry
+
+
+@pytest.mark.asyncio
+async def test_revoked_session_is_not_renewed_on_day_300(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refresh, record = await _issue_session(client, db_session, "dev-ttl-revoked", "+77015550004")
+    issued_at = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)
+    record.created_at = issued_at
+    record.expires_at = issued_at + timedelta(days=365)
+    await client.post("/auth/logout", json={"refresh_token": refresh})
+    await db_session.refresh(record)
+    assert record.revoked_at is not None
+    original_expiry = record.expires_at
+
+    monkeypatch.setattr("app.api.auth.utcnow", lambda: issued_at + timedelta(days=300))
+    res = await client.post("/auth/refresh", json={"refresh_token": refresh})
+    assert res.status_code == 401
+    assert res.json()["error"]["code"] == "INVALID_REFRESH_TOKEN"
+    assert record.expires_at == original_expiry
+
+
+@pytest.mark.asyncio
 async def test_refresh_token_expired_fails(
     client: AsyncClient,
     db_session: AsyncSession,

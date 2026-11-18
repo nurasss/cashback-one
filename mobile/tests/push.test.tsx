@@ -21,22 +21,26 @@ import type { Tokens } from '../src/types/api';
 import Home from '../app/(app)/(tabs)/index';
 import NotificationsScreen from '../app/(app)/(tabs)/notifications';
 import { ActiveCardProvider } from '../src/features/activeCard';
+// React Native loads its renderer (~1.7 MB, `ReactNativeRenderer-dev.js`) lazily on first use. With a cold Jest transform cache that
+// load is a synchronous 2-second stall in the middle of the first render of Home, i.e. inside the 1-second `waitFor` window of the
+// warning-card test, so the card could not appear in time. Loading it here moves the cost to module scope, outside any timed wait,
+// whatever the cache state is. (Measured in reports/app-bonus-wording-2026-11-11/diag4-timing-cold.txt and diag5-*.)
+import 'react-native/Libraries/Renderer/shims/ReactNative';
 
 const mockRequest = jest.fn();
 const mockSessionAccept = jest.fn();
 const mockSessionLogout = jest.fn();
 
-jest.mock('../src/auth/provider', () => ({
-  useSession: () => ({
-    api: { request: mockRequest },
-    session: {
-      accept: mockSessionAccept,
-      logout: mockSessionLogout,
-      registerBeforeClear: (fn: () => Promise<void>) => fn,
-    },
-    state: { status: 'authenticated' },
-  }),
-}));
+// Same objects on every render, with the hooks the notifications screen registers (as the real session does).
+const mockSession = {
+  accept: mockSessionAccept,
+  logout: mockSessionLogout,
+  registerBeforeClear: (fn: () => Promise<void>) => fn,
+  registerOnInvalidate: () => () => undefined,
+  registerBeforeLogout: () => () => undefined,
+};
+const mockSessionValue = { api: { request: mockRequest }, session: mockSession, state: { status: 'authenticated' } };
+jest.mock('../src/auth/provider', () => ({ useSession: () => mockSessionValue }));
 
 jest.mock('../src/storage/secure', () => ({
   deviceId: async () => 'installation-id',
@@ -499,7 +503,7 @@ describe('Push Notifications', () => {
           request: {
             content: {
               data: { type: 'redemption_code', redemption_id: 'test-123' },
-              title: 'Списание 500 баллов',
+              title: 'Списание 500 бонусов',
               body: 'Код подтверждения: 1234',
             },
           },
@@ -526,7 +530,7 @@ describe('Push Notifications', () => {
         request: {
           content: {
             title: 'Новое начисление',
-            body: 'Начислено 150 баллов',
+            body: 'Начислено 150 бонусов',
           },
         },
       });

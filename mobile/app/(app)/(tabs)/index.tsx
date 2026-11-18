@@ -1,6 +1,7 @@
+import { useRef } from 'react';
 import { TAB_BAR_HEIGHT } from '../../../src/components/TabBar';
 import { router } from 'expo-router';
-import { Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContent, useProfile, usePromotions } from '../../../src/api/app';
 import { getClientConfig } from '../../../src/config/client';
@@ -8,11 +9,10 @@ import { Icon } from '../../../src/components/icons';
 import { FadeIn } from '../../../src/components/motion';
 import { Button, ErrorNotice, Loading, NoCardNotice, useUiStyles } from '../../../src/components/ui';
 import { useActiveCard } from '../../../src/features/activeCard';
-import { BalanceHeader, BannerCarousel, ServerOffersGrid, StatusCard, StoreBlock } from '../../../src/features/home';
+import { BalanceHeader, BannerCarousel, ServerOffersGrid, StatusCard } from '../../../src/features/home';
 import { PushPermissionNotice } from '../../../src/features/push';
-import { getClientStatuses, maxStatusPercent, resolveCurrentStatus } from '../../../src/features/statuses';
+import { resolveCatalog, resolveCurrentStatus, resolveStatusDisplay } from '../../../src/features/statuses';
 import { useI18n } from '../../../src/i18n';
-import { errorMessages } from '../../../src/i18n/ru';
 import { fonts, type Colors } from '../../../src/theme';
 import { useTheme, useThemedStyles } from '../../../src/theme/ThemeProvider';
 import { percentText, phoneText } from '../../../src/utils/format';
@@ -22,17 +22,21 @@ export default function Home() {
   const styles = useUiStyles();
   const local = useThemedStyles(makeLocal);
   const { colors } = useTheme();
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const { card, cards } = useActiveCard();
   const profile = useProfile();
   const promotions = usePromotions();
   const appContent = useAppContent(getClientConfig().business_id ?? card?.business?.id);
   const openPromotion = (id: string) => router.push({ pathname: '/promotion/[id]', params: { id } });
   const openPromotions = () => router.push('/promotions');
-  const openStoreMap = (url: string) => {
-    Linking.openURL(url).catch(() => {
-      Alert.alert(t('app'), errorMessages.UNKNOWN_ERROR);
-    });
+  // Opens the stores section of the status screen. A quick second tap must not stack a second copy of the screen, and `at`
+  // lets a screen that is already open scroll to the stores again.
+  const lastStoresOpen = useRef(0);
+  const openStores = () => {
+    const now = Date.now();
+    if (now - lastStoresOpen.current < 700) return;
+    lastStoresOpen.current = now;
+    router.push({ pathname: '/status', params: { section: 'stores', at: String(now) } });
   };
 
   const isRefreshing = promotions.isRefetching || cards.isRefetching || profile.isRefetching || appContent.isRefetching;
@@ -45,9 +49,13 @@ export default function Home() {
     ]);
   };
 
-  // Keremet's named statuses; other clients keep the server's tier.
-  const statuses = getClientStatuses();
-  const currentStatus = statuses && card ? resolveCurrentStatus(card.tier, statuses) : null;
+  // Server catalog if available, or Keremet legacy statuses fallback for older backend
+  const catalog = resolveCatalog(appContent.data, getClientConfig().slug);
+  const currentStatus = catalog && card ? resolveCurrentStatus(card, catalog, appContent.data) : null;
+  const statusDisplay = catalog && card ? resolveStatusDisplay(card, catalog, appContent.data) : null;
+  const maxPercent = catalog && catalog.tiers.length > 0
+    ? catalog.maxPercent
+    : percentText(card?.tier?.max_percent);
   const banners = promotions.data?.banners ?? [];
   const offers = promotions.data?.offers ?? [];
 
@@ -60,7 +68,7 @@ export default function Home() {
         <RefreshControl
           refreshing={isRefreshing}
           onRefresh={onRefresh}
-          tintColor={colors.primary}
+          tintColor={colors.primaryText}
         />
       }
     >
@@ -70,19 +78,44 @@ export default function Home() {
       </FadeIn>
 
       <FadeIn index={1} style={local.section}>
+        {/* The owner removed both pink plates from the home screen (2026-11-10): the server's home_text and the store addresses.
+            The data stays in the contract and the cabinet; the addresses, maps and distances live in the stores section behind the link below. */}
         {cards.isPending ? <Loading /> : cards.isError && !cards.data ? <ErrorNotice error={cards.error} retry={() => { void cards.refetch(); }} /> : <>
           {card ? <>
-            <StatusCard tier={card.tier} balance={card.balance} onPress={() => router.push('/status')} statuses={statuses && currentStatus ? { catalog: statuses, current: currentStatus } : undefined} />
-            {(statuses ? currentStatus?.known === true : !!card.tier && Number(card.tier.max_percent) > 0) && <View style={local.promoLine}>
+            <StatusCard tier={card.tier} balance={card.balance} onPress={() => router.push('/status')} statuses={catalog && currentStatus && statusDisplay ? { catalog, current: currentStatus, display: statusDisplay } : undefined} />
+            {(catalog ? currentStatus?.known === true : !!card.tier && Number(card.tier.max_percent) > 0) && <View style={local.promoLine}>
               <Icon name="crown" size={18} color={colors.primaryText} />
-              <Text style={local.promoLineText}>{t('dontMiss', { percent: statuses ? String(maxStatusPercent(statuses)) : percentText(card.tier?.max_percent) })}</Text>
+              <Text style={local.promoLineText}>{t('dontMiss', { percent: maxPercent })}</Text>
             </View>}
+            {Boolean(appContent.data?.stores?.length) && (
+              <Pressable
+                testID="where-to-spend-link"
+                accessibilityRole="link"
+                accessibilityLabel={t('whereToSpendBonuses')}
+                onPress={openStores}
+                style={local.whereToSpendLink}
+              >
+                <Text style={local.whereToSpendText}>{t('whereToSpendBonuses')}</Text>
+                <Icon name="chevronRight" size={14} color={colors.primaryText} />
+              </Pressable>
+            )}
           </> : <>
             <NoCardNotice />
             {/* Anyone can read the status conditions; a current status and a balance only exist with a card. */}
-            {statuses && <Button secondary label={t('statusCatalogTitle')} onPress={() => router.push('/status')} />}
+            {catalog && catalog.tiers.length > 0 && <Button secondary label={t('statusCatalogTitle')} onPress={() => router.push('/status')} />}
+            {Boolean(appContent.data?.stores?.length) && (
+              <Pressable
+                testID="where-to-spend-link"
+                accessibilityRole="link"
+                accessibilityLabel={t('whereToSpendBonuses')}
+                onPress={openStores}
+                style={local.whereToSpendLink}
+              >
+                <Text style={local.whereToSpendText}>{t('whereToSpendBonuses')}</Text>
+                <Icon name="chevronRight" size={14} color={colors.primaryText} />
+              </Pressable>
+            )}
           </>}
-          <StoreBlock appContent={appContent.data} language={language} onOpenMap={openStoreMap} />
           <PushPermissionNotice />
         </>}
       </FadeIn>
@@ -107,6 +140,8 @@ const makeLocal = (c: Colors) => StyleSheet.create({
   section: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 14, gap: 10 },
   promoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   promoLineText: { fontFamily: fonts.semibold, fontSize: 13, color: c.primaryText },
+  whereToSpendLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 4 },
+  whereToSpendText: { fontFamily: fonts.medium, fontSize: 13, color: c.primaryText },
   offersSheet: { backgroundColor: c.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 18, paddingBottom: 24, gap: 12 },
   offersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20 },
   offersTitle: { fontFamily: fonts.bold, fontSize: 18, color: c.text },

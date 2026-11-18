@@ -194,10 +194,11 @@ it('manager accesses App tab without business picker and sees stores and texts',
   const textsTab = screen.getByRole('tab', { name: 'Тексты' });
   fireEvent.click(textsTab);
 
-  const homeInput = await screen.findByDisplayValue(
-    'Добро пожаловать в супермаркет «КеремЕт»!'
-  );
-  expect(homeInput).toBeInTheDocument();
+  expect(await screen.findByDisplayValue('Баллы начисляются после смены')).toBeInTheDocument();
+  expect(screen.queryByText('Текст на главной')).not.toBeInTheDocument();
+  expect(document.getElementById('text-home-ru')).not.toBeInTheDocument();
+  expect(document.getElementById('text-home-kk')).not.toBeInTheDocument();
+  expect(document.querySelector('.home-text-preview-box')).not.toBeInTheDocument();
 }, 15000);
 
 it('validates store form and creates a store through the typed API', async () => {
@@ -273,15 +274,13 @@ it('deletes store with user confirmation', async () => {
   });
 });
 
-it('updates app texts in RU and KK', async () => {
+it('updates app texts in RU and KK while omitting hidden home_text to preserve stored value', async () => {
   const fetchMock = renderAppContent('business_manager');
 
   fireEvent.click(await screen.findByRole('tab', { name: 'Тексты' }));
-  const homeRuInput = await screen.findByDisplayValue(
-    'Добро пожаловать в супермаркет «КеремЕт»!'
-  );
+  const delayRuInput = await screen.findByDisplayValue('Баллы начисляются после смены');
 
-  fireEvent.change(homeRuInput, { target: { value: 'Новый текст на главной (RU)' } });
+  fireEvent.change(delayRuInput, { target: { value: 'Новый текст задержки (RU)' } });
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить тексты' }));
 
   await waitFor(() => {
@@ -293,10 +292,12 @@ it('updates app texts in RU and KK', async () => {
           init?.method === 'PUT'
       );
     expect(putCall).toBeDefined();
-    expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
-      home_text: {
-        ru: 'Новый текст на главной (RU)',
-        kk: '«КеремЕт» супермаркетіне қош келдіңіз!',
+    const sent = JSON.parse(String(putCall?.[1]?.body)) as Record<string, unknown>;
+    expect(sent).not.toHaveProperty('home_text');
+    expect(sent).toMatchObject({
+      balance_delay_note: {
+        ru: 'Новый текст задержки (RU)',
+        kk: 'Ұпайлар ауысымнан кейін есептеледі',
       },
     });
   });

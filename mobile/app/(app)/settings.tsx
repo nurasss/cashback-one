@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon } from '../../src/components/icons';
 import { PressScale } from '../../src/components/motion';
 import { Button, ScreenHeader, useUiStyles } from '../../src/components/ui';
-import { getCurrentVersionCode } from '../../src/features/appUpdate';
 import { useUpdateCheck } from '../../src/features/UpdateNotice';
 import { useI18n } from '../../src/i18n';
 import { fonts, THEME_PREFERENCES, type Colors, type ThemePreference } from '../../src/theme';
@@ -20,10 +19,7 @@ export default function SettingsScreen() {
   const update = useUpdateCheck();
 
   const version = Constants.expoConfig?.version?.trim();
-  const versionCode = getCurrentVersionCode();
-  const versionLabel = version
-    ? `${t('appVersion', { version })}${versionCode ? ` (${versionCode})` : ''}`
-    : null;
+  const versionLabel = version ? t('appVersion', { version }) : null;
 
   const statusText = update.status === 'checking' ? t('updateChecking')
     : update.status === 'upToDate' ? t('updateUpToDate')

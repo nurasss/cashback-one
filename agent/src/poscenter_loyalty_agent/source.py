@@ -67,6 +67,9 @@ class LoyaltySource(Protocol):
     def finish_full_resync(self) -> None:
         ...
 
+    def discard_pending_batch(self, batch: SourceBatch[CardSyncItem]) -> None:
+        ...
+
     async def close(self) -> None:
         ...
 
@@ -91,6 +94,9 @@ class StubLoyaltySource:
         pass
 
     def finish_full_resync(self) -> None:
+        pass
+
+    def discard_pending_batch(self, batch: SourceBatch[CardSyncItem]) -> None:
         pass
 
     async def close(self) -> None:
@@ -201,6 +207,9 @@ class FakeLoyaltySource:
     def finish_full_resync(self) -> None:
         self.full_resync_cards_requested = False
         self.full_resync_tx_requested = False
+
+    def discard_pending_batch(self, batch: SourceBatch[CardSyncItem]) -> None:
+        pass
 
     async def close(self) -> None:
         self.is_closed = True

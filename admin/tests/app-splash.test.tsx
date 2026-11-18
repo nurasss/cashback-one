@@ -145,7 +145,7 @@ describe('BusinessSplashSection in ContentPage', () => {
     await userEvent.click(splashTabBtn);
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Заставка приложения' })).toBeInTheDocument();
-    expect(screen.getByText(/Изображение \(PNG, JPEG, WebP\) до 5 МБ или видео \(MP4\) до 15 МБ длительностью до 5 секунд без звука/)).toBeInTheDocument();
+    expect(screen.getByText(/1080×1920 px \(9:16\).*PNG, JPEG, WebP или GIF до 5 МиБ.*40 Мп.*MP4 \(H\.264, без звука, ≤ 5 с\) до 15 МиБ/i)).toBeInTheDocument();
     expect(screen.getByLabelText('Включить заставку в приложении')).not.toBeChecked();
     expect(screen.getByTestId('splash-upload-btn')).toBeInTheDocument();
   });

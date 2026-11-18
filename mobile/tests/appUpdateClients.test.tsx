@@ -197,7 +197,7 @@ describe('manual update check in Settings', () => {
   it('shows the app version next to the check button', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValue(ok(keremetManifest(17)));
     app();
-    expect(screen.getByTestId('settings-version').props.children).toBe('Версия 1.0.16 (17)');
+    expect(screen.getByTestId('settings-version').props.children).toBe('Версия 1.0.16');
     expect(screen.getByRole('button', { name: ru.checkUpdates })).toBeTruthy();
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
   });

@@ -506,13 +506,13 @@ describe('HistoryScreen transaction colors and store exclusion', () => {
     );
 
     // Accrual amount: green (themeColors.success = '#1F8A4C')
-    await waitFor(() => expect(screen.getByText('+1 250,00')).toBeTruthy());
-    const accrualAmount = screen.getByText('+1 250,00');
+    await waitFor(() => expect(screen.getByText('+1 250')).toBeTruthy());
+    const accrualAmount = screen.getByText('+1 250');
     expect(StyleSheet.flatten(accrualAmount.props.style).color).toBe('#1F8A4C');
     expect(StyleSheet.flatten(accrualAmount.props.style).color).toBe(themeColors.success);
 
     // Redemption amount: red (themeColors.error = '#C8102E')
-    const redemptionAmount = screen.getByText('−500,00');
+    const redemptionAmount = screen.getByText('−500');
     expect(StyleSheet.flatten(redemptionAmount.props.style).color).toBe('#C8102E');
     expect(StyleSheet.flatten(redemptionAmount.props.style).color).toBe(themeColors.error);
 

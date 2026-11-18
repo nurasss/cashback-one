@@ -172,7 +172,7 @@ describe('Promotions screen and detail', () => {
 
   it('keeps RU and KK translations in parity', () => {
     expect(Object.keys(ru).sort()).toEqual(Object.keys(kz).sort());
-    expect(ru.storeNoteDefaultLead).toBe('Вы можете потратить баллы по адресу: ');
-    expect(kz.storeNoteDefaultLead).toBe('Ұпайларды мына мекенжай бойынша жұмсай аласыз: ');
+    expect(ru.storeNoteDefaultLead).toBe('Вы можете потратить бонусы по адресу: ');
+    expect(kz.storeNoteDefaultLead).toBe('Бонустарды мына мекенжай бойынша жұмсай аласыз: ');
   });
 });

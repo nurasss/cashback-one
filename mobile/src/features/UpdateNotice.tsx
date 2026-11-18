@@ -14,6 +14,7 @@ import { DEMO_ENABLED } from '../demo/mockApi';
 import { useI18n } from '../i18n';
 import { fonts, type Colors } from '../theme';
 import { useThemedStyles } from '../theme/ThemeProvider';
+import { useSplashActive } from './splash/splashGate';
 import {
   getCurrentVersionCode,
   loadVersionInfo,
@@ -174,7 +175,9 @@ export function UpdateDialog() {
   const { t: tr } = useI18n();
   const styles = useThemedStyles(makeStyles);
   const controller = useContext(Context);
-  if (!controller) return null;
+  // The dialog is a separate native window: while the launch splash covers the app it waits (a required update still shows after it).
+  const splashActive = useSplashActive();
+  if (!controller || splashActive) return null;
   const { supported, visible, decision, info, openDownload, dismissOptional } = controller;
   if (!supported || !visible || decision === 'none' || !info) {
     return null;

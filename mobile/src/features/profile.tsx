@@ -73,7 +73,7 @@ export function Avatar({
         )}
         {loading ? (
           <View style={styles.avatarLoadingOverlay}>
-            <ActivityIndicator size="small" color={colors.primary} />
+            <ActivityIndicator size="small" color={colors.primaryText} />
           </View>
         ) : null}
       </View>
@@ -99,7 +99,7 @@ export function ProfileRow({ label, value, placeholder, onPress, icon }: { label
 // Bottom sheet editor for one profile field: free text or a fixed list of options.
 export function FieldSheet({ title, initial, hint, options, keyboardType = 'default', placeholder, maxLength, validate, format, customOption, onDone, onClose }: {
   title: string; initial: string; options?: { value: string; label: string }[]; keyboardType?: 'default' | 'email-address' | 'number-pad';
-  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; format?: (value: string) => string;
+  hint?: string; placeholder?: string; maxLength?: number; validate?: (value: string) => string | null; format?: (value: string, previous: string) => string;
   customOption?: { value: string; placeholder: string; maxLength: number; validate: (value: string) => string | null };
   onDone: (value: string) => void | Promise<void>; onClose: () => void;
 }) {
@@ -108,7 +108,7 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
   const { colors, isDark } = useTheme();
   const insets = useSafeInsets();
   const [isCustomMode, setIsCustomMode] = useState(false);
-  const [value, setValue] = useState(format ? format(initial) : initial);
+  const [value, setValue] = useState(format ? format(initial, '') : initial);
   const selectedY = useRef(0);
   const [error, setError] = useState<string | null>(null);
   // `onDone` may save asynchronously: block repeat submits while it runs and keep the input and the error inside the sheet if it fails.
@@ -165,7 +165,7 @@ export function FieldSheet({ title, initial, hint, options, keyboardType = 'defa
               <Text style={styles.optionText}>{option.label}</Text>
               {value === option.value && <Icon name="check" size={22} color={colors.primaryText} />}
             </Pressable>) : <View style={styles.inputWrap}>
-              <TextInput value={value} onChangeText={next => { const formatted = format ? format(next) : next; setValue(formatted); setError(null); setSaveError(null); }} editable={!pending} accessibilityLabel={title} placeholder={isCustomMode && customOption ? customOption.placeholder : placeholder}
+              <TextInput value={value} onChangeText={next => { const formatted = format ? format(next, value) : next; setValue(formatted); setError(null); setSaveError(null); }} editable={!pending} accessibilityLabel={title} placeholder={isCustomMode && customOption ? customOption.placeholder : placeholder}
                 placeholderTextColor={colors.placeholder} keyboardAppearance={isDark ? 'dark' : 'light'} keyboardType={keyboardType} maxLength={isCustomMode && customOption ? customOption.maxLength : maxLength} autoFocus autoCapitalize={keyboardType === 'email-address' ? 'none' : 'sentences'}
                 style={[styles.input, error ? { borderWidth: 1, borderColor: colors.error } : null]} onSubmitEditing={() => { void finish(value); }} />
               {error && <Text style={styles.error}>{error}</Text>}

@@ -15,6 +15,8 @@ import { fonts, type Colors } from '../theme';
 import { useTheme, useThemedStyles } from '../theme/ThemeProvider';
 import { Button } from '../components/ui';
 import { Icon } from '../components/icons';
+import { bumpNotificationEpoch, isNotificationId, resetNotificationSignals, setTapTarget } from './notificationSignals';
+import { pushPayload } from './notificationTray';
 
 const PUSH_STORAGE_KEY = 'cashback-one.push-registration.v1';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -187,16 +189,37 @@ export async function unregisterPushToken(api: ApiClient): Promise<void> {
   }
 }
 
+// A response (tap) is opened once: the "last response" the system keeps after a cold start must not be replayed every time
+// the session object changes or this manager remounts.
+let handledResponseId: string | null = null;
+function responseId(response: unknown): string | null {
+  const id = (response as { notification?: { request?: { identifier?: unknown } } } | null)?.notification?.request?.identifier;
+  return typeof id === 'string' && id ? id : null;
+}
+/** @internal for tests */
+export function resetHandledResponseForTests(): void { handledResponseId = null; }
+
+// A tap names a notification only when the payload is a broadcast with a well-formed id; write-off codes and anything else
+// just open the screen. The tap does not mark anything read: the item is marked after it was really shown (useMarkNotificationsRead).
+function announceTap(response: unknown): void {
+  const payload = pushPayload((response as { notification?: Parameters<typeof pushPayload>[0] } | null)?.notification);
+  if (payload.type === 'broadcast' && isNotificationId(payload.notification_id)) setTapTarget(payload.notification_id);
+}
+
 export function setupNotificationListeners(
   queryClient: QueryClient,
   navigate: (route: string) => void
 ): () => void {
   const receivedSub = Notifications.addNotificationReceivedListener(() => {
+    bumpNotificationEpoch();
     void queryClient.invalidateQueries({ queryKey: keys.notifications });
     void queryClient.invalidateQueries({ queryKey: keys.badges });
   });
 
-  const responseSub = Notifications.addNotificationResponseReceivedListener(() => {
+  const responseSub = Notifications.addNotificationResponseReceivedListener(response => {
+    handledResponseId = responseId(response) ?? handledResponseId;
+    bumpNotificationEpoch();
+    announceTap(response);
     void queryClient.invalidateQueries({ queryKey: keys.notifications });
     void queryClient.invalidateQueries({ queryKey: keys.badges });
     navigate('/notifications');
@@ -228,7 +251,11 @@ export function PushNotificationManager() {
     });
 
     void Notifications.getLastNotificationResponseAsync().then(response => {
-      if (response) {
+      const id = responseId(response);
+      if (response && !(id && id === handledResponseId)) {
+        handledResponseId = id ?? handledResponseId;
+        bumpNotificationEpoch();
+        announceTap(response);
         void queryClient.invalidateQueries({ queryKey: keys.notifications });
         void queryClient.invalidateQueries({ queryKey: keys.badges });
         try {
@@ -268,6 +295,7 @@ export function PushNotificationManager() {
     return () => {
       unregisterLogout();
       unregisterInvalidate();
+      resetNotificationSignals();
     };
   }, [session, state.status]);
 

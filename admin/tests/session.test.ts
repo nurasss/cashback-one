@@ -82,3 +82,104 @@ it('keeps protected routes locked when remote logout cannot revoke the HttpOnly 
   await session.logout();
   expect(session.snapshot()).toMatchObject({ status: 'logout_error' });
 });
+
+it('sets adminStatsUnlimitedPeriod=true when /admin/me returns admin_stats_unlimited_period=true', async () => {
+  const unlimitedMe = {
+    admin: { id: 'fixture-id', login: 'fixture.admin', role: 'superadmin', business: null },
+    admin_stats_unlimited_period: true,
+    admin_max_stats_period_days: 90,
+  };
+  const fetcher: typeof fetch = vi.fn(async url => String(url).endsWith('/admin/auth/login')
+    ? json(200, token)
+    : String(url).endsWith('/admin/me') ? json(200, unlimitedMe) : json(404, {}));
+  const session = new AdminSession(() => {}, () => 'https://admin.test', fetcher);
+  await session.login('fixture.admin', 'fixture-test-password');
+  expect(session.snapshot()).toEqual({
+    status: 'authenticated',
+    admin: unlimitedMe.admin,
+    adminMaxStatsPeriodDays: 90,
+    adminStatsUnlimitedPeriod: true,
+  });
+});
+
+it('defaults adminStatsUnlimitedPeriod=false when /admin/me omits admin_stats_unlimited_period (legacy backend)', async () => {
+  const legacyMe = {
+    admin: { id: 'fixture-id', login: 'fixture.admin', role: 'superadmin', business: null },
+    admin_max_stats_period_days: 90,
+  };
+  const fetcher: typeof fetch = vi.fn(async url => String(url).endsWith('/admin/auth/login')
+    ? json(200, token)
+    : String(url).endsWith('/admin/me') ? json(200, legacyMe) : json(404, {}));
+  const session = new AdminSession(() => {}, () => 'https://admin.test', fetcher);
+  await session.login('fixture.admin', 'fixture-test-password');
+  expect(session.snapshot()).toEqual({
+    status: 'authenticated',
+    admin: legacyMe.admin,
+    adminMaxStatsPeriodDays: 90,
+    adminStatsUnlimitedPeriod: false,
+  });
+});
+
+it('sets adminStatsUnlimitedPeriod=false when /admin/me explicitly provides admin_stats_unlimited_period=false', async () => {
+  const falseMe = {
+    admin: { id: 'fixture-id', login: 'fixture.admin', role: 'superadmin', business: null },
+    admin_stats_unlimited_period: false,
+    admin_max_stats_period_days: 90,
+  };
+  const fetcher: typeof fetch = vi.fn(async url => String(url).endsWith('/admin/auth/login')
+    ? json(200, token)
+    : String(url).endsWith('/admin/me') ? json(200, falseMe) : json(404, {}));
+  const session = new AdminSession(() => {}, () => 'https://admin.test', fetcher);
+  await session.login('fixture.admin', 'fixture-test-password');
+  expect(session.snapshot()).toEqual({
+    status: 'authenticated',
+    admin: falseMe.admin,
+    adminMaxStatsPeriodDays: 90,
+    adminStatsUnlimitedPeriod: false,
+  });
+});
+
+it('rejects invalid non-boolean admin_stats_unlimited_period (e.g. string "true" or "false")', async () => {
+  for (const invalidValue of ['true', 'false', 1, 0, {}, []]) {
+    const badMe = {
+      admin: { id: 'fixture-id', login: 'fixture.admin', role: 'superadmin', business: null },
+      admin_stats_unlimited_period: invalidValue,
+      admin_max_stats_period_days: 90,
+    };
+    const fetcher: typeof fetch = vi.fn(async url => String(url).endsWith('/admin/auth/login')
+      ? json(200, token)
+      : String(url).endsWith('/admin/me') ? json(200, badMe) : json(404, {}));
+    const session = new AdminSession(() => {}, () => 'https://admin.test', fetcher);
+    await expect(session.login('fixture.admin', 'fixture-test-password')).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+    expect(session.snapshot()).toMatchObject({
+      status: 'error',
+      error: expect.objectContaining({ code: 'INVALID_RESPONSE' }),
+    });
+  }
+});
+
+it('sets adminStatsUnlimitedPeriod cleanly during bootstrap() for both new and legacy /admin/me', async () => {
+  const unlimitedFetcher: typeof fetch = vi.fn(async url => String(url).endsWith('/admin/auth/refresh')
+    ? json(200, token)
+    : json(200, { ...me, admin_stats_unlimited_period: true }));
+  const sessionNew = new AdminSession(() => {}, () => 'https://admin.test', unlimitedFetcher);
+  await sessionNew.bootstrap();
+  expect(sessionNew.snapshot()).toMatchObject({
+    status: 'authenticated',
+    adminMaxStatsPeriodDays: 90,
+    adminStatsUnlimitedPeriod: true,
+  });
+
+  const legacyFetcher: typeof fetch = vi.fn(async url => String(url).endsWith('/admin/auth/refresh')
+    ? json(200, token)
+    : json(200, me));
+  const sessionLegacy = new AdminSession(() => {}, () => 'https://admin.test', legacyFetcher);
+  await sessionLegacy.bootstrap();
+  expect(sessionLegacy.snapshot()).toMatchObject({
+    status: 'authenticated',
+    adminMaxStatsPeriodDays: 90,
+    adminStatsUnlimitedPeriod: false,
+  });
+});

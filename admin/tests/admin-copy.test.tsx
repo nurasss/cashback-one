@@ -21,6 +21,16 @@ vi.mock('../src/auth/provider', () => ({
 
 vi.mock('../src/api/queries', () => ({
   useBusinesses: () => ({ data: { items: [] } }),
+  useAllBusinesses: (enabled = true) => ({
+    items: enabled ? [] : [],
+    isPending: false,
+    isLoadingMore: false,
+    hasMore: false,
+    isError: false,
+    error: null,
+    loadedCount: 0,
+    retry: vi.fn(),
+  }),
   useDashboard: () => ({
     isPending: false,
     isError: false,

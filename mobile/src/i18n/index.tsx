@@ -3,7 +3,7 @@ import { kz } from './kz';
 import { ru, type Dictionary } from './ru';
 
 export type Language = 'ru' | 'kz';
-type Key = keyof Dictionary;
+export type Key = keyof Dictionary;
 const dictionaries: Record<Language, Dictionary> = { ru, kz };
 
 export function translate(language: Language, key: Key, params?: Record<string, string | number>): string {

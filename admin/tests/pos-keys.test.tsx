@@ -111,9 +111,10 @@ describe('PosKeyDialog (Disclosure modal)', () => {
     expect(writeText).toHaveBeenCalledWith('pos_live_secret_key_1234567890abcdef1234567890');
     expect(screen.getByRole('status')).toHaveTextContent('Ключ скопирован в буфер обмена');
 
-    const closeBtn = screen.getByRole('button', { name: 'Закрыть' });
-    await user.click(closeBtn);
-    expect(onClose).toHaveBeenCalled();
+    const closeBtns = screen.getAllByRole('button', { name: /Закрыть/ });
+    expect(closeBtns).toHaveLength(1);
+    await user.click(closeBtns[0]!);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 

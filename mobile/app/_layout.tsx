@@ -2,26 +2,38 @@ import { Montserrat_400Regular, Montserrat_500Medium, Montserrat_600SemiBold, Mo
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SessionProvider, useSession } from '../src/auth/provider';
 import { Button, ErrorNotice, Loading, useUiStyles } from '../src/components/ui';
 import { I18nProvider, useI18n } from '../src/i18n';
 import { DEMO_ENABLED } from '../src/demo/mockApi';
 import { UpdateDialog, UpdateProvider } from '../src/features/UpdateNotice';
+import { AppSplash } from '../src/features/splash/AppSplash';
+import { useSplashActive } from '../src/features/splash/splashGate';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeProvider';
 
-function DemoRibbon() {
+export function DemoRibbon() {
   const { colors } = useTheme();
-  return <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100, alignItems: 'center' }}>
+  const insets = useSafeAreaInsets();
+  return <View pointerEvents="none" testID="demo-ribbon" style={{ paddingTop: insets.top, paddingBottom: 4, backgroundColor: colors.background, alignItems: 'center' }}>
     <View style={{ backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 2, borderBottomLeftRadius: 8, borderBottomRightRadius: 8 }}>
       <Text style={{ color: colors.onPrimary, fontSize: 10, letterSpacing: 1, fontFamily: 'Montserrat_700Bold' }}>ДЕМО · ТЕСТОВЫЕ ДАННЫЕ</Text>
     </View>
   </View>;
 }
 
+export function DemoShell({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
+  return <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <DemoRibbon />
+    <View style={{ flex: 1 }}>{children}</View>
+  </View>;
+}
+
 function ThemedStatusBar() {
   const { isDark } = useTheme();
-  return <StatusBar style={isDark ? 'light' : 'dark'} />;
+  const splashActive = useSplashActive();
+  return <StatusBar style={splashActive ? 'light' : (isDark ? 'light' : 'dark')} hidden={splashActive} translucent={true} backgroundColor="transparent" />;
 }
 
 function Navigation() {
@@ -47,7 +59,8 @@ export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_600SemiBold, Montserrat_700Bold, Montserrat_800ExtraBold });
   // Keep the native splash until Montserrat is ready; on a font error fall back to the system font.
   if (!fontsLoaded && !fontError) return null;
-  const app = <UpdateProvider><ThemedStatusBar />{DEMO_ENABLED && <DemoRibbon />}<Navigation /><UpdateDialog /></UpdateProvider>;
+  const navigation = DEMO_ENABLED ? <DemoShell><Navigation /></DemoShell> : <Navigation />;
+  const app = <UpdateProvider><ThemedStatusBar />{navigation}<UpdateDialog /><AppSplash /></UpdateProvider>;
   return <SafeAreaProvider><ThemeProvider><I18nProvider><SessionProvider>
     {Platform.OS === 'web' && DEMO_ENABLED ? <View style={webDemoStyles.backdrop}>
       <WebDemoFrame desktop={width > 430}>{app}</WebDemoFrame>

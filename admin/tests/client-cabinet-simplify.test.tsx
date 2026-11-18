@@ -49,6 +49,19 @@ vi.mock('../src/api/queries', () => ({
   useBusinesses: () => ({
     data: { items: [{ id: businessId, name: 'КеремЕт' }], limit: 100, offset: 0, has_more: false },
   }),
+  useAllBusinesses: (enabled = true) => {
+    const items = enabled ? [{ id: businessId, name: 'КеремЕт' }] : [];
+    return {
+      items,
+      isPending: false,
+      isLoadingMore: false,
+      hasMore: false,
+      isError: false,
+      error: null,
+      loadedCount: items.length,
+      retry: vi.fn(),
+    };
+  },
   useDashboard: () => ({
     isPending: false,
     isError: false,

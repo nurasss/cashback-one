@@ -483,6 +483,26 @@ class StateStore:
                 conn.execute("DELETE FROM pending_cards;")
             conn.commit()
 
+    def discard_pending_cards(self, session_id: str | None = None, page: int | None = None) -> int:
+        """Drop staged pending cards without promoting them to card_hashes.
+
+        Used when Cloud returns ignored_stale > 0: unacknowledged/stale snapshots
+        must not be recorded as synced in card_hashes, ensuring they are re-evaluated
+        and re-transmitted on a subsequent sync cycle once time permits.
+        """
+        with self._get_connection() as conn:
+            if session_id and page is not None:
+                cur = conn.execute(
+                    "DELETE FROM pending_cards WHERE session_id = ? AND page = ?;",
+                    (session_id, page),
+                )
+            elif session_id:
+                cur = conn.execute("DELETE FROM pending_cards WHERE session_id = ?;", (session_id,))
+            else:
+                cur = conn.execute("DELETE FROM pending_cards;")
+            conn.commit()
+            return cur.rowcount
+
     # --- Transaction Ledger & Pending Tx API ---
 
     def get_known_tx_ids(self, since_period_utc: str | None = None) -> set[str]:

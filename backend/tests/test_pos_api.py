@@ -219,7 +219,7 @@ async def test_pos_redemption_success_push_and_notification(
     assert len(fake_push_sender.sent_messages) == 1
     msg = fake_push_sender.sent_messages[0]
     assert msg.token == device.push_token
-    assert msg.title == "Код для списания баллов"
+    assert msg.title == "Код для списания бонусов"
     assert "Магазин Керемет" in msg.body
     assert "150,5" in msg.body or "150.5" in msg.body
 
@@ -244,7 +244,7 @@ async def test_pos_redemption_success_push_and_notification(
     assert len(notifications) == 1
     notif = notifications[0]
     assert notif.business_id == biz.id
-    assert notif.title == "Код для списания баллов"
+    assert notif.title == "Код для списания бонусов"
     assert notif.body == msg.body
 
 
@@ -698,7 +698,7 @@ async def test_notification_linked_and_cleared_on_confirm(
 
     # In DB: code is gone, text is neutral
     await db_session.refresh(notif)
-    expected_confirmed = "Списание 150 баллов в «Супермаркет Керемет» подтверждено на кассе."
+    expected_confirmed = "Списание 150 бонусов в «Супермаркет Керемет» подтверждено на кассе."
     assert notif.body == expected_confirmed
     assert code not in notif.body
 
@@ -750,7 +750,7 @@ async def test_notification_cleared_on_exhausted_attempts(
     assert v5.status_code == 409
     assert v5.json()["error"]["code"] == "REDEMPTION_MAX_ATTEMPTS_EXCEEDED"
 
-    expected_inactive = "Код для списания 150 баллов в «Супермаркет Керемет» больше не действует."
+    expected_inactive = "Код для списания 150 бонусов в «Супермаркет Керемет» больше не действует."
     await db_session.refresh(notif)
     assert notif.body == expected_inactive
     assert code not in notif.body
@@ -798,7 +798,7 @@ async def test_notification_cleared_when_superseded_by_new_request(
 
     # In DB: notif1 has neutral inactive text
     await db_session.refresh(notif1)
-    expected_inactive_1 = "Код для списания 150 баллов в «Супермаркет Керемет» больше не действует."
+    expected_inactive_1 = "Код для списания 150 бонусов в «Супермаркет Керемет» больше не действует."
     assert notif1.body == expected_inactive_1
     assert code1 not in notif1.body
 
@@ -857,7 +857,7 @@ async def test_notification_passive_expiry_without_pos_request(
     me_res = await pos_client.get("/me/notifications", headers=user_headers)
     assert me_res.status_code == 200
     items = me_res.json()["items"]
-    expected_inactive = "Код для списания 150 баллов в «Супермаркет Керемет» больше не действует."
+    expected_inactive = "Код для списания 150 бонусов в «Супермаркет Керемет» больше не действует."
     assert items[0]["body"] == expected_inactive
     assert code not in items[0]["body"]
 

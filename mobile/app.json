@@ -3,7 +3,7 @@
     "name": "Cashback One",
     "slug": "cashback-one",
     "scheme": "cashbackone",
-    "version": "1.0.17",
+    "version": "1.0.27",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -31,6 +31,14 @@
           "color": "#FD6156",
           "defaultChannel": "default"
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Разрешите доступ к геолокации для отображения расстояния до магазинов.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
+        }
       ]
     ],
     "ios": {
@@ -42,7 +50,7 @@
     },
     "android": {
       "package": "kz.cashbackone.mobile",
-      "versionCode": 18,
+      "versionCode": 28,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon-foreground.png",
         "backgroundColor": "#FD6156"
